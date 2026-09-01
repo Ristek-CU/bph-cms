@@ -228,6 +228,18 @@ textarea { resize: vertical; }
 .cal-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
 /* ---- Ringkasan ---- */
+.overview-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .overview-grid { grid-template-columns: 1fr; } }
+
+/* Kalender versi compact di Ringkasan */
+.cal-grid-compact .cal-cell { min-height: 64px; }
+.cal-grid-compact .cal-cell .cal-chip { font-size: 10px; padding: 1px 5px; }
+.cal-cell.picked { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(206, 174, 101, 0.35); }
+.cal-more { font-size: 10px; padding: 1px 5px; }
+
+/* Agenda hari terpilih (di dalam kalender) */
+.agenda-ev { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-top: 12px; background: #fbfcfc; }
+.agenda-ev-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px; }
 .stat {
 	background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px;
