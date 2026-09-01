@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>SGA CMS — Module Student Event — Requirement</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+    @bottom-center {
+      content: "SGA CMS — Module Student Event v1.2 — Halaman " counter(page) " dari " counter(pages);
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 8pt;
+      color: #64748b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    color: #1e293b;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .cover {
+    height: 245mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    page-break-after: always;
+    background: linear-gradient(160deg, #06455B 0%, #0A5C75 60%, #0d7492 100%);
+    color: #fff;
+    padding: 0 18mm;
+  }
+  .cover .kicker {
+    display: inline-block;
+    align-self: flex-start;
+    border: 1px solid rgba(206,174,101,.6);
+    color: #FCDD96;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 9pt;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+  .cover h1 { font-size: 34pt; margin: 0 0 10px; color: #fff; line-height: 1.15; }
+  .cover h1 span { color: #FCDD96; }
+  .cover .sub { font-size: 12pt; color: #d8e8ee; max-width: 130mm; margin-bottom: 40px; }
+  .cover .meta { border-top: 1px solid rgba(255,255,255,.25); padding-top: 16px; font-size: 9.5pt; color: #bcd6df; }
+  .cover .meta b { color: #fff; }
+
+  h2 {
+    color: #06455B; font-size: 15pt; margin: 26px 0 10px;
+    padding-bottom: 6px; border-bottom: 2px solid #CEAE65; page-break-after: avoid;
+  }
+  h3 { color: #0A5C75; font-size: 11.5pt; margin: 18px 0 6px; page-break-after: avoid; }
+  h4 { color: #0A5C75; font-size: 10.5pt; margin: 14px 0 4px; page-break-after: avoid; }
+  p { margin: 6px 0; }
+  ul, ol { margin: 6px 0 10px; padding-left: 20px; }
+  li { margin: 3px 0; }
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 8.5pt; background: #f1f5f9; border: 1px solid #e2e8f0;
+    padding: 1px 5px; border-radius: 4px; color: #0A5C75;
+  }
+  pre {
+    background: #0b2836; color: #d8e8ee; padding: 12px 14px;
+    border-radius: 10px; font-size: 8.5pt; line-height: 1.5;
+    overflow: hidden; page-break-inside: avoid;
+  }
+  pre code { background: none; border: none; color: inherit; padding: 0; }
+
+  table {
+    width: 100%; border-collapse: collapse; margin: 10px 0 14px;
+    font-size: 9pt; page-break-inside: avoid;
+  }
+  th { background: #06455B; color: #fff; text-align: left; padding: 7px 10px; }
+  td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  .tag {
+    display: inline-block; font-size: 7.5pt; font-weight: bold;
+    padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: .05em;
+  }
+  .tag.wajib { background: #fee2e2; color: #b91c1c; }
+  .tag.opsional { background: #e0f2fe; color: #0369a1; }
+  .tag.fase2 { background: #fef3c7; color: #92400e; }
+  .callout {
+    background: #fffbeb; border-left: 4px solid #CEAE65;
+    padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0;
+    page-break-inside: avoid;
+  }
+  .callout b { color: #92400e; }
+  .pagebreak { page-break-before: always; }
+  .footer-note {
+    margin-top: 30px; padding-top: 10px; border-top: 1px solid #e2e8f0;
+    font-size: 8pt; color: #64748b;
+  }
+  .flow { font-size: 9pt; }
+  .flow-step {
+    display: flex; gap: 10px; margin: 8px 0; align-items: flex-start;
+  }
+  .flow-num {
+    background: #06455B; color: #fff; min-width: 22px; height: 22px;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 9pt; font-weight: bold; flex-shrink: 0; margin-top: 1px;
+  }
+  .pic-be { background: #fee2e2; color: #b91c1c; font-weight: bold; }
+  .pic-fe { background: #dbeafe; color: #1d4ed8; font-weight: bold; }
+  .pic-ux { background: #fef3c7; color: #92400e; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover">
+  <div class="kicker">Requirement Document</div>
+  <h1>SGA CMS<br><span>Module: Student Event</span></h1>
+  <p class="sub">Modul pertama dari CMS terpadu SGA — portal event mahasiswa dengan jadwal berjalan, kalender, halaman detail, share link, dan sinkronisasi Google Calendar.</p>
+  <div class="meta">
+    <div><b>Proyek:</b> SGA CMS — Platform Manajemen Konten Terpadu</div>
+    <div><b>Modul:</b> Student Event (Modul 1 dari modul-modul CMS)</div>
+    <div><b>Repo FE:</b> sga-landing-page (branch <code style="background:rgba(255,255,255,.15);color:#fff;border:none;">development</code>)</div>
+    <div><b>Dokumen:</b> v1.2 — 1 September 2026</div>
+    <div><b>Audience:</b> Backend, Frontend, UI/UX</div>
+    <div><b>Status:</b> Draft untuk review</div>
+  </div>
+</div>
+
+<!-- ============ 1. KONTEKS ============ -->
+<h2>1. Konteks Proyek: Satu CMS, Banyak Modul</h2>
+<p>Yang dibangun adalah <b>SGA CMS — satu platform backend terpadu</b> yang menjadi pusat kendali
+seluruh konten Landing Page SGA. Fitur dikemas sebagai <b>modul</b> yang dibangun dan dirilis bertahap:</p>
+<table>
+<tr><th>Modul</th><th>Mengelola</th><th>Status</th></tr>
+<tr>
+  <td><b>Advocation</b> (service terpisah, sudah live)</td>
+  <td>Student Voice — form pengaduan/aspirasi mahasiswa</td>
+  <td><span class="tag" style="background:#dcfce7;color:#166534;">Sudah live</span></td>
+</tr>
+<tr>
+  <td><b>Student Event</b> — <i>dokumen ini</i></td>
+  <td>Event mahasiswa, kalender, runsheet, Google Calendar</td>
+  <td><span class="tag wajib">Modul pertama</span></td>
+</tr>
+<tr>
+  <td>Modul berikutnya (kandidat)</td>
+  <td>UKM / Student Societies, profil pengurus, pengumuman/news, konten section LP (hero, about, vision)</td>
+  <td><span class="tag fase2">Menyusul</span></td>
+</tr>
+</table>
+
+<div class="callout">
+<b>Implikasi arsitektur (wajib dibaca BE):</b> jangan membangun "aplikasi event" yang berdiri sendiri.
+Bangun <b>kerangka CMS</b> — auth admin, struktur response, konfigurasi modul, upload media —
+yang modul <i>Student Event</i> menjadi penghuni pertamanya. Modul berikutnya hanya menambah
+resource baru, bukan service baru. Keputusan di dokumen ini wajib mempertimbangkan modul-modul
+berikutnya.
+</div>
+
+<h3>1.1 Masalah yang diselesaikan</h3>
+<p>Section <b>Event &amp; Kegiatan</b> di landing page saat ini ditulis manual di dalam kode
+(<code>src/components/sections/event/index.tsx</code>): 6 kartu event placeholder, status
+"On Going" diketik manual, tidak terhubung ke data mana pun. Akibatnya:</p>
+<ul>
+  <li>Ganti event = edit kode + deploy ulang.</li>
+  <li>Status event (berlangsung / akan datang / selesai) tidak pernah akurat.</li>
+  <li>Mahasiswa tidak punya satu tempat melihat seluruh jadwal event.</li>
+  <li>Publikasi event tidak bisa lewat link — harus screenshot/manual.</li>
+</ul>
+<p>Solusi: <b>portal event mahasiswa</b> (<code>/events</code>) dengan data dari SGA CMS,
+plus sinkronisasi ke Google Calendar.</p>
+
+<div class="callout">
+<b>Prinsip:</b> CMS = sumber data tunggal. Google Calendar = turunan (one-way push).
+Status berlangsung/akan datang/selesai <b>selalu dihitung otomatis</b> dari waktu mulai–selesai,
+tidak pernah diinput admin.
+</div>
+
+<!-- ============ 2. USER FLOW ============ -->
+<h2>2. User Flow</h2>
+
+<h3>2.1 Flow Admin (mengelola event)</h3>
+<div class="flow">
+  <div class="flow-item"><span class="flow-num">1</span> Admin login ke panel SGA CMS.</div>
+  <div class="flow-item"><span class="flow-num">2</span> Masuk modul <b>Student Event</b> → daftar event (judul, tanggal, status publish, jumlah sesi).</div>
+  <div class="flow-item"><span class="flow-num">3</span> Klik "Buat Event" → isi form: judul, slug (auto dari judul, bisa diedit), deskripsi, cover, tanggal &amp; jam mulai–selesai, lokasi (+link), registration URL (opsional), penyelenggara.</div>
+  <div class="flow-item"><span class="flow-num">4</span> Tambah <b>sesi (runsheet)</b>: nama sesi, jam mulai–selesai, pemateri, ruang — berapa pun, bisa disusun ulang (drag order atau tombol naik/turun).</div>
+  <div class="flow-item"><span class="flow-num">5</span> Simpan sebagai <b>Draft</b> → preview tidak muncul di publik.</div>
+  <div class="flow-item"><span class="flow-num">6</span> Klik <b>Publish</b> → event muncul di endpoint publik; (fase 2) otomatis ter-push ke Google Calendar.</div>
+  <div class="flow-item"><span class="flow-num">7</span> Edit ulang kapan saja — perubahan langsung terlihat di portal tanpa deploy ulang.</div>
+</div>
+
+<h3>2.2 Flow Mahasiswa (konsumen)</h3>
+<div class="flow">
+  <div class="flow-item"><span class="flow-num">1</span> <b>Masuk lewat share link</b> (WA/IG) → halaman detail event <code>/events/:slug</code>: cover, deskripsi, lokasi, runsheet per jam.</div>
+  <div class="flow-item"><span class="flow-num">2</span> Atau masuk dari landing page → section Event (teaser carousel) → klik "Lihat Lainnya" → portal <code>/events</code>.</div>
+  <div class="flow-item"><span class="flow-num">3</span> Di portal: lihat card besar "Sedang Berlangsung" (dengan sesi yang sedang jalan + jam), scroll ke "Akan Datang", atau eksplor via <b>kalender bulanan</b>.</div>
+  <div class="flow-item"><span class="flow-num">4</span> Klik tanggal di kalender → muncul daftar event tanggal itu (jam per sesi). Klik event → detail.</div>
+  <div class="flow-item"><span class="flow-num">5</span> Di detail: klik "Daftar" (jika ada), "Tambah ke Google Calendar", atau "Bagikan" (share lagi ke teman — loop viral).</div>
+  <div class="flow-item"><span class="flow-num">6</span> (Fase 2) Mahasiswa bisa subscribe kalender publik SGA sekali → semua event baru otomatis masuk Google Calendar pribadinya.</div>
+</div>
+
+<h3>2.3 Peta halaman &amp; navigasi</h3>
+<pre>
+Landing Page (/)
+  └── Section "Event &amp; Kegiatan" (teaser carousel 3–4 event dari API)
+        └── [Lihat Lainnya] ──▶  /events  (Portal)
+                                  ├─ Hero
+                                  ├─ Sedang Berlangsung (card besar)
+                                  ├─ Akan Datang (grid)
+                                  ├─ Kalender bulanan ──klik event──▶ /events/:slug
+                                  └─ Selesai (opsional)
+  └── share link ──▶ /events/:slug  (Detail)
+        ├─ [Daftar]        ──▶ registration_url (external)
+        ├─ [Add to GCal]   ──▶ template URL Google Calendar
+        └─ [Bagikan]       ──▶ Web Share API / copy link
+</pre>
+
+<div class="pagebreak"></div>
+<!-- ============ 3. ARSITEKTUR ============ -->
+<h2>3. Arsitektur</h2>
+<pre>
+┌─────────────────────────────────────────────────┐
+│                  SGA CMS (terpadu)              │
+│  ┌──────────┐ ┌───────────────┐ ┌────────────┐  │
+│  │ Modul:   │ │ Modul:        │ │ Modul:     │  │
+│  │ Student  │ │ (berikutnya:  │ │ (berikut-  │  │
+│  │  Event   │ │  UKM, dll.)   │ │  nya...)   │  │
+│  └────┬─────┘ └───────────────┘ └────────────┘  │
+│       │        Admin panel + Auth tunggal        │
+└───────┼─────────────────────────────────────────┘
+        │
+        ├── GET /api/v1/events (publik, read-only) ──▶ Landing Page SGA
+        │                                              (/events, /events/:slug,
+        │                                               section Event di LP)
+        └── push saat publish ──▶ Google Calendar (kalender publik SGA)
+</pre>
+<p>Sebagai perbandingan, Advocation (Student Voice) saat ini adalah service terpisah yang sudah
+live di <code>https://satgas.sga-cakrawala.org</code>. SGA CMS adalah platform baru yang
+kemudian hari bisa menampung fungsi serupa sebagai modul. Sementara itu keduanya berjalan
+paralel dengan env terpisah.</p>
+
+<h3>2.4 Keputusan arsitektur yang mengikat (untuk semua modul)</h3>
+<table>
+<tr><th>Keputusan</th><th>Nilai</th><th>Alasan</th></tr>
+<tr><td>Response wrapper</td><td><code>{ success, data }</code> / <code>{ success, message, errors }</code></td><td>Satu helper FE untuk semua modul, sejalan dengan Advocation</td></tr>
+<tr><td>Auth admin</td><td>Satu sistem auth untuk seluruh CMS (session/JWT — bebas, konsisten)</td><td>Modul berikutnya tidak bikin login sendiri</td></tr>
+<tr><td>Status event</td><td>Dihitung server dari <code>starts_at/ends_at</code></td><td>Admin tidak pernah menginput status manual</td></tr>
+<tr><td>Timezone</td><td>Semua waktu disimpan &amp; dikirim ISO 8601 dengan offset; tampilan WIB (Asia/Jakarta)</td><td>Hindari pergeseran jam saat parsing</td></tr>
+<tr><td>Media</td><td>Endpoint upload di CMS, simpan URL publik di field <code>cover_image_url</code></td><td>Bebas pilih storage (lokal/S3/R2), FE hanya butuh URL final</td></tr>
+<tr><td>CORS</td><td>Whitelist domain LP (dev + produksi)</td><td>FE di domain Cloudflare Pages</td></tr>
+</table>
+
+<!-- ============ 4. BACKEND ============ -->
+<h2>3. Spesifikasi Modul Student Event (Backend)</h2>
+
+<h3>3.1 Ringkasan API</h3>
+<table>
+<tr><th>Grup</th><th>Endpoint</th><th>Auth</th><th>Prioritas</th></tr>
+<tr><td rowspan="4">Publik</td>
+  <td><code>GET /api/v1/events</code></td><td>Tidak perlu</td><td><span class="tag wajib">Wajib</span></td></tr>
+<tr><td><code>GET /api/v1/events/:slug</code></td><td>Tidak perlu</td><td><span class="tag wajib">Wajib</span></td></tr>
+<tr><td><code>GET /api/v1/events/calendar?month=YYYY-MM</code></td><td>Tidak perlu</td><td><span class="tag wajib">Wajib</span></td></tr>
+<tr><td><code>GET /api/v1/settings</code></td><td>Tidak perlu</td><td><span class="tag opsional">Opsional</span></td></tr>
+<tr><td rowspan="6">Admin</td>
+  <td><code>POST /api/v1/admin/login</code></td><td>—</td><td><span class="tag wajib">Wajib</span></td></tr>
+<tr><td><code>GET/POST/PUT/DELETE /api/v1/admin/events</code> (+ <code>/:id</code>)</td><td>Auth</td><td><span class="tag wajib">Wajib</span></td></tr>
+<tr><td><code>POST/PUT/DELETE /api/v1/admin/events/:id/sessions</code> (+ urutan)</td><td>Auth</td><td><span class="tag wajib">Wajib</span></td></tr>
+<tr><td><code>POST /api/v1/admin/events/:id/publish</code> / <code>/unpublish</code></td><td>Auth</td><td><span class="tag wajib">Wajib</span></td></tr>
+<tr><td><code>POST /api/v1/admin/media</code> (upload cover)</td><td>Auth</td><td><span class="tag wajib">Wajib</span></td></tr>
+<tr><td><code>GET/PUT /api/v1/admin/settings</code> (teks hero portal)</td><td>Auth</td><td><span class="tag opsional">Opsional</span></td></tr>
+</table>
+
+<h3>3.2 Detail endpoint publik</h3>
+<h4>GET /api/v1/events</h4>
+<ul>
+  <li>Query: <code>status</code> (<code>upcoming|ongoing|past</code>, wajib salah satu — tanpa filter berarti semua <i>published</i>), <code>limit</code> (default 12, max 50), <code>page</code> (default 1).</td></li>
+  <li>Response <code>data</code>: array event ringkas + <code>meta</code> pagination
+  (<code>{ current_page, total, per_page }</code>).</li>
+  <li>Sortir: upcoming → <code>starts_at</code> terdekat dulu; past → terbaru dulu; ongoing di atas semuanya.</li>
+  <li>Hanya event <code>published</code> yang muncul.</li>
+  <li>Field ringkas list: <code>slug, title, cover_image_url, starts_at, ends_at, location, organizer</code> — tanpa <code>sessions</code> (hemat payload; sesi hanya di detail).</li>
+</ul>
+
+<h4>GET /api/v1/events/:slug</h4>
+<ul>
+  <li>Detail lengkap + <code>sessions[]</code> urut <code>starts_at</code> naik.</li>
+  <li>404 dengan <code>{ "success": false, "message": "..." }</code> jika slug tidak ada / masih draft.</li>
+</ul>
+
+<h4>GET /api/v1/events/calendar?month=YYYY-MM</h4>
+<ul>
+  <li>Event yang <b>irisan rentangnya</b> dengan bulan tsb (event multi-hari yang menyentuh bulan itu tetap masuk).</li>
+  <li>Response ringkas per event: <code>slug, title, starts_at, ends_at, location</code> — FE yang mengelompokkan per tanggal, server tidak perlu group.</li>
+  <li>Default bulan sekarang jika <code>month</code> tidak dikirim.</li>
+</ul>
+
+<div class="callout">
+<b>Aturan wajib:</b> status <code>ongoing</code> / <code>upcoming</code> / <code>past</code>
+<b>dihitung server</b> dari <code>starts_at</code> / <code>ends_at</code> dibanding waktu sekarang
+(timezone Asia/Jakarta). <u>Bukan kolom yang diisi admin.</u> Logika:
+<code>ongoing</code> jika now ≥ starts_at dan now ≤ ends_at;
+<code>upcoming</code> jika now &lt; starts_at;
+<code>past</code> jika now &gt; ends_at.
+</div>
+
+<h3>3.3 Skema data (referensi — DB boleh disesuaikan)</h3>
+<pre>
+events
+├─ id              PK
+├─ slug            unique, index
+├─ title
+├─ description     text
+├─ cover_image_url
+├─ starts_at       datetime, indexed
+├─ ends_at         datetime, indexed
+├─ location
+├─ location_url    nullable
+├─ registration_url    nullable
+├─ registration_open    bool, default true
+├─ organizer       nullable
+├─ status          enum(draft, published), default draft
+├─ created_at / updated_at
+
+event_sessions
+├─ id              PK
+├─ event_id        FK → events, cascade delete
+├─ name
+├─ starts_at       datetime
+├─ ends_at         datetime
+├─ speaker         nullable
+├─ location        nullable
+├─ description     nullable
+├─ sort_order      int (untuk susunan runsheet)
+
+admin_users        (satu tabel auth untuk seluruh CMS)
+├─ id, name, email (unique), password_hash
+├─ (role disiapkan nanti — modul ini cukup satu role: admin)
+</pre>
+<p>Catatan DB: index pada <code>slug</code>, <code>starts_at</code>, <code>(status, starts_at)</code>.
+Hapus event = hapus permanen (atau soft-delete jika BE memilih; konsisten untuk semua modul).</p>
+
+<h3>3.4 Validasi (server-side, wajib)</h3>
+<table>
+<tr><th>Aturan</th><th>Detail</th></tr>
+<tr><td>Field wajib event</td><td><code>title</code>, <code>starts_at</code>, <code>ends_at</code>, <code>location</code></td></tr>
+<tr><td>Urutan waktu</td><td><code>ends_at &gt; starts_at</code>; setiap <code>session.ends_at &gt; session.starts_at</code></td></tr>
+<tr><td>Sesi dalam rentang event</td><td>Sesi tidak boleh di luar rentang <code>starts_at–ends_at</code> event</td></tr>
+<tr><td>Slug</td><td>Otomatis dari judul (lowercase, tanda hubung), unik; bisa di-overwrite manual</td></tr>
+<tr><td>URL</td><td><code>location_url</code>, <code>registration_url</code> harus URL valid</td></tr>
+<tr><td>Upload cover</td><td>JPG/PNG/WebP, maks ± 5MB</td></tr>
+<tr><td>Error shape</td><td><code>422 { success:false, message, errors: { field: [msg] } }</code></td></tr>
+</table>
+
+<h3>3.5 Admin panel (di SGA CMS)</h3>
+<ul>
+  <li>Login (satu auth untuk seluruh CMS — modul berikutnya memakai yang sama).</li>
+  <li>Daftar event: kolom judul, tanggal, status publish, jumlah sesi; filter status; search judul.</li>
+  <li>Form event: field §3.3 + editor sesi (tambah/hapus/urutkan, inline).</li>
+  <li>Upload cover (preview sebelum simpan).</li>
+  <li>Publish / unpublish — satu klik, konfirmasi.</li>
+  <li>Pratinjau share link (<code>/events/:slug</code>) + tombol copy.</li>
+</ul>
+
+<h3>3.6 Google Calendar</h3>
+<ul>
+  <li><b>Fase 1 (frontend saja, tanpa backend):</b> tombol "Tambah ke Google Calendar" memakai
+  template URL resmi
+  <code>https://calendar.google.com/calendar/render?action=TEMPLATE&amp;text=...&amp;dates=...&amp;location=...</code>.
+  Tanpa API, tanpa OAuth. Tidak ada kerjaan BE di fase ini.</li>
+  <li><b>Fase 2 (backend):</b> saat event di-<i>publish</i>, CMS push ke satu kalender publik SGA
+  via service account (create/update/cancel event ikut <code>status</code> CMS).
+  Prasyarat: GCP project, enable Calendar API, service account JSON, kalender publik di-share ke SA.
+  Mahasiswa subscribe kalender SGA sekali, semua event masuk otomatis.</li>
+</ul>
+
+<div class="pagebreak"></div>
+<!-- ============ 5. FRONTEND ============ -->
+<h2>4. Frontend — Landing Page SGA</h2>
+
+<h3>4.1 Route baru</h3>
+<table>
+<tr><th>Route</th><th>Isi</th></tr>
+<tr><td><code>/events</code></td><td>Portal event (hero, ongoing, upcoming, kalender)</td></tr>
+<tr><td><code>/events/:slug</code></td><td>Detail event — target dari share link</td></tr>
+</table>
+<p>Frontend <b>tidak menunggu backend selesai</b>: buat dummy JSON sesuai contract §3,
+lalu tinggal ganti base URL saat CMS siap.</p>
+
+<h3>4.2 Struktur halaman /events</h3>
+<ol>
+  <li><b>Hero</b> — judul + deskripsi (dari endpoint settings, fallback teks statis).</li>
+  <li><b>Sedang Berlangsung</b> — kartu besar prioritas: judul, sesi yang sedang jalan + jam
+  ("Sekarang: Seminar Teknis, 13.00–15.00"), lokasi, CTA "Lihat Detail" dan "Daftar".</li>
+  <li><b>Akan Datang</b> — grid kartu. Desain memakai ulang kartu event yang sekarang ada di
+  landing page, tinggal di-dinamisasi.</li>
+  <li><b>Kalender bulanan</b> — grid bulan custom (± 150 baris, <b>tanpa library FullCalendar</b>):
+  titik/penanda di tanggal ber-event, klik tanggal → daftar event tanggal itu lengkap jam per sesi,
+  klik event → halaman detail. Di mobile tampilkan sebagai <b>agenda list</b>, bukan grid 7 kolom.</li>
+  <li><b>Selesai (opsional)</b> — section/tab event lampau.</li>
+</ol>
+
+<h3>4.3 Halaman /events/:slug</h3>
+<ul>
+  <li>Cover, judul, deskripsi lengkap, lokasi (link bila ada).</li>
+  <li><b>Runsheet</b> hari-per-hari dari <code>sessions[]</code> — nama sesi, jam, pemateri.</li>
+  <li>Tombol "Daftar" (hanya bila <code>registration_url</code> ada dan <code>registration_open</code> true).</li>
+  <li>"Tambah ke Google Calendar" (template URL).</li>
+  <li>Tombol Bagikan — Web Share API di mobile, fallback copy link + toast.</li>
+</ul>
+
+<h3>4.4 Section Event di landing page</h3>
+<ul>
+  <li>Carousel dipertahankan, berubah fungsi jadi <b>teaser</b>: fetch 3–4 event teratas
+  (ongoing dulu, sisanya upcoming).</li>
+  <li>Tombol "Lihat Lainnya" (sudah ada) → link ke <code>/events</code>.</li>
+  <li>Jika API gagal/kosong → tampilkan state kosong rapi, jangan crash.</li>
+</ul>
+
+<h3>4.5 Konvensi teknis FE</h3>
+<ul>
+  <li>Env: <code>VITE_SGA_CMS_API_URL</code> — daftarkan di <code>src/vite-env.d.ts</code>,
+  set di Cloudflare Pages dashboard (bukan file .env).</li>
+  <li>Pola fetch/cache/loading/error menyalin <code>src/components/reporting/form.tsx</code>
+  (module-level cache, skeleton, unavailable state) — konsisten, nol dependency baru.</li>
+  <li>Kalender custom, responsif; mobile = list agenda.</li>
+  <li>Aksesibilitas: label tombol jelas, kontras cukup, tanggal fokus keyboard.</li>
+  <li>Detail page harus punya meta og:title/og:image per event (via update <code>document.head</code>
+  saat load) — supaya share link di WA menampilkan preview.</li>
+</ul>
+
+<!-- ============ 6. UI/UX ============ -->
+<h2>6. UI/UX</h2>
+<h3>6.1 Design system (pakai yang sudah ada di LP)</h3>
+<table>
+<tr><th>Elemen</th><th>Nilai</th></tr>
+<tr><td>Warna utama</td><td>Navy <code>#06455B</code>, Navy muda <code>#0A5C75</code>, Gold <code>#CEAE65</code>, Gold muda <code>#FCDD96</code>, teks <code>#F4F4F4</code></td></tr>
+<tr><td>Font</td><td>Plus Jakarta Sans (heading & body); judul event card boleh pakai display font yang sudah ada</td></tr>
+<tr><td>Bentuk</td><td>Card radius 20px, pill badge, gradient navy (<code>#063A4C → #0A5C75</code>) seperti card event sekarang</td></tr>
+<tr><td>Format tanggal/jam</td><td>"10–11 Sep 2026", "13.00–15.00 WIB" (format Indonesia)</td></tr>
+</table>
+
+<h3>6.2 Deliverable desain</h3>
+<table>
+<tr><th>Layar</th><th>Isi desain</th></tr>
+<tr><td>Portal <code>/events</code></td>
+  <td>Hero; card besar "Sedang Berlangsung" (sesi berjalan + jam + CTA); grid "Akan Datang";
+  kalender bulanan (desktop grid + dot; mobile agenda list); empty/loading/error state</td></tr>
+<tr><td>Detail <code>/events/:slug</code></td>
+  <td>Cover; info (tanggal, jam, lokasi, penyelenggara); <b>runsheet timeline per hari</b>
+  (fokus desain terbaik di sini); CTA Daftar / GCal / Bagikan</td></tr>
+<tr><td>Mobile</td><td>Semua halaman dirancang mobile-first — mayoritas akses dari share link WA</td></tr>
+</table>
+
+<h3>6.3 Aturan UX yang wajib</h3>
+<ul>
+  <li>Card "Sedang Berlangsung" paling menonjol di halaman; menampilkan sesi yang berjalan saat ini.</li>
+  <li>Badge status (Berlangsung / Akan Datang / Selesai) otomatis dari tanggal — tidak pernah manual.</li>
+  <li>Semua state non-ideal didesain: skeleton loading, kosong ("Belum ada event"), error.</li>
+  <li>Kontras cukup (teks di atas gradient navy), fokus keyboard jelas, ukuran sentuh ≥ 44px.</li>
+</ul>
+
+<!-- ============ 7. TAHAP ============ -->
+<h2>5. Tahapan Pengerjaan</h2>
+<table>
+<tr><th>#</th><th>Pekerjaan</th><th>PIC</th><th>Ketergantungan</th></tr>
+<tr><td>1</td><td>Konfirmasi endpoint &amp; JSON shape antara BE–FE (meeting singkat / grup)</td><td>BE + FE</td><td>—</td></tr>
+<tr><td>2</td><td>Kerangka SGA CMS: auth admin, struktur modul, upload media</td><td>Backend</td><td>—</td></tr>
+<tr><td>3</td><td>CRUD event/sessions + publish + endpoint publik</td><td>Backend</td><td>#2</td></tr>
+<tr><td>4</td><td>Design portal + detail + kalender (UI/UX)</td><td>UI/UX</td><td>—</td></tr>
+<tr><td>5</td><td>Halaman /events, /events/:slug, kalender custom (dummy JSON dulu)</td><td>Frontend</td><td>#1, #4</td></tr>
+<tr><td>6</td><td>Section Event LP dinamis + link portal</td><td>Frontend</td><td>#1</td></tr>
+<tr><td>7</td><td>Tombol add-to-GCal (template URL)</td><td>Frontend</td><td>#5</td></tr>
+<tr><td>8</td><td>Integrasi FE ke API BE asli (ganti env)</td><td>FE + BE</td><td>#2, #3, #5</td></tr>
+<tr><td>9</td><td>Push-sync kalender publik (service account)</td><td>Backend</td><td>#8 stabil</td></tr>
+</table>
+
+<div class="callout">
+<b>Definisi selesai (frontend):</b> mahasiswa dapat membuka /events, melihat event berlangsung
+&amp; akan datang dari API, membuka detail lewat share link (dengan preview di WA), melihat
+runsheet per jam, menambahkan event ke Google Calendar — semuanya tanpa deploy ulang saat admin
+mengubah data di CMS.
+</div>
+
+<div class="callout">
+<b>Definisi selesai (backend):</b> admin dapat membuat event + sessions di panel, publish, dan
+event tersebut langsung tampil di endpoint publik dengan status yang dihitung otomatis;
+struktur CMS siap menerima modul berikutnya tanpa refactor besar.
+</div>
+
+<div class="footer-note">
+Dokumen ini spesifikasi modul <b>Student Event</b> di dalam SGA CMS terpadu, bukan desain final UI.
+Detail visual mengikuti design system landing page. Pertanyaan teknis diskusikan di grup per-divisi.
+</div>
+
+</body>
+</html>
