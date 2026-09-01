@@ -80,10 +80,10 @@ v1.get("/reference", (c) => {
 	return Scalar({ theme: "saturn", url: "/api/v1/openapi" })(c, async () => {});
 });
 
-// Proxy login ke service auth via binding — admin panel SPA cukup satu origin.
-v1.post("/auth/sign-in", async (c) => {
+// Proxy login/daftar ke service auth via binding — admin panel SPA cukup satu origin.
+const proxyAuth = (path: string) => async (c: Parameters<import("hono").Handler>[0]) => {
 	const res = await c.env.AUTH_SERVICE.fetch(
-		new Request("http://internal/v1/auth/sign-in", {
+		new Request(`http://internal/v1/auth/${path}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: await c.req.text(),
@@ -93,7 +93,10 @@ v1.post("/auth/sign-in", async (c) => {
 		status: res.status,
 		headers: { "Content-Type": "application/json" },
 	});
-});
+};
+
+v1.post("/auth/sign-in", proxyAuth("sign-in"));
+v1.post("/auth/sign-up", proxyAuth("sign-up"));
 
 app.route("/api/v1", v1);
 
