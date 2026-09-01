@@ -422,6 +422,13 @@ export default function EventEditor({ event, prefillDate }) {
 				</div>
 			</div>
 
+			{showPreview && (
+				<div className="card preview-card">
+					<h2 style={{ fontSize: 15, marginBottom: 10 }}>Pratinjau halaman (perkiraan)</h2>
+					<Preview form={form} sessions={sortedSessions} cover={cover} />
+				</div>
+			)}
+
 			<div className="sticky-bar">
 				{!editing && !savedId ? (
 					<>
@@ -457,13 +464,6 @@ export default function EventEditor({ event, prefillDate }) {
 				)}
 				{savedId && !published && <span className="badge draft">Draft</span>}
 			</div>
-
-			{showPreview && (
-				<div className="card" style={{ marginTop: 16 }}>
-					<h2 style={{ fontSize: 15, marginBottom: 10 }}>Pratinjau halaman (perkiraan)</h2>
-					<Preview form={form} sessions={sortedSessions} cover={cover} />
-				</div>
-			)}
 
 			<Confirm
 				open={askPublish}
