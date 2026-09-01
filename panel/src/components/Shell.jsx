@@ -3,6 +3,9 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { clearToken } from "../api.js";
 import { useEscape } from "./ui.jsx";
 
+// Logomark SGA Cakrawala — outline putih transparan (dari landing page).
+import logoSga from "/logo-sga.webp";
+
 // Hash routing — panel di-host sebagai aset Worker, tanpa rewrite tambahan.
 export const href = (path) => `#${path}`;
 
@@ -28,7 +31,7 @@ export function Login({ onLogin }) {
 		<div className="login-page">
 			<form className="login-card" onSubmit={submit}>
 				<div className="brand">
-					<div className="brand-logo">S</div>
+					<img className="brand-logo-img" src={logoSga} alt="Logo SGA Cakrawala" />
 					<div>
 						<h1>CMS BPH</h1>
 						<small className="sub" style={{ color: "var(--muted)" }}>
@@ -81,7 +84,7 @@ export function Shell({ user, children, title, crumb, actions }) {
 	const sidebar = (
 		<aside className={`sidebar ${drawer ? "open" : ""}`}>
 			<div className="brand">
-				<div className="brand-logo" aria-hidden>S</div>
+				<img className="brand-logo-img" src={logoSga} alt="Logo SGA Cakrawala" />
 				<div>
 					<strong>CMS BPH</strong>
 					<small>SGA Cakrawala</small>
