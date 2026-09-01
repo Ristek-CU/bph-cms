@@ -80,13 +80,13 @@ input, textarea, select { font: inherit; }
 .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
 	display: flex; align-items: center; justify-content: space-between; gap: 12px;
-	padding: 16px 28px; background: var(--card); border-bottom: 1px solid var(--border);
+	padding: 14px 28px; background: var(--card); border-bottom: 1px solid var(--border);
 	position: sticky; top: 0; z-index: 10;
 }
-.topbar h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-.topbar .crumb { color: var(--muted); font-size: 13px; margin-top: 2px; }
-.topbar-actions { display: flex; gap: 10px; align-items: center; }
-main.page { padding: 24px 28px 80px; max-width: 1100px; width: 100%; margin: 0 auto; }
+.topbar h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.topbar .crumb { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.topbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+main.page { padding: 24px 28px 96px; max-width: 1160px; width: 100%; margin: 0 auto; }
 
 .menu-btn { display: none; background: none; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 
@@ -95,6 +95,9 @@ main.page { padding: 24px 28px 80px; max-width: 1100px; width: 100%; margin: 0 a
 	background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
 	padding: 18px 20px; margin-bottom: 16px;
 }
+.card:last-child { margin-bottom: 0; }
+/* Kartu di dalam kartu (agenda kalender, preview) tanpa margin bawah global. */
+.card .card { margin-bottom: 0; }
 .btn {
 	display: inline-flex; align-items: center; gap: 8px; justify-content: center;
 	padding: 9px 16px; border: 0; border-radius: 10px; font-weight: 600; font-size: 14px;
@@ -124,9 +127,9 @@ main.page { padding: 24px 28px 80px; max-width: 1100px; width: 100%; margin: 0 a
 .small { font-size: 13px; }
 
 /* ---- Form ---- */
-label.field-label { display: block; font-size: 13px; font-weight: 700; margin: 12px 0 4px; }
+label.field-label { display: block; font-size: 13px; font-weight: 700; margin: 14px 0 5px; }
 .field-label .req { color: var(--err); }
-.field-help { font-size: 12px; color: var(--muted); margin: 3px 0 0; }
+.field-help { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
 input[type="text"], input[type="email"], input[type="password"], input[type="url"],
 input[type="datetime-local"], input[type="date"], input[type="time"], textarea, select {
 	width: 100%; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 10px;
@@ -135,13 +138,14 @@ input[type="datetime-local"], input[type="date"], input[type="time"], textarea, 
 input:focus, textarea:focus { outline: 2px solid rgba(0, 145, 128, 0.35); border-color: var(--teal); }
 textarea { resize: vertical; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-.check-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.check-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 .check-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--teal); }
-.field-err { color: var(--err); font-size: 12px; margin-top: 3px; }
+.field-err { color: var(--err); font-size: 12px; margin-top: 4px; }
 
 /* Seksi editor bernomor */
-.section { margin-bottom: 20px; }
-.section-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 6px; }
+.section { margin-bottom: 24px; }
+.section:last-child { margin-bottom: 4px; }
+.section-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 4px; padding-top: 4px; }
 .section-num {
 	width: 28px; height: 28px; border-radius: 99px; flex-shrink: 0;
 	background: linear-gradient(135deg, var(--navy), var(--teal)); color: #fff;
@@ -167,17 +171,19 @@ textarea { resize: vertical; }
 .cover-preview { max-width: 320px; width: 100%; border-radius: 10px; display: block; margin-top: 8px; border: 1px solid var(--border); }
 .upload-hint { display: flex; flex-direction: column; gap: 6px; }
 
-/* Bar aksi melekat */
+/* Bar aksi melekat — nempel bawah viewport, sejajar tepi konten halaman. */
 .sticky-bar {
-	position: sticky; bottom: 0; z-index: 5; margin-top: 20px;
-	background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-	padding: 12px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-	box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+	position: sticky; bottom: 0; z-index: 5; margin: 20px calc(-1 * 28px) 0;
+	background: rgba(255, 255, 255, 0.97); backdrop-filter: blur(6px);
+	border-top: 1px solid var(--border);
+	padding: 12px 28px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+	box-shadow: 0 -6px 24px rgba(6, 69, 91, 0.08);
 }
+.preview-card { margin-bottom: 0; }
 
 /* ---- List event (kartu) ---- */
-.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
-.toolbar input[type="text"] { max-width: 320px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+.toolbar input[type="text"] { max-width: 320px; flex: 1; min-width: 200px; }
 .chip {
 	padding: 6px 14px; border-radius: 99px; border: 1px solid var(--border); background: var(--card);
 	font-size: 13px; font-weight: 600; color: var(--muted);
@@ -230,6 +236,7 @@ textarea { resize: vertical; }
 /* ---- Ringkasan ---- */
 .overview-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .overview-grid { grid-template-columns: 1fr; } }
+.overview-grid > div > .card { height: 100%; }
 
 /* Kalender versi compact di Ringkasan */
 .cal-grid-compact .cal-cell { min-height: 64px; }
@@ -240,7 +247,9 @@ textarea { resize: vertical; }
 /* Agenda hari terpilih (di dalam kalender) */
 .agenda-ev { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-top: 12px; background: #fbfcfc; }
 .agenda-ev-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.agenda-card { margin-top: 14px; }
+.card-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
 .stat {
 	background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px;
 }
@@ -319,11 +328,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 	.sidebar.open { left: 0; box-shadow: 0 0 60px rgba(0, 0, 0, 0.4); }
 	.sidebar-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
 	.menu-btn { display: inline-flex; }
-	main.page { padding: 16px 14px 80px; }
+	main.page { padding: 16px 14px 88px; }
 	.topbar { padding: 12px 14px; }
 	.grid-2 { grid-template-columns: 1fr; }
+	.sticky-bar { margin: 16px calc(-1 * 14px) 0; padding: 10px 14px; }
 	.cal-grid { gap: 3px; }
 	.cal-cell { min-height: 56px; padding: 3px; }
-	.cal-chip { display: none; }
+	.cal-chip, .cal-more { display: none; }
 	.cal-cell .dot { width: 7px; height: 7px; border-radius: 99px; }
 }

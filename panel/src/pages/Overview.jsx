@@ -50,8 +50,8 @@ export default function Overview({ events, onEdit }) {
 			<div className="overview-grid">
 				<div>
 					<div className="card">
-						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-							<h2 style={{ fontSize: 16 }}>Kalender event</h2>
+						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+							<h2 className="card-title">Kalender event</h2>
 							<Link to="/events/kalender" className="small">Buka penuh →</Link>
 						</div>
 						<Calendar events={events} onEdit={onEdit} compact />
@@ -60,7 +60,7 @@ export default function Overview({ events, onEdit }) {
 
 				<div>
 					<div className="card">
-						<h2 style={{ fontSize: 16, marginBottom: 10 }}>Event terdekat</h2>
+						<h2 className="card-title" style={{ marginBottom: 10 }}>Event terdekat</h2>
 						{soonest.length === 0 ? (
 							<p className="muted">
 								Belum ada event yang terbit.{" "}

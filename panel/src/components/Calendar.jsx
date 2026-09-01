@@ -29,15 +29,13 @@ function sessionsOnDay(ev, dayKey) {
 // Panel agenda: detail hari terpilih — event + sesi per jam + aksi.
 function DayAgenda({ dayKey, events, onEdit, onNew }) {
 	return (
-		<div className="card" style={{ marginTop: 16 }}>
-			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+		<div className="card agenda-card">
+			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
 				<div>
-					<h2 style={{ fontSize: 16 }}>{fmtDateLong(`${dayKey}T12:00:00+07:00`)}</h2>
+					<h2 className="card-title">{fmtDateLong(`${dayKey}T12:00:00+07:00`)}</h2>
 					<span className="muted small">{events.length} event · WIB</span>
 				</div>
-				<div style={{ display: "flex", gap: 8 }}>
-					<button className="btn sec sm" onClick={() => onNew(dayKey)}>+ Buat event di tanggal ini</button>
-				</div>
+				<button className="btn sec sm" onClick={() => onNew(dayKey)}>+ Buat event di tanggal ini</button>
 			</div>
 
 			{events.length === 0 ? (
