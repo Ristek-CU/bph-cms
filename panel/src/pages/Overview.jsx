@@ -67,24 +67,26 @@ export default function Overview({ events, onEdit }) {
 								<a href={href("/events/baru")}>Buat event baru</a> dulu.
 							</p>
 						) : (
-							<table className="tbl">
-								<thead>
-									<tr><th>Event</th><th>Waktu (WIB)</th><th>Status</th><th /></tr>
-								</thead>
-								<tbody>
-									{soonest.map((e) => (
-										<tr key={e.id}>
-											<td><strong>{e.title}</strong><br /><span className="slug muted small">/{e.slug}</span></td>
-											<td>{fmtRange(e.starts_at, e.ends_at)}</td>
-											<td><span className={`badge ${displayStatus(e)}`}>{LABEL[displayStatus(e)]}</span></td>
-											<td>
-												<button className="btn sec sm" onClick={() => copyLink(e)}>Salin link</button>{" "}
-												<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
-											</td>
-										</tr>
-									))}
-								</tbody>
-							</table>
+							<div className="tbl-wrap">
+								<table className="tbl">
+									<thead>
+										<tr><th>Event</th><th>Waktu (WIB)</th><th>Status</th><th /></tr>
+									</thead>
+									<tbody>
+										{soonest.map((e) => (
+											<tr key={e.id}>
+												<td><strong>{e.title}</strong><br /><span className="slug muted small">/{e.slug}</span></td>
+												<td>{fmtRange(e.starts_at, e.ends_at)}</td>
+												<td><span className={`badge ${displayStatus(e)}`}>{LABEL[displayStatus(e)]}</span></td>
+												<td>
+													<button className="btn sec sm" onClick={() => copyLink(e)}>Salin link</button>{" "}
+													<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
+												</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							</div>
 						)}
 					</div>
 				</div>

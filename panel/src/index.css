@@ -211,11 +211,12 @@ textarea { resize: vertical; }
 /* ---- Kalender ---- */
 .cal-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .cal-nav h2 { font-size: 18px; min-width: 190px; }
-.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; min-width: 0; }
 .cal-dow { text-align: center; font-size: 12px; font-weight: 700; color: var(--muted); padding: 4px 0; }
 .cal-cell {
 	min-height: 92px; background: var(--card); border: 1px solid var(--border); border-radius: 10px;
 	padding: 6px; display: flex; flex-direction: column; gap: 4px; cursor: pointer;
+	min-width: 0; overflow: hidden;
 }
 .cal-cell:hover { border-color: var(--teal); }
 .cal-cell.other { background: #f3f4f6; opacity: 0.6; }
@@ -234,9 +235,11 @@ textarea { resize: vertical; }
 .cal-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
 /* ---- Ringkasan ---- */
-.overview-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; align-items: start; }
+html, body { overflow-x: hidden; }
+.overview-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; align-items: start; min-width: 0; }
+.overview-grid > div { min-width: 0; } /* grid item boleh menyusut — table/chip tidak mendorong lebar */
 @media (max-width: 1100px) { .overview-grid { grid-template-columns: 1fr; } }
-.overview-grid > div > .card { height: 100%; }
+.overview-grid > div > .card { height: 100%; min-width: 0; }
 
 /* Kalender versi compact di Ringkasan */
 .cal-grid-compact .cal-cell { min-height: 64px; }
@@ -262,10 +265,21 @@ textarea { resize: vertical; }
 .stat.hero .lbl { color: #bcd2da; }
 
 /* Tabel kecil (ringkasan) */
-table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: auto; }
 .tbl th, .tbl td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #f0f1f3; }
-.tbl th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.tbl th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+.tbl td { word-break: break-word; }
 .tbl tr:hover td { background: #fafbfb; }
+
+/* HP: tabel ringkasan jadi susunan baris — tanpa scroll horizontal */
+@media (max-width: 640px) {
+	.tbl thead { display: none; }
+	.tbl, .tbl tbody, .tbl tr, .tbl td { display: block; width: 100%; }
+	.tbl tr { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; background: #fbfcfc; }
+	.tbl td { border: 0; padding: 4px 0; }
+	.tbl td strong { font-size: 15px; }
+}
 
 /* ---- Toast & Modal ---- */
 .toast-wrap { position: fixed; bottom: 20px; right: 20px; z-index: 100; display: flex; flex-direction: column; gap: 8px; }
