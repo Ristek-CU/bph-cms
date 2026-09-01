@@ -37,11 +37,14 @@ const withKeys = (arr) =>
 const ERR_MAP = [
 	[/^title/, "Nama event wajib diisi."],
 	[/^starts_at/, "Jam mulai tidak valid."],
-	[/^ends_at.*after/, "Jam selesai harus setelah jam mulai."],
+	[/^ends_at.*after|^ends_at$/, "Jam selesai harus setelah jam mulai."],
 	[/^location$/, "Lokasi wajib diisi."],
 	[/^location_url|^registration_url|^cover_image_url/, "Link tidak valid — pastikan diawali https://"],
-	[/^sessions\.(\d+)/, "Ada sesi di luar jam event. Perbaiki jam sesi atau perpanjang jam event."],
-	[/^slug/, "Alamat link sudah dipakai atau tidak valid. Ganti yang lain."],
+	[/^sessions\.\d+\.starts_at$/, "Jam mulai sesi belum diisi."],
+	[/^sessions\.\d+\.ends_at$/, "Jam selesai sesi belum diisi atau tidak valid."],
+	[/^sessions$/, "Ada sesi dengan jam belum lengkap. Isi jam mulai & selesai tiap sesi."],
+	[/^sessions\.(\d+)/, "Ada sesi dengan jam di luar jam event. Perbaiki jam sesi atau perpanjang jam event."],
+	[/^slug/, "Alamat link sudah dipakai atau tidak valid. Gunakan huruf kecil dan tanda hubung."],
 ];
 const translateErrors = (errors) => {
 	const out = {};
@@ -65,7 +68,7 @@ function Field({ label, required, help, error, children }) {
 	);
 }
 
-function SessionCard({ s, i, onChange, onRemove }) {
+function SessionCard({ s, i, err, onChange, onRemove }) {
 	const set = (k) => (e) => onChange(i, { [k]: e.target.value });
 	return (
 		<div className="sess">
@@ -73,14 +76,14 @@ function SessionCard({ s, i, onChange, onRemove }) {
 				<strong>Sesi {i + 1}</strong>
 				<button className="remove" onClick={onRemove} type="button">Hapus sesi</button>
 			</div>
-			<Field label="Nama sesi" required error={s._err?.name}>
+			<Field label="Nama sesi" required error={err?.name}>
 				<input type="text" value={s.name} onChange={set("name")} placeholder="Seminar Teknis: AI di Industri" />
 			</Field>
 			<div className="grid-2">
-				<Field label="Mulai (WIB)" error={s._err?.starts_at}>
+				<Field label="Mulai (WIB)" required error={err?.starts_at}>
 					<input type="datetime-local" value={s._start} onChange={set("_start")} />
 				</Field>
-				<Field label="Selesai (WIB)" error={s._err?.ends_at}>
+				<Field label="Selesai (WIB)" required error={err?.ends_at}>
 					<input type="datetime-local" value={s._end} onChange={set("_end")} />
 				</Field>
 			</div>
@@ -95,6 +98,7 @@ function SessionCard({ s, i, onChange, onRemove }) {
 			<Field label="Catatan sesi">
 				<textarea rows={2} value={s.description || ""} onChange={set("description")} placeholder="Poin-poin sesi (opsional)" />
 			</Field>
+			{err?.range && <div className="field-err">{err.range}</div>}
 		</div>
 	);
 }
@@ -167,7 +171,8 @@ export default function EventEditor({ event, prefillDate }) {
 	const [showPreview, setShowPreview] = useState(false);
 
 	const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
-	const setSess = (i, patch) => setSessions(sessions.map((s, j) => (i === j ? { ...s, ...patch } : s)));
+	// Patch sesi berdasarkan urutan tampil (sortedSessions), konsisten dengan render.
+	const setSess = (i, patch) => setSessions(sortedSessions.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 	const sortedSessions = useMemo(
 		() => [...sessions].sort((a, b) => (a._start || "").localeCompare(b._start || "")),
 		[sessions],
@@ -224,6 +229,13 @@ export default function EventEditor({ event, prefillDate }) {
 		if (form.starts_at && form.ends_at && form.ends_at <= form.starts_at)
 			errs.ends_at = "Jam selesai harus setelah jam mulai.";
 		if (!form.location.trim()) errs.location = "Lokasi wajib diisi.";
+		// Sesi bernama wajib punya jam lengkap dan berurutan.
+		sortedSessions.forEach((s, i) => {
+			if (!s._start) errs[`sessions.${i}.starts_at`] = "Jam mulai sesi belum diisi.";
+			if (!s._end) errs[`sessions.${i}.ends_at`] = "Jam selesai sesi belum diisi.";
+			else if (s._start && s._end <= s._start)
+				errs[`sessions.${i}.ends_at`] = "Jam selesai sesi harus setelah jam mulai.";
+		});
 		return errs;
 	}
 
@@ -241,9 +253,16 @@ export default function EventEditor({ event, prefillDate }) {
 			if (editing || savedId) {
 				await api(`/admin/events/${id}`, { method: "PUT", json: body });
 			} else {
+				const slug = form.slug
+					.trim()
+					.toLowerCase()
+					.replace(/[^a-z0-9\s-]/g, "")
+					.replace(/[\s_]+/g, "-")
+					.replace(/-+/g, "-")
+					.replace(/^-|-$/g, "");
 				const created = await api("/admin/events", {
 					method: "POST",
-					json: { ...body, slug: form.slug.trim() || undefined },
+					json: { ...body, slug: slug || undefined },
 				});
 				id = created.id;
 				setSavedId(id);
@@ -381,13 +400,19 @@ export default function EventEditor({ event, prefillDate }) {
 							<p>Jadwal rinci per jam yang dilihat mahasiswa. Boleh dikosongkan dulu — bisa diisi nanti. Sesi otomatis diurutkan per jam saat disimpan.</p>
 						</div>
 					</div>
-					{sessions.map((s, i) => (
+					{sortedSessions.map((s, i) => (
 						<SessionCard
 							key={s._key}
 							s={s}
 							i={i}
+							err={{
+								name: errors[`sessions.${i}.name`],
+								starts_at: errors[`sessions.${i}.starts_at`],
+								ends_at: errors[`sessions.${i}.ends_at`],
+								range: errors[`sessions.${i}`],
+							}}
 							onChange={setSess}
-							onRemove={() => setSessions(sessions.filter((_, j) => j !== i))}
+							onRemove={() => setSessions(sessions.filter((x) => x !== s))}
 						/>
 					))}
 					<button className="btn sec" type="button" onClick={() => setSessions([...sessions, newSession(sessions[sessions.length - 1])])}>
