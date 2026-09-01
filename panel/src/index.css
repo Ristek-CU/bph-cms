@@ -37,6 +37,16 @@ input, textarea, select { font: inherit; }
 	background: linear-gradient(135deg, var(--gold) 0%, var(--gold-2) 100%);
 	color: var(--navy); font-weight: 800; display: flex; align-items: center; justify-content: center;
 }
+/* Logomark SGA asli (outline putih transparan) — butuh latar gelap. */
+.brand-logo-img {
+	width: 34px; height: 34px; flex-shrink: 0; object-fit: contain;
+	background: linear-gradient(135deg, var(--navy) 0%, #0a5c75 100%);
+	border-radius: 10px; padding: 4px;
+}
+.login-card .brand-logo-img {
+	width: 46px; height: 46px; padding: 6px; border-radius: 12px;
+	background: linear-gradient(135deg, var(--navy) 0%, #0a5c75 100%);
+}
 .brand small { display: block; color: #9db4bd; font-size: 11px; font-weight: 500; }
 .nav { padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .nav a {
