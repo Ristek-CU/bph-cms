@@ -1,0 +1,6 @@
+# Copy ke .dev.vars (jangan di-commit).
+# Local dev: binding AUTH_SERVICE menunjuk worker auth superapp.
+# Opsi: (1) jalankan auth worker lokal (pnpm --filter auth dev, port 8789)
+#       dan set URL test di test ADMIN_AUTH_URL, atau
+#       (2) pakai remote binding (wrangler dev --x-remote-bindings).
+ADMIN_AUTH_URL = "http://localhost:8789/v1/auth/session"
