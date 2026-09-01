@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { describeRoute } from "hono-openapi";
 import { ApiError } from "../../shared/api-error";
 import { ApiResponse } from "../../shared/api-response";
 import { uuidv7 } from "uuidv7";
@@ -19,7 +20,19 @@ export const mediaRouter = new Hono<AppContext>();
 // Upload = operasi admin: wajib session + role admin (SDD §6).
 mediaRouter.use("*", adminAuth, requireRole("admin"));
 
-mediaRouter.post("/", async (c) => {
+mediaRouter.post(
+	"/",
+	describeRoute({
+		summary: "Upload cover image (multipart 'file')",
+		tags: ["Media"],
+		security: [{ bearerAuth: [] }],
+		responses: {
+			201: { description: "Uploaded, returns { url }" },
+			401: { description: "Unauthorized" },
+			422: { description: "Validation error (type/size)" },
+		},
+	}),
+	async (c) => {
 	const form = await c.req.formData().catch(() => null);
 	const file = form?.get("file");
 	if (!(file instanceof File)) {

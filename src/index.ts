@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { requestId } from "hono/request-id";
 import { cors } from "hono/cors";
+import { openAPIRouteHandler } from "hono-openapi";
+import { Scalar } from "@scalar/hono-api-reference";
 
 import { errorHandler } from "./shared/error-handler";
 import { ApiResponse } from "./shared/api-response";
@@ -59,6 +61,24 @@ v1.get("/storage/*", async (c) => {
 v1.route("/events", publicEventRouter);
 v1.route("/admin/events", adminEventRouter);
 v1.route("/admin/media", mediaRouter);
+
+v1.get("/openapi", (c, _next) =>
+	openAPIRouteHandler(v1, {
+		documentation: {
+			info: {
+				title: "BPH CMS API",
+				version: "1.0.0",
+				description: "CMS BPH SGA Cakrawala — Student Event module",
+			},
+			servers: [{ url: c.env.API_BASE_URL }],
+		},
+	})(c, _next),
+);
+
+v1.get("/reference", (c) => {
+	// @ts-expect-error Scalar plugin typing expects generic Env; runtime-compatible with AppContext
+	return Scalar({ theme: "saturn", url: "/api/v1/openapi" })(c, async () => {});
+});
 
 app.route("/api/v1", v1);
 

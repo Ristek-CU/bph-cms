@@ -71,5 +71,26 @@ Fase 2 (nanti): push ke kalender publik via service account (signing JWT di Work
 
 ## 8. Status repo
 
-Repo kosong saat dokumen ini ditulis (1 Sep 2026). Langkah pertama setelah review PRD/SDD:
-scaffold `apps`-style struktur atau standalone Worker repo, ikuti SDD §2.
+**M1–M6 selesai (1 Sep 2026).** Service bph-cms jalan: scaffold + D1/R2 provision,
+admin auth via `AUTH_SERVICE` binding, CRUD event+sessions, endpoint publik
+(list/detail/calendar, status dihitung server), upload R2 + publish/unpublish,
+OpenAPI di `/api/v1/openapi` + Scalar `/api/v1/reference`, self-check status
+(`npm test`, 9 checks). Siap integrasi FE — contract SDD §4 sudah match e2e.
+
+## 9. Catatan verifikasi (planning 1 Sep 2026 — lihat [PLAN.md](../PLAN.md))
+
+- SDD §2 bilang "app baru di monorepo `apps/bph-cms`" — repo ini dibuat **standalone**.
+  Dianggap final (SDD A9 opsi 1 "Workers terpisah"). Konsekuensi: `@internal/shared`
+  (workspace package superapp) tidak bisa di-import dari repo lain → wrapper
+  (`ApiResponse`/`ApiError`/`errorHandler`/`STATUS_CODES`) di-copy lokal ke `src/shared/`
+  dari `reference-api-response.ts`. Pola file tetap meniru `apps/auth` & `apps/ukm-profile`.
+- Pagination meta contract SDD §4.1 (`{ current_page, total, per_page }`) **beda** dari shape
+  `buildPaginatedResult` di `@internal/shared` (`pagination: {page,limit,total,totalPages}`).
+  Contract SDD yang menang — jangan pakai helper shared untuk endpoint publik.
+- `ApiError.validation` di shared default 400; contract ekosistem minta **422** untuk
+  validation error — dipakai 422 eksplisit.
+- Asumsi SDD lain terverifikasi terhadap superapp: binding auth pola
+  `gateway-api/src/middlewares/auth.ts` (call `AUTH_SERVICE /v1/auth/session`, inject
+  userId/userRole); D1 + drizzle-kit `d1-http`; R2 dilayani via route `/storage/*`
+  (pola ukm-profile); `uuidv7`; hono-openapi + Scalar semua sudah dipakai app lain.
+- Binding `AUTH_SERVICE` arahkan ke worker `sga-superapp-auth` (satu akun Cloudflare).
