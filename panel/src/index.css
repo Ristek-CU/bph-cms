@@ -60,6 +60,7 @@ input, textarea, select { font: inherit; }
 	margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
 	background: rgba(255, 255, 255, 0.15); border-radius: 99px; padding: 2px 8px;
 }
+.nav-sep { height: 1px; background: rgba(255, 255, 255, 0.12); margin: 10px 12px; }
 .sidebar .userbox {
 	border-top: 1px solid rgba(255, 255, 255, 0.12); padding: 14px 16px;
 	display: flex; align-items: center; gap: 10px;

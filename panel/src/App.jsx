@@ -115,9 +115,20 @@ function App() {
 					</Shell>
 				}
 			/>
+			<Route path="/docs" element={<NavigateDocs />} />
 			<Route path="*" element={<Navigate to="/" replace />} />
 		</Routes>
 	);
+}
+
+// #/docs — arahkan ke dokumentasi API (Scalar self-host, buka tab baru).
+function NavigateDocs() {
+	const navigate = useNavigate();
+	useEffect(() => {
+		window.open("/api/v1/reference", "_blank");
+		navigate("/", { replace: true });
+	}, [navigate]);
+	return null;
 }
 
 function NewEventRoute() {
