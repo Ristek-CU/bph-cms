@@ -7,9 +7,15 @@
 	"workers_dev": false,
 	"preview_urls": false,
 	"keep_vars": true,
+	"routes": [
+		{
+			"pattern": "bph-cms.sga-cakrawala.org",
+			"custom_domain": true
+		}
+	],
 	"vars": {
-		"API_BASE_URL": "http://localhost:8791/api/v1",
-		"CORS_ORIGIN": "http://localhost:5173,https://sga-cakrawala.org,https://cms.sga-cakrawala.org"
+		"API_BASE_URL": "https://bph-cms.sga-cakrawala.org/api/v1",
+		"CORS_ORIGIN": "https://sga-cakrawala.org,https://cms.sga-cakrawala.org,http://localhost:5173"
 	},
 	"r2_buckets": [
 		{
@@ -21,7 +27,7 @@
 		{
 			"binding": "DB",
 			"database_name": "bph-cms-db",
-			"database_id": "5cdcc09b-5688-4ce4-9bbe-8f9d65c8dfc0",
+			"database_id": "06c72542-0126-48ed-bbfc-6077393e948e",
 			"migrations_dir": "drizzle",
 			"remote": true
 		}
