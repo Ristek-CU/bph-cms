@@ -4,6 +4,7 @@ export type Bindings = {
 	DB: D1Database;
 	BUCKET: R2Bucket;
 	AUTH_SERVICE: Fetcher;
+	ASSETS: Fetcher;
 	API_BASE_URL: string;
 	CORS_ORIGIN: string;
 };
