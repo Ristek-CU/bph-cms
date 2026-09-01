@@ -10,6 +10,11 @@ import type { AppContext, Bindings, Variables } from "./types";
 
 import { adminEventRouter } from "./modules/events/event.route";
 import { publicEventRouter } from "./modules/events/event.public.route";
+import { mediaRouter } from "./modules/media/media.route";
+import { eventService } from "./modules/events/event.service";
+import { adminAuth } from "./middlewares/admin-auth";
+import { requireRole } from "./middlewares/require-role";
+import { getDb } from "./db/connection";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -35,8 +40,25 @@ v1.onError(errorHandler);
 
 v1.get("/", (c) => ApiResponse.ok(c, "BPH CMS is running", { service: "bph-cms" }));
 
+// Aset media publik (dipakai cover_image_url). Cache immutable — key uuid unik.
+v1.get("/storage/*", async (c) => {
+	const key = c.req.path.replace("/api/v1/storage/", "");
+	if (!key || key.includes("..")) return c.notFound();
+
+	const object = await c.env.BUCKET.get(key);
+	if (!object) return c.notFound();
+
+	return new Response(object.body, {
+		headers: {
+			"Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
+			"Cache-Control": "public, max-age=31536000, immutable",
+		},
+	});
+});
+
 v1.route("/events", publicEventRouter);
 v1.route("/admin/events", adminEventRouter);
+v1.route("/admin/media", mediaRouter);
 
 app.route("/api/v1", v1);
 
