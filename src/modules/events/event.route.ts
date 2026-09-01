@@ -7,11 +7,12 @@ import { ApiResponse } from "../../shared/api-response";
 import { getDb } from "../../db/connection";
 import { eventService } from "./event.service";
 import {
+	listEvents,
 	createEvent,
+	updateEvent,
 	deleteEvent,
 	deleteSession,
 	addSession,
-	updateEvent,
 	updateSession,
 	reorderSessions,
 } from "./event.controller";
@@ -36,6 +37,7 @@ export const adminEventRouter = new Hono<AppContext>();
 // Semua endpoint admin wajib session valid + role admin (SDD §5/§6).
 adminEventRouter.use("*", adminAuth, requireRole("admin"));
 
+adminEventRouter.get("/", ok("List all events (admin, incl. drafts, with sessions)"), listEvents);
 adminEventRouter.post(
 	"/",
 	ok("Create event (sessions inline optional)", { 201: { description: "Created" }, 409: { description: "Slug conflict" } }),

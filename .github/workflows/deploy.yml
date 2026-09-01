@@ -16,8 +16,16 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
+      - name: Install API dependencies
         run: npm ci --legacy-peer-deps
+
+      - name: Install panel dependencies
+        run: npm ci --legacy-peer-deps
+        working-directory: panel
+
+      - name: Build admin panel
+        run: npm run build
+        working-directory: panel
 
       - name: Apply D1 migrations
         run: npx wrangler d1 migrations apply bph-cms-db --remote

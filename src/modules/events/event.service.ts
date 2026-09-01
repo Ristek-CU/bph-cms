@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 import type { z } from "zod";
 import { ApiError } from "../../shared/api-error";
@@ -304,8 +304,50 @@ export const eventService = {
 		return this.getWithSessions(db, eventId);
 	},
 
+	async listAdmin(db: Db) {
+		// ponytail: no pagination — admin panel fetches all; add when > 100 events.
+		const rows = await db
+			.select()
+			.from(events)
+			.orderBy(desc(events.startsAtMs));
+		const all = await db
+			.select()
+			.from(eventSessions)
+			.orderBy(asc(eventSessions.sortOrder), asc(eventSessions.startsAtMs));
+		const byEvent = new Map<string, typeof eventSessions.$inferSelect[]>();
+		for (const s of all) {
+			const arr = byEvent.get(s.eventId) ?? [];
+			arr.push(s);
+			byEvent.set(s.eventId, arr);
+		}
+		return rows.map((e) => ({
+			id: e.id,
+			slug: e.slug,
+			title: e.title,
+			description: e.description,
+			cover_image_url: e.coverImageUrl,
+			starts_at: e.startsAt,
+			ends_at: e.endsAt,
+			location: e.location,
+			location_url: e.locationUrl,
+			registration_url: e.registrationUrl,
+			registration_open: e.registrationOpen,
+			organizer: e.organizer,
+			status: e.status,
+			sessions: (byEvent.get(e.id) || []).map((s) => ({
+				id: s.id,
+				name: s.name,
+				starts_at: s.startsAt,
+				ends_at: s.endsAt,
+				speaker: s.speaker,
+				location: s.location,
+				description: s.description,
+			})),
+		}));
+	},
+
 	async setStatus(db: Db, id: string, status: "draft" | "published") {
-		const ev = await this.getEventOr404(db, id);
+		await this.getEventOr404(db, id);
 		await db
 			.update(events)
 			.set({ status, updatedAt: new Date().toISOString() })

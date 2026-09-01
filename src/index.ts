@@ -80,6 +80,21 @@ v1.get("/reference", (c) => {
 	return Scalar({ theme: "saturn", url: "/api/v1/openapi" })(c, async () => {});
 });
 
+// Proxy login ke service auth via binding — admin panel SPA cukup satu origin.
+v1.post("/auth/sign-in", async (c) => {
+	const res = await c.env.AUTH_SERVICE.fetch(
+		new Request("http://internal/v1/auth/sign-in", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: await c.req.text(),
+		}),
+	);
+	return new Response(res.body, {
+		status: res.status,
+		headers: { "Content-Type": "application/json" },
+	});
+});
+
 app.route("/api/v1", v1);
 
 app.notFound((c) =>

@@ -40,6 +40,11 @@ export const parseParams = <S extends z.ZodType>(c: Ctx, schema: S): z.infer<S> 
 	return result.data;
 };
 
+export const listEvents = async (c: Ctx) => {
+	const result = await eventService.listAdmin(getDb(c.env.DB));
+	return ApiResponse.ok(c, "OK", result);
+};
+
 export const createEvent = async (c: Ctx) => {
 	const input = await parseJson(c, createEventSchema);
 	const result = await eventService.create(getDb(c.env.DB), input);

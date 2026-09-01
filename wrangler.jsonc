@@ -7,6 +7,11 @@
 	"workers_dev": false,
 	"preview_urls": false,
 	"keep_vars": true,
+	"assets": {
+		"directory": "./panel/dist",
+		"not_found_handling": "single-page-application",
+		"binding": "ASSETS"
+	},
 	"routes": [
 		{
 			"pattern": "bph-cms.sga-cakrawala.org",
