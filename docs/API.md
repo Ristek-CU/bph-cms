@@ -3,8 +3,11 @@
 **Versi:** 1.1 (per 2 September 2026 — sinkron dengan kode di `main`)
 **Base URL produksi:** `https://bph-cms.sga-cakrawala.org/api/v1`
 **Base URL dev:** `http://localhost:8791/api/v1`
-**OpenAPI spec hidup:** `GET /api/v1/openapi` · UI interaktif (Scalar): `/api/v1/reference`
+**UI dokumentasi interaktif (Scalar, self-host):** `https://bph-cms.sga-cakrawala.org/api/v1/reference`
+**Spec OpenAPI 3.1 (import ke Postman/Insomnia):** `https://bph-cms.sga-cakrawala.org/api/v1/openapi`
 **Untuk:** developer FE landing page SGA & FE panel admin.
+
+> **Akses docs & panel:** dokumentasi terbuka untuk semua (read-only). Untuk mencoba endpoint admin via panel: akun dev `ristek@cakrawala.com` (mintakan password ke pengelola). Scalar juga punya tombol "Test Request" — isi Bearer token dari sign-in §3.1.
 
 ---
 
