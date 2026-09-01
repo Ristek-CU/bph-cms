@@ -7,19 +7,17 @@ import { Confirm, useToast } from "../components/ui.jsx";
 
 let sessSeq = 0;
 const newSession = (after) => {
-	// Default: lanjut 1 jam setelah sesi terakhir — runsheet nyambung.
-	const base = after ? after._end || after._start : "";
-	const t = base ? new Date(`${base.slice(0, 10)}T${(base.slice(11) || "08:00")}:00`) : null;
-	const bump = (mins) => {
-		if (!t) return "";
-		const d = new Date(t.getTime() + mins * 60000);
-		return `${d.toISOString().slice(0, 10)}T${d.toISOString().slice(11, 16)}`;
-	};
+	// Default: tanggal + jam terakhir dari sesi sebelumnya, durasi 1 jam — runsheet nyambung.
+	const date = after?._date || "";
+	const start = after?._end || "08:00";
+	const [h, m] = start.split(":").map(Number);
+	const end = `${String(Math.min(h + 1, 23)).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 	return {
 		_key: `s${++sessSeq}`,
 		name: "",
-		_start: bump(0),
-		_end: bump(60),
+		_date: date,
+		_start: start,
+		_end: end,
 		speaker: "",
 		location: "",
 		description: "",
@@ -29,8 +27,8 @@ const withKeys = (arr) =>
 	arr.map((s) => ({
 		...s,
 		_key: `s${++sessSeq}`,
-		_start: isoToInput(s.starts_at),
-		_end: isoToInput(s.ends_at),
+		...splitDT(isoToInput(s.starts_at)),
+		_end: isoToInput(s.ends_at).slice(11, 16),
 	}));
 
 // Terjemahan error 422 server ke Bahasa Indonesia (fallback: pesan asli).
@@ -68,8 +66,20 @@ function Field({ label, required, help, error, children }) {
 	);
 }
 
+// State jam sesi disimpan sebagai bagian: _date (YYYY-MM-DD), _start/_end (HH:MM).
+// Selesai < mulai di hari sama = sesi lewat tengah malam (end dianggap hari berikutnya).
+const splitDT = (dt) => ({ _date: dt?.slice(0, 10) || "", _start: dt?.slice(11, 16) || "" });
+const joinDT = (date, time, nextDay) => {
+	if (!date || !time) return "";
+	if (!nextDay) return `${date}T${time}`;
+	const d = new Date(`${date}T${time}:00+07:00`);
+	d.setUTCDate(d.getUTCDate() + 1);
+	return `${d.toISOString().slice(0, 10)}T${time}`;
+};
+
 function SessionCard({ s, i, err, onChange, onRemove }) {
 	const set = (k) => (e) => onChange(i, { [k]: e.target.value });
+	const overnight = s._start && s._end && s._end <= s._start;
 	return (
 		<div className="sess">
 			<div className="sess-head">
@@ -79,14 +89,20 @@ function SessionCard({ s, i, err, onChange, onRemove }) {
 			<Field label="Nama sesi" required error={err?.name}>
 				<input type="text" value={s.name} onChange={set("name")} placeholder="Seminar Teknis: AI di Industri" />
 			</Field>
-			<div className="grid-2">
-				<Field label="Mulai (WIB)" required error={err?.starts_at}>
-					<input type="datetime-local" value={s._start} onChange={set("_start")} />
+			<div className="sess-when">
+				<Field label="Tanggal" required error={err?.date}>
+					<input type="date" value={s._date} onChange={set("_date")} aria-label={`Tanggal sesi ${i + 1}`} />
 				</Field>
-				<Field label="Selesai (WIB)" required error={err?.ends_at}>
-					<input type="datetime-local" value={s._end} onChange={set("_end")} />
+				<Field label="Mulai jam" required error={err?.starts_at}>
+					<input type="time" value={s._start} onChange={set("_start")} aria-label={`Jam mulai sesi ${i + 1}`} />
+				</Field>
+				<Field label="Selesai jam" required error={err?.ends_at}>
+					<input type="time" value={s._end} onChange={set("_end")} aria-label={`Jam selesai sesi ${i + 1}`} />
 				</Field>
 			</div>
+			{s._start && s._end && overnight && (
+				<p className="field-help">Selesai lewat tengah malam — sesi dihitung sampai besok ({s._end} hari berikutnya).</p>
+			)}
 			<div className="grid-2">
 				<Field label="Pemateri / PIC">
 					<input type="text" value={s.speaker || ""} onChange={set("speaker")} placeholder="Nama pemateri" />
@@ -126,8 +142,8 @@ function Preview({ form, sessions, cover }) {
 						{sessions.map((s) => (
 							<li key={s._key}>
 								<span className="t">
-									{s._start ? fmtTime(toIsoWib(s._start)) : "--:00"}
-									<small>–{s._end ? fmtTime(toIsoWib(s._end)) : "--:00"}</small>
+									{s._start || "--:00"}
+									<small>–{s._end || "--:00"}</small>
 								</span>
 								<span>
 									<strong>{s.name || "(nama sesi)"}</strong>
@@ -208,15 +224,18 @@ export default function EventEditor({ event, prefillDate }) {
 			organizer: form.organizer.trim() || null,
 			cover_image_url: cover,
 			sessions: sortedSessions
-				.filter((s) => s.name.trim())
-				.map((s) => ({
-					name: s.name.trim(),
-					starts_at: toIsoWib(s._start),
-					ends_at: toIsoWib(s._end),
-					speaker: s.speaker || null,
-					location: s.location || null,
-					description: s.description || null,
-				})),
+				.filter((s) => s.name.trim() && s._date && s._start && s._end)
+				.map((s) => {
+					const overnight = s._end <= s._start;
+					return {
+						name: s.name.trim(),
+						starts_at: toIsoWib(joinDT(s._date, s._start)),
+						ends_at: toIsoWib(joinDT(s._date, s._end, overnight)),
+						speaker: s.speaker || null,
+						location: s.location || null,
+						description: s.description || null,
+					};
+				}),
 		};
 	}
 
@@ -229,12 +248,11 @@ export default function EventEditor({ event, prefillDate }) {
 		if (form.starts_at && form.ends_at && form.ends_at <= form.starts_at)
 			errs.ends_at = "Jam selesai harus setelah jam mulai.";
 		if (!form.location.trim()) errs.location = "Lokasi wajib diisi.";
-		// Sesi bernama wajib punya jam lengkap dan berurutan.
+		// Sesi bernama wajib lengkap: tanggal + jam.
 		sortedSessions.forEach((s, i) => {
+			if (!s._date) errs[`sessions.${i}.date`] = "Tanggal sesi belum diisi.";
 			if (!s._start) errs[`sessions.${i}.starts_at`] = "Jam mulai sesi belum diisi.";
 			if (!s._end) errs[`sessions.${i}.ends_at`] = "Jam selesai sesi belum diisi.";
-			else if (s._start && s._end <= s._start)
-				errs[`sessions.${i}.ends_at`] = "Jam selesai sesi harus setelah jam mulai.";
 		});
 		return errs;
 	}
@@ -407,6 +425,7 @@ export default function EventEditor({ event, prefillDate }) {
 							i={i}
 							err={{
 								name: errors[`sessions.${i}.name`],
+							date: errors[`sessions.${i}.date`],
 								starts_at: errors[`sessions.${i}.starts_at`],
 								ends_at: errors[`sessions.${i}.ends_at`],
 								range: errors[`sessions.${i}`],

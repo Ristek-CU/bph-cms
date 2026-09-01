@@ -82,7 +82,8 @@ sudah match e2e.
 Dokumen perencanaan panel + modul berikutnya:
 [PANEL-UI.md](./PANEL-UI.md) (spesifikasi dashboard admin), [QPR-PRD.md](./QPR-PRD.md)
 (konsep modul penilaian internal — butuh konfirmasi BPH sebelum SDD),
-[FE-INTEGRATION.md](./FE-INTEGRATION.md) (panduan untuk tim FE landing page).
+[API.md](./API.md) (**contract lengkap semua endpoint — sumber utama untuk FE**),
+[FE-INTEGRATION.md](./FE-INTEGRATION.md) (panduan konten/asset/GCal untuk tim FE landing page).
 
 ## 9. Catatan verifikasi (planning 1 Sep 2026 — lihat [PLAN.md](../PLAN.md))
 

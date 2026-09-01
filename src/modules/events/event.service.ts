@@ -152,7 +152,21 @@ export const eventService = {
 			.from(eventSessions)
 			.where(eq(eventSessions.eventId, id))
 			.orderBy(asc(eventSessions.sortOrder), asc(eventSessions.startsAtMs));
-		return { ...event, sessions };
+		// Shape admin konsisten snake_case (sama seperti listAdmin) — FE panel tidak
+		// perlu tahu nama kolom internal Drizzle (camelCase).
+		return {
+			...event,
+			sessions: sessions.map((s) => ({
+				id: s.id,
+				name: s.name,
+				starts_at: s.startsAt,
+				ends_at: s.endsAt,
+				speaker: s.speaker,
+				location: s.location,
+				description: s.description,
+				sort_order: s.sortOrder,
+			})),
+		};
 	},
 
 	async update(db: Db, id: string, input: UpdateEventInput) {
