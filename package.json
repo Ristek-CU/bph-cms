@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "wrangler dev --port 8791",
+		"build": "npm --prefix panel install && npm --prefix panel run build",
 		"deploy": "wrangler deploy",
 		"cf-typegen": "wrangler types --env-interface CloudflareBindings",
 		"db:generate": "drizzle-kit generate",
