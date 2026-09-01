@@ -1,7 +1,8 @@
 import { Hono } from "hono";
-import { describeRoute } from "hono-openapi";
+import { describeRoute, resolver } from "hono-openapi";
 import { ApiError } from "../../shared/api-error";
 import { ApiResponse } from "../../shared/api-response";
+import { successWrapper, errorWrapper, mediaUploadSchema } from "../openapi/schemas";
 import { uuidv7 } from "uuidv7";
 import { adminAuth } from "../../middlewares/admin-auth";
 import { requireRole } from "../../middlewares/require-role";
@@ -24,12 +25,20 @@ mediaRouter.post(
 	"/",
 	describeRoute({
 		summary: "Upload cover image (multipart 'file')",
+		description:
+			"multipart/form-data field 'file'. JPG/PNG/WebP, maks 5MB. 201 → { url } untuk cover_image_url. Nama file disanitasi (uuidv7).",
 		tags: ["Media"],
 		security: [{ bearerAuth: [] }],
 		responses: {
-			201: { description: "Uploaded, returns { url }" },
+			201: {
+				description: "Uploaded, returns { url }",
+				content: { "application/json": { schema: resolver(successWrapper(mediaUploadSchema)) } },
+			},
 			401: { description: "Unauthorized" },
-			422: { description: "Validation error (type/size)" },
+			422: {
+				description: "Validation error (type/size)",
+				content: { "application/json": { schema: resolver(errorWrapper) } },
+			},
 		},
 	}),
 	async (c) => {
