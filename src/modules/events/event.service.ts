@@ -304,6 +304,15 @@ export const eventService = {
 		return this.getWithSessions(db, eventId);
 	},
 
+	async setStatus(db: Db, id: string, status: "draft" | "published") {
+		const ev = await this.getEventOr404(db, id);
+		await db
+			.update(events)
+			.set({ status, updatedAt: new Date().toISOString() })
+			.where(eq(events.id, id));
+		return this.getWithSessions(db, id);
+	},
+
 	async getEventOr404(db: Db, id: string): Promise<EventRow> {
 		const [row] = await db.select().from(events).where(eq(events.id, id)).limit(1);
 		if (!row) throw ApiError.notFound("Event not found");
