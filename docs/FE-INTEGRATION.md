@@ -1,10 +1,12 @@
 # FE-INTEGRATION — Panduan Konsumsi API untuk Tim FE Landing Page SGA
 
-**Versi:** 1.0
+**Versi:** 1.1
 **Tanggal:** 2 September 2026
 **Base URL produksi:** `https://bph-cms.sga-cakrawala.org/api/v1`
 **Base URL dev panel:** `http://localhost:8791/api/v1` (via proxy Vite)
-**Dokumen terkait:** [SDD.md §4](./SDD.md) (contract final) · [PRD.md](./PRD.md) · [PANEL-UI.md](./PANEL-UI.md)
+**Dokumen terkait:** [API.md](./API.md) (contract lengkap semua endpoint — sumber utama) · [SDD.md §4](./SDD.md) · [PRD.md](./PRD.md) · [PANEL-UI.md](./PANEL-UI.md)
+
+> Contract endpoint (request/response lengkap) ada di [API.md](./API.md). Dokumen ini fokus ke **cara pakai untuk halaman landing page**: susunan konten detail, asset, tombol Google Calendar, pola fetch.
 
 Dokumen ini untuk tim FE `sga-landing-page`: endpoint yang tersedia, bentuk data, konten & aset yang diharapkan ada di halaman detail event, tombol Google Calendar, dan dummy JSON untuk mulai koding tanpa nunggu backend.
 
@@ -27,77 +29,13 @@ Dokumen ini untuk tim FE `sga-landing-page`: endpoint yang tersedia, bentuk data
 
 ## 2. Endpoint Publik (tanpa auth)
 
-### 2.1 `GET /events?status=&limit=&page=`
+FE LP hanya butuh 3 endpoint — detail lengkap (query, field, contoh JSON) di [API.md §2](./API.md#2-endpoint-publik--event):
 
-- `status`: `ongoing` | `upcoming` | `past` (opsional)
-- `limit`: default 12, max 50 · `page`: default 1
-- Sortir sudah benar dari server: ongoing di atas → upcoming terdekat → past terbaru.
-- Response `data`:
-
-```json
-{
-  "items": [
-    {
-      "id": "0192…",
-      "slug": "cakrawala-festival-2026",
-      "title": "Cakrawala Festival 2026",
-      "description": "…",
-      "cover_image_url": "https://bph-cms.sga-cakrawala.org/api/v1/storage/covers/….jpg",
-      "starts_at": "2026-09-10T08:00:00+07:00",
-      "ends_at": "2026-09-11T17:00:00+07:00",
-      "location": "Cakrawala University, Kampus Kemang",
-      "location_url": "https://maps.google.com/…",
-      "registration_url": "https://…",
-      "registration_open": true,
-      "organizer": "BEM",
-      "status": "upcoming"
-    }
-  ],
-  "meta": { "current_page": 1, "total": 24, "per_page": 12 }
-}
-```
-
-- List **tidak** menyertakan `sessions` — ambil dari detail.
-
-### 2.2 `GET /events/:slug`
-
-Detail + `sessions[]` urut `starts_at`. 404 bila draft/tidak ada — jangan render halaman untuk draft.
-
-```json
-{
-  "id": "0192…",
-  "slug": "cakrawala-festival-2026",
-  "title": "Cakrawala Festival 2026",
-  "description": "Acara tahunan…",
-  "cover_image_url": "…",
-  "starts_at": "2026-09-10T08:00:00+07:00",
-  "ends_at": "2026-09-11T17:00:00+07:00",
-  "location": "Cakrawala University, Kampus Kemang",
-  "location_url": "https://maps.app.goo.gl/…",
-  "registration_url": "https://forms.gle/…",
-  "registration_open": true,
-  "organizer": "BPH SGA",
-  "sessions": [
-    {
-      "id": "0193…",
-      "name": "Seminar Teknis: AI di Industri",
-      "starts_at": "2026-09-10T13:00:00+07:00",
-      "ends_at": "2026-09-10T15:00:00+07:00",
-      "speaker": "Nama Pemateri",
-      "location": "Auditorium Lt. 2",
-      "description": "Membahas penerapan AI…"
-    }
-  ]
-}
-```
-
-### 2.3 `GET /events/calendar?month=YYYY-MM`
-
-Event (published) yang rentangnya beririsan dengan bulan tsb — event multi-hari tetap masuk. Untuk komponen kalender bulanan di portal.
-
-```json
-{ "items": [ { "slug": "…", "title": "…", "starts_at": "…", "ends_at": "…", "location": "…" } ] }
-```
+| Endpoint | Untuk |
+|---|---|
+| `GET /events?status=&limit=&page=` | Section event LP + portal list. Sortir dari server. Tanpa `sessions`. |
+| `GET /events/:slug` | Halaman detail share link. + `sessions[]` urut jam + `status`. 404 = draft/tidak ada. |
+| `GET /events/calendar?month=YYYY-MM` | Komponen kalender bulanan portal. Field ringkas. |
 
 ## 3. Konten & Aset Halaman Detail (`/events/:slug`)
 

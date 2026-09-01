@@ -166,6 +166,10 @@ textarea { resize: vertical; }
 	padding: 4px 6px; border-radius: 6px;
 }
 .sess .remove:hover { background: #fee2e2; }
+/* Baris tanggal + jam: date lebih lebar dari time. */
+.sess-when { display: grid; grid-template-columns: 3fr 2fr 2fr; gap: 0 12px; }
+@media (max-width: 640px) { .sess-when { grid-template-columns: 1fr; } }
+.sess-when input[type="time"] { text-align: center; font-variant-numeric: tabular-nums; }
 
 /* Cover upload */
 .cover-preview { max-width: 320px; width: 100%; border-radius: 10px; display: block; margin-top: 8px; border: 1px solid var(--border); }
