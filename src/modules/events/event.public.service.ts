@@ -93,7 +93,8 @@ export const publicEventService = {
 			.where(eq(eventSessions.eventId, ev.id))
 			.orderBy(asc(eventSessions.startsAtMs));
 
-		return { ...toShape(ev), sessions };
+		// Status dihitung server — konsisten dengan list (SDD §4.1).
+		return { ...toShape(ev), status: computeStatus(ev.startsAt, ev.endsAt, Date.now()), sessions };
 	},
 
 	async calendar(db: Db, month: string) {

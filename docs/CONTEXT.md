@@ -71,11 +71,18 @@ Fase 2 (nanti): push ke kalender publik via service account (signing JWT di Work
 
 ## 8. Status repo
 
-**M1–M6 selesai (1 Sep 2026).** Service bph-cms jalan: scaffold + D1/R2 provision,
-admin auth via `AUTH_SERVICE` binding, CRUD event+sessions, endpoint publik
-(list/detail/calendar, status dihitung server), upload R2 + publish/unpublish,
-OpenAPI di `/api/v1/openapi` + Scalar `/api/v1/reference`, self-check status
-(`npm test`, 9 checks). Siap integrasi FE — contract SDD §4 sudah match e2e.
+**M1–M6 selesai (1 Sep 2026) + hardening & dokumen panel (2 Sep 2026).** Service bph-cms
+jalan: scaffold + D1/R2 provision, admin auth via `AUTH_SERVICE` binding, CRUD
+event+sessions, endpoint publik (list/detail/calendar, status dihitung server,
+rate limit 60 req/menit per IP+path via binding `RATE_LIMITER`), upload R2 +
+publish/unpublish, OpenAPI di `/api/v1/openapi` + Scalar `/api/v1/reference`,
+self-check status (`npm test`, 9 checks). Siap integrasi FE — contract SDD §4
+sudah match e2e.
+
+Dokumen perencanaan panel + modul berikutnya:
+[PANEL-UI.md](./PANEL-UI.md) (spesifikasi dashboard admin), [QPR-PRD.md](./QPR-PRD.md)
+(konsep modul penilaian internal — butuh konfirmasi BPH sebelum SDD),
+[FE-INTEGRATION.md](./FE-INTEGRATION.md) (panduan untuk tim FE landing page).
 
 ## 9. Catatan verifikasi (planning 1 Sep 2026 — lihat [PLAN.md](../PLAN.md))
 
