@@ -5,6 +5,7 @@ export type Bindings = {
 	BUCKET: R2Bucket;
 	AUTH_SERVICE: Fetcher;
 	ASSETS: Fetcher;
+	RATE_LIMITER: RateLimit;
 	API_BASE_URL: string;
 	CORS_ORIGIN: string;
 };

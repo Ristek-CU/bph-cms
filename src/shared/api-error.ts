@@ -42,6 +42,10 @@ export class ApiError extends Error {
 		return new ApiError(STATUS_CODES.CONFLICT, message);
 	}
 
+	static tooManyRequests(message = "Too many requests") {
+		return new ApiError(STATUS_CODES.TOO_MANY_REQUESTS, message);
+	}
+
 	// Contract ekosistem: validation error = 422 dengan errors: { field: [msg] }
 	static validation(message = "Validation failed", errors?: unknown) {
 		return new ApiError(STATUS_CODES.UNPROCESSABLE_ENTITY, message, errors);

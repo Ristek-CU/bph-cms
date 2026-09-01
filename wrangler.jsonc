@@ -43,6 +43,14 @@
 			"service": "sga-superapp-auth"
 		}
 	],
+	// Rate limit endpoint publik (pola gateway-api superapp, namespace_id unik per akun CF).
+	"ratelimits": [
+		{
+			"name": "RATE_LIMITER",
+			"namespace_id": "1003",
+			"simple": { "limit": 60, "period": 60 }
+		}
+	],
 	"dev": {
 		"inspector_port": 9236
 	}

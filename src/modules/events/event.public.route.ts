@@ -4,6 +4,7 @@ import { describeRoute } from "hono-openapi";
 import { ApiError } from "../../shared/api-error";
 import { ApiResponse } from "../../shared/api-response";
 import { getDb } from "../../db/connection";
+import { publicRateLimiter } from "../../middlewares/rate-limiter";
 import { publicEventService } from "./event.public.service";
 import type { AppContext } from "../../types";
 
@@ -30,6 +31,9 @@ const ok = (summary: string) =>
 	});
 
 export const publicEventRouter = new Hono<AppContext>();
+
+// Endpoint publik di rate-limit per IP+path (SDD §6).
+publicEventRouter.use("*", publicRateLimiter);
 
 // PENTING: /calendar didaftarkan sebelum /:slug agar tidak tertelan param.
 publicEventRouter.get(

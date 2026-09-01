@@ -73,16 +73,3 @@ adminEventRouter.post(
 		return ApiResponse.ok(c, "Event unpublished", result);
 	},
 );
-
-
-adminEventRouter.post("/:id/publish", async (c) => {
-	const { id } = c.req.param() as { id: string };
-	const result = await eventService.setStatus(getDb(c.env.DB), id, "published");
-	return ApiResponse.ok(c, "Event published", result);
-});
-
-adminEventRouter.post("/:id/unpublish", async (c) => {
-	const { id } = c.req.param() as { id: string };
-	const result = await eventService.setStatus(getDb(c.env.DB), id, "draft");
-	return ApiResponse.ok(c, "Event unpublished", result);
-});
