@@ -45,7 +45,7 @@ function Login({ onLogin }) {
 	const [err, setErr] = useState("");
 
 	const submit = async (e) => {
-		e.preventDefault();
+		e?.preventDefault?.();
 		setErr("");
 		try {
 			onLogin(await signIn(email.trim(), password));
