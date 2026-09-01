@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { requestId } from "hono/request-id";
 import { cors } from "hono/cors";
-import { openAPIRouteHandler } from "hono-openapi";
-
+import { openAPIRouteHandler, describeRoute, resolver } from "hono-openapi";
+import { successWrapper, errorWrapper, authDataSchema } from "./modules/openapi/schemas";
 import { errorHandler } from "./shared/error-handler";
 import { ApiResponse } from "./shared/api-response";
 import { STATUS_CODES } from "./shared/status-codes";
@@ -100,6 +100,23 @@ v1.get("/reference", (c) => {
 });
 
 // Proxy login/daftar ke service auth via binding — admin panel SPA cukup satu origin.
+const describeAuth = (summary: string, description: string) =>
+	describeRoute({
+		summary,
+		description,
+		tags: ["Auth"],
+		responses: {
+			200: {
+				description: "Sukses — data.token dipakai sebagai Bearer untuk endpoint admin",
+				content: { "application/json": { schema: resolver(successWrapper(authDataSchema)) } },
+			},
+			401: {
+				description: "Email/password salah",
+				content: { "application/json": { schema: resolver(errorWrapper) } },
+			},
+		},
+	});
+
 const proxyAuth = (path: string) => async (c: Parameters<import("hono").Handler>[0]) => {
 	const res = await c.env.AUTH_SERVICE.fetch(
 		new Request(`http://internal/v1/auth/${path}`, {
@@ -114,8 +131,22 @@ const proxyAuth = (path: string) => async (c: Parameters<import("hono").Handler>
 	});
 };
 
-v1.post("/auth/sign-in", proxyAuth("sign-in"));
-v1.post("/auth/sign-up", proxyAuth("sign-up"));
+v1.post(
+	"/auth/sign-in",
+	describeAuth(
+		"Sign in (proxy ke service auth superapp)",
+		"Body: { email, password }. 200 → { token, user }. Token dipakai: Authorization: Bearer <token> untuk semua endpoint admin.",
+	),
+	proxyAuth("sign-in"),
+);
+v1.post(
+	"/auth/sign-up",
+	describeAuth(
+		"Sign up (proxy)",
+		"Body: { name, email, password (min 8) }. User baru role 'user' — perlu dijadikan admin oleh pengelola untuk akses panel.",
+	),
+	proxyAuth("sign-up"),
+);
 
 app.route("/api/v1", v1);
 
