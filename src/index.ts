@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { requestId } from "hono/request-id";
 import { cors } from "hono/cors";
 import { openAPIRouteHandler } from "hono-openapi";
-import { Scalar } from "@scalar/hono-api-reference";
 
 import { errorHandler } from "./shared/error-handler";
 import { ApiResponse } from "./shared/api-response";
@@ -76,8 +75,28 @@ v1.get("/openapi", (c, _next) =>
 );
 
 v1.get("/reference", (c) => {
-	// @ts-expect-error Scalar plugin typing expects generic Env; runtime-compatible with AppContext
-	return Scalar({ theme: "saturn", url: "/api/v1/openapi" })(c, async () => {});
+	// Scalar self-host — bundle dari aset panel (/vendor/scalar-api-reference.js),
+	// tanpa CDN eksternal (jaringan kampus sering blokir jsdelivr).
+	// Upgrade: unduh versi baru dari https://cdn.jsdelivr.net/npm/@scalar/api-reference
+	// ke panel/public/vendor/scalar-api-reference.js.
+	return c.html(`<!doctype html>
+<html>
+  <head>
+    <title>BPH CMS — API Reference</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/vendor/scalar-api-reference.js"></script>
+    <script>
+      Scalar.createApiReference('#app', {
+        url: '/api/v1/openapi',
+        _integration: 'hono',
+      });
+    </script>
+  </body>
+</html>`);
 });
 
 // Proxy login/daftar ke service auth via binding — admin panel SPA cukup satu origin.
