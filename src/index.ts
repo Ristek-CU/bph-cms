@@ -111,11 +111,17 @@ const describeAuth = (summary: string, description: string) =>
 	});
 
 const proxyAuth = (path: string) => async (c: Parameters<import("hono").Handler>[0]) => {
+	const raw = await c.req.text();
+	// Tolak body kosong/bukan JSON dengan 400 rapi — sebelumnya 500 "Malformed JSON"
+	// dari service auth saat parsing gagal.
+	if (!raw || /{|\[/.test(raw) === false) {
+		throw ApiError.badRequest("Body JSON wajib: { email, password }");
+	}
 	const res = await c.env.AUTH_SERVICE.fetch(
 		new Request(`http://internal/v1/auth/${path}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: await c.req.text(),
+			body: raw,
 		}),
 	);
 	return new Response(res.body, {

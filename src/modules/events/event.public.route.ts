@@ -23,8 +23,16 @@ const listQuerySchema = z.object({
 });
 
 const monthQuerySchema = z.object({
-	month: z.string().regex(/^\d{4}-\d{2}$/, "Must be YYYY-MM, e.g. 2026-09"),
+	month: z
+		.string()
+		.regex(/^\d{4}-\d{2}$/, "Must be YYYY-MM, e.g. 2026-09")
+		.optional()
+		.describe("Default: bulan berjalan (WIB)"),
 });
+
+// YYYY-MM bulan berjalan di Asia/Jakarta (en-CA → format YYYY-MM).
+const currentMonthWIB = () =>
+	new Date().toLocaleString("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit" });
 
 // describeRoute dengan response schema — docs detail (Scalar) hidup dari sini.
 const ok = (
@@ -59,7 +67,7 @@ publicEventRouter.get(
 	"/calendar",
 	ok(
 		"List events overlapping a month",
-		"Event published yang rentangnya beririsan dengan bulan (YYYY-MM, WIB). Event multi-hari tetap masuk. Bulan kosong = items []",
+		"Event published yang rentangnya beririsan dengan bulan (YYYY-MM, WIB). Tanpa ?month= dipakai bulan berjalan. Event multi-hari tetap masuk. Bulan kosong = items []",
 		successWrapper(z.object({ items: z.array(calendarItemSchema) })),
 	),
 	async (c) => {
@@ -70,7 +78,7 @@ publicEventRouter.get(
 				z.flattenError(q.error).fieldErrors as Record<string, string[]>,
 			);
 		}
-		const result = await publicEventService.calendar(getDb(c.env.DB), q.data.month);
+		const result = await publicEventService.calendar(getDb(c.env.DB), q.data.month ?? currentMonthWIB());
 		return ApiResponse.ok(c, "OK", result);
 	},
 );
