@@ -74,30 +74,10 @@ v1.get("/openapi", (c, _next) =>
 	})(c, _next),
 );
 
-v1.get("/reference", (c) => {
-	// Scalar self-host — bundle dari aset panel (/vendor/scalar-api-reference.js),
-	// tanpa CDN eksternal (jaringan kampus sering blokir jsdelivr).
-	// Upgrade: unduh versi baru dari https://cdn.jsdelivr.net/npm/@scalar/api-reference
-	// ke panel/public/vendor/scalar-api-reference.js.
-	return c.html(`<!doctype html>
-<html>
-  <head>
-    <title>BPH CMS — API Reference</title>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  </head>
-  <body>
-    <div id="app"></div>
-    <script src="/vendor/scalar-api-reference.js"></script>
-    <script>
-      Scalar.createApiReference('#app', {
-        url: '/api/v1/openapi',
-        _integration: 'hono',
-      });
-    </script>
-  </body>
-</html>`);
-});
+// Dokumentasi API — Swagger UI self-host di /api-docs (aset dari panel/public/docs).
+// Alternatif: spec JSON di /api/v1/openapi (import ke Postman/Insomnia).
+// (Path /docs bentrok dengan direktori aset docs/ — pakai /api-docs.)
+v1.get("/reference", (c) => c.redirect("/api-docs", 302));
 
 // Proxy login/daftar ke service auth via binding — admin panel SPA cukup satu origin.
 const describeAuth = (summary: string, description: string) =>
@@ -149,6 +129,39 @@ v1.post(
 );
 
 app.route("/api/v1", v1);
+
+// Halaman docs Swagger UI — di app root (bukan /api/v1) supaya path /api-docs.
+app.get("/api-docs", (c) =>
+	c.html(`<!doctype html>
+<html lang="id">
+  <head>
+    <title>BPH CMS — API Reference</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/webp" href="/logo-sga.webp" />
+    <link rel="stylesheet" href="/docs/swagger-ui.css" />
+    <style>
+      body { margin: 0; }
+      .topbar { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="/docs/swagger-ui-bundle.js"></script>
+    <script src="/docs/swagger-ui-standalone-preset.js"></script>
+    <script>
+      window.onload = () => {
+        window.ui = SwaggerUIBundle({
+          url: '/api/v1/openapi',
+          dom_id: '#swagger-ui',
+          docExpansion: 'list',
+          persistAuthorization: true,
+        });
+      };
+    </script>
+  </body>
+</html>`),
+);
 
 app.notFound((c) =>
 	new ApiResponse({
