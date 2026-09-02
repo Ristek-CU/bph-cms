@@ -121,11 +121,11 @@ function App() {
 	);
 }
 
-// #/docs — arahkan ke dokumentasi API (Scalar self-host, buka tab baru).
+// #/docs — arahkan ke dokumentasi API (Swagger UI, buka tab baru).
 function NavigateDocs() {
 	const navigate = useNavigate();
 	useEffect(() => {
-		window.open("/api/v1/reference", "_blank");
+		window.open("/api-docs", "_blank");
 		navigate("/", { replace: true });
 	}, [navigate]);
 	return null;

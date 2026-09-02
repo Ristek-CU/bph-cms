@@ -79,7 +79,7 @@ export function Shell({ user, children, title, crumb, actions }) {
 				<span className="icon" aria-hidden>📋</span> QPR <span className="soon">SEGERA</span>
 			</NavLink>
 			<div className="nav-sep" />
-			<a href="/api/v1/reference" target="_blank" rel="noreferrer" title="Dokumentasi API untuk developer">
+			<a href="/api-docs" target="_blank" rel="noreferrer" title="Dokumentasi API untuk developer">
 				<span className="icon" aria-hidden>🔗</span> Dokumentasi API
 			</a>
 		</nav>
