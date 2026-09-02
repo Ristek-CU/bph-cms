@@ -1,9 +1,11 @@
 import { Hono } from "hono";
+import type { Handler, Next } from "hono";
 import { requestId } from "hono/request-id";
 import { cors } from "hono/cors";
 import { openAPIRouteHandler, describeRoute, resolver } from "hono-openapi";
 import { successWrapper, errorWrapper, authDataSchema } from "./modules/openapi/schemas";
 import { errorHandler } from "./shared/error-handler";
+import { ApiError } from "./shared/api-error";
 import { ApiResponse } from "./shared/api-response";
 import { STATUS_CODES } from "./shared/status-codes";
 import { dbMiddleware } from "./db/connection";
@@ -14,6 +16,7 @@ import { publicEventRouter } from "./modules/events/event.public.route";
 import { mediaRouter } from "./modules/media/media.route";
 import { eventService } from "./modules/events/event.service";
 import { adminAuth } from "./middlewares/admin-auth";
+// dipakai docsAccess di bawah
 import { requireRole } from "./middlewares/require-role";
 import { getDb } from "./db/connection";
 
@@ -61,7 +64,18 @@ v1.route("/events", publicEventRouter);
 v1.route("/admin/events", adminEventRouter);
 v1.route("/admin/media", mediaRouter);
 
-v1.get("/openapi", (c, _next) =>
+// Spec OpenAPI + halaman docs hanya untuk email di allowlist (var DOCS_ALLOW_EMAILS,
+// koma-separator). Spec dilindungi — tanpa Bearer valid + email terdaftar, docs
+// tidak punya apa pun untuk dirender. Endpoint publik (/events) tetap terbuka.
+const docsAccess = async (c: Parameters<Handler<AppContext>>[0], next: Next) => {
+	if (c.req.method === "OPTIONS") return next(); // preflight CORS tidak bawa token
+	await adminAuth(c, next);
+	const allow = c.env.DOCS_ALLOW_EMAILS.split(",").map((e) => e.trim().toLowerCase());
+	if (!allow.includes((c.get("userEmail") ?? "").toLowerCase())) {
+		throw ApiError.forbidden("Forbidden: akun tidak berwenang membuka dokumentasi");
+	}
+};
+v1.get("/openapi", docsAccess, (c, _next) =>
 	openAPIRouteHandler(v1, {
 		documentation: {
 			info: {
@@ -74,8 +88,8 @@ v1.get("/openapi", (c, _next) =>
 	})(c, _next),
 );
 
-// Dokumentasi API — Swagger UI self-host: /docs/ (aset panel/public/docs).
-// Alternatif: spec JSON di /api/v1/openapi (import ke Postman/Insomnia).
+// Dokumentasi API — Swagger UI self-host: /docs/ (aset panel/public/docs), login
+// email allowlist (DOCS_ALLOW_EMAILS). Spec JSON: /api/v1/openapi (Bearer).
 v1.get("/reference", (c) => c.redirect("/docs/", 302));
 
 // Proxy login/daftar ke service auth via binding — admin panel SPA cukup satu origin.

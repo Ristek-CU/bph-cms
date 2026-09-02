@@ -20,7 +20,8 @@
 	],
 	"vars": {
 		"API_BASE_URL": "https://bph-cms.sga-cakrawala.org/api/v1",
-		"CORS_ORIGIN": "https://sga-cakrawala.org,https://cms.sga-cakrawala.org,http://localhost:5173"
+		"CORS_ORIGIN": "https://sga-cakrawala.org,https://cms.sga-cakrawala.org,http://localhost:5173",
+		"DOCS_ALLOW_EMAILS": "ristek@cakrawala.com"
 	},
 	"r2_buckets": [
 		{

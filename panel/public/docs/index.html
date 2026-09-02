@@ -8,21 +8,107 @@
     <style>
       body { margin: 0; }
       .topbar { display: none; }
+      #gate { max-width: 380px; margin: 15vh auto; padding: 24px; font-family: system-ui, sans-serif; }
+      #gate h1 { font-size: 18px; margin: 0 0 8px; }
+      #gate p { font-size: 14px; color: #555; margin: 0 0 16px; }
+      #gate input { width: 100%; box-sizing: border-box; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+      #gate button { width: 100%; padding: 10px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font-size: 14px; cursor: pointer; }
+      #gate .err { color: #b91c1c; font-size: 13px; margin-bottom: 10px; white-space: pre-line; }
     </style>
   </head>
   <body>
+    <div id="gate" hidden>
+      <h1>Dokumentasi API — BPH CMS</h1>
+      <p id="gate-msg">Dokumentasi khusus akun Ristek. Masuk dengan email & password.</p>
+      <div class="err" id="gate-err" hidden></div>
+      <form id="gate-form" hidden>
+        <input type="email" id="email" placeholder="Email" autocomplete="username" required />
+        <input type="password" id="password" placeholder="Password" autocomplete="current-password" required />
+        <button type="submit">Masuk</button>
+      </form>
+    </div>
     <div id="swagger-ui"></div>
     <script src="./swagger-ui-bundle.js"></script>
     <script src="./swagger-ui-standalone-preset.js"></script>
     <script>
-      window.onload = () => {
+      const KEY = 'bph_cms_token';
+      const specUrl = '/api/v1/openapi';
+
+      const gate = document.getElementById('gate');
+      const gateForm = document.getElementById('gate-form');
+      const gateErr = document.getElementById('gate-err');
+      const gateMsg = document.getElementById('gate-msg');
+
+      function showGate(msg, showForm, err) {
+        document.getElementById('swagger-ui').innerHTML = '';
+        gate.hidden = false;
+        gateMsg.textContent = msg;
+        gateForm.hidden = !showForm;
+        gateErr.hidden = !err;
+        gateErr.textContent = err || '';
+      }
+
+      async function tryToken(token) {
+        const res = await fetch(specUrl, { headers: { Authorization: 'Bearer ' + token } });
+        if (res.ok) return { ok: true, spec: await res.json() };
+        return { ok: false, status: res.status, body: await res.json().catch(() => ({})) };
+      }
+
+      function renderSwagger(spec, token) {
+        gate.hidden = true;
         window.ui = SwaggerUIBundle({
-          url: '/api/v1/openapi',
+          spec,
+          url: undefined,
           dom_id: '#swagger-ui',
           docExpansion: 'list',
           persistAuthorization: true,
+          requestInterceptor: (req) => {
+            req.headers['Authorization'] = 'Bearer ' + token;
+            return req;
+          },
         });
-      };
+      }
+
+      async function boot() {
+        const saved = localStorage.getItem(KEY);
+        if (saved) {
+          const r = await tryToken(saved);
+          if (r.ok) return renderSwagger(r.spec, saved);
+          if (r.status === 403) return showGate(r.body?.message || 'Akses ditolak.', false);
+          // 401: token kadaluarsa/invalid — lanjut form login.
+        }
+        showGate('Dokumentasi khusus akun Ristek. Masuk dengan email & password.', true);
+      }
+
+      gateForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        gateErr.hidden = true;
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const res = await fetch('/api/v1/auth/sign-in', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const body = await res.json().catch(() => ({}));
+        const token = body?.data?.token;
+        if (!res.ok || !token) {
+          return showGate('Dokumentasi khusus akun Ristek. Masuk dengan email & password.', true,
+            body?.message || 'Email atau password salah.');
+        }
+        const r = await tryToken(token);
+        if (r.ok) {
+          localStorage.setItem(KEY, token);
+          return renderSwagger(r.spec, token);
+        }
+        if (r.status === 403) {
+          localStorage.removeItem(KEY);
+          return showGate(r.body?.message || 'Akses ditolak — akun tidak berwenang.', false);
+        }
+        showGate('Dokumentasi khusus akun Ristek. Masuk dengan email & password.', true, 'Gagal memuat spec.');
+      });
+
+      window.onload = boot;
     </script>
   </body>
 </html>

@@ -30,7 +30,7 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 	}
 
 	const body = (await sessionResponse.json()) as {
-		data: { user: { id: string; role: string } } | null;
+		data: { user: { id: string; role: string; email?: string } } | null;
 	};
 
 	if (!body?.data?.user) {
@@ -39,6 +39,7 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 
 	c.set("userId", body.data.user.id);
 	c.set("userRole", body.data.user.role);
+	c.set("userEmail", body.data.user.email ?? "");
 
 	return next();
 };
