@@ -8,12 +8,14 @@ export type Bindings = {
 	RATE_LIMITER: RateLimit;
 	API_BASE_URL: string;
 	CORS_ORIGIN: string;
+	DOCS_ALLOW_EMAILS: string;
 };
 
 export type Variables = {
 	db: Db;
 	userId?: string;
 	userRole?: string;
+	userEmail?: string;
 };
 
 export type AppContext = { Bindings: Bindings; Variables: Variables };
