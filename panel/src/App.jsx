@@ -125,7 +125,7 @@ function App() {
 function NavigateDocs() {
 	const navigate = useNavigate();
 	useEffect(() => {
-		window.open("/api-docs", "_blank");
+		window.open("/docs/", "_blank");
 		navigate("/", { replace: true });
 	}, [navigate]);
 	return null;
