@@ -22,7 +22,8 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 	if (cookieHeader) sessionHeaders["Cookie"] = cookieHeader;
 
 	const sessionResponse = await c.env.AUTH_SERVICE.fetch(
-		new Request("http://internal/v1/auth/session", { headers: sessionHeaders }),
+		// Path service auth redeploy: /v1/auth/session kini /v1/access/session
+		new Request("http://internal/v1/access/session", { headers: sessionHeaders }),
 	);
 
 	if (!sessionResponse.ok) {
