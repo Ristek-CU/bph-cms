@@ -118,7 +118,8 @@ const proxyAuth = (path: string) => async (c: Parameters<import("hono").Handler>
 		throw ApiError.badRequest("Body JSON wajib: { email, password }");
 	}
 	const res = await c.env.AUTH_SERVICE.fetch(
-		new Request(`http://internal/v1/auth/${path}`, {
+		// Path service auth redeploy: /v1/auth/* kini /v1/access/*
+		new Request(`http://internal/v1/access/${path}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: raw,
