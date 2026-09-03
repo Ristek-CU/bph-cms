@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { displayStatus, fmtDateLong, fmtRange, fmtTime, gcalUrl, publicLink } from "../api.js";
 import { Confirm } from "./ui.jsx";
+import { IconCalendar, IconChevronLeft, IconChevronRight, IconClock, IconMapPin, IconPlus } from "./Icons.jsx";
 
 const DOW = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
 const MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
@@ -35,7 +36,9 @@ function DayAgenda({ dayKey, events, onEdit, onNew }) {
 					<h2 className="card-title">{fmtDateLong(`${dayKey}T12:00:00+07:00`)}</h2>
 					<span className="muted small">{events.length} event · WIB</span>
 				</div>
-				<button className="btn sec sm" onClick={() => onNew(dayKey)}>+ Buat event di tanggal ini</button>
+				<button className="btn sec sm" onClick={() => onNew(dayKey)}>
+					<IconPlus size={14} /> Buat event di tanggal ini
+				</button>
 			</div>
 
 			{events.length === 0 ? (
@@ -50,7 +53,10 @@ function DayAgenda({ dayKey, events, onEdit, onNew }) {
 								<div style={{ minWidth: 0 }}>
 									<strong>{e.title}</strong>
 									{e.status === "draft" && <span className="badge draft" style={{ marginLeft: 8 }}>Draft</span>}
-									<div className="muted small">🕒 {fmtRange(e.starts_at, e.ends_at)} · 📍 {e.location}</div>
+									<div className="muted small meta" style={{ marginTop: 4 }}>
+										<span className="meta-item"><IconClock size={13} /> {fmtRange(e.starts_at, e.ends_at)}</span>
+										<span className="meta-item"><IconMapPin size={13} /> {e.location}</span>
+									</div>
 								</div>
 								<span className={`badge ${st}`}>{st}</span>
 							</div>
@@ -68,12 +74,14 @@ function DayAgenda({ dayKey, events, onEdit, onNew }) {
 									))}
 								</ul>
 							)}
-							<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+							<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
 								<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
 								{e.status !== "draft" && (
 									<a className="btn ghost sm" href={publicLink(e)} target="_blank" rel="noreferrer">Lihat publik</a>
 								)}
-								<a className="btn ghost sm" href={gcalUrl(e)} target="_blank" rel="noreferrer">📅 Google Calendar</a>
+								<a className="btn ghost sm" href={gcalUrl(e)} target="_blank" rel="noreferrer">
+									<IconCalendar size={13} /> Google Calendar
+								</a>
 							</div>
 						</div>
 					);
@@ -123,9 +131,13 @@ export default function Calendar({ events, onEdit, compact = false }) {
 	return (
 		<div className={compact ? "cal cal-compact" : "cal"}>
 			<div className="cal-nav">
-				<button className="btn ghost sm" onClick={() => shift(-1)} aria-label="Bulan sebelumnya">‹</button>
+				<button className="btn ghost sm" onClick={() => shift(-1)} aria-label="Bulan sebelumnya">
+					<IconChevronLeft size={16} />
+				</button>
 				<h2>{MONTHS[ym.m]} {ym.y}</h2>
-				<button className="btn ghost sm" onClick={() => shift(1)} aria-label="Bulan berikutnya">›</button>
+				<button className="btn ghost sm" onClick={() => shift(1)} aria-label="Bulan berikutnya">
+					<IconChevronRight size={16} />
+				</button>
 				<button className="btn sec sm" onClick={() => { setYm({ y: now.getFullYear(), m: now.getMonth() }); setPicked(null); }}>Hari ini</button>
 				<div className="cal-legend">
 					<span><i style={{ background: "#dcfce7" }} /> Berlangsung</span>

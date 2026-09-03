@@ -4,6 +4,7 @@ import {
 	api, getToken, isoToInput, toIsoWib, fmtTime, fmtDateLong,
 } from "../api.js";
 import { Confirm, useToast } from "../components/ui.jsx";
+import { IconClock, IconMapPin, IconTicket } from "../components/Icons.jsx";
 
 let sessSeq = 0;
 const newSession = (after) => {
@@ -132,9 +133,21 @@ function Preview({ form, sessions, cover }) {
 				<h3>{form.title || "(nama event)"}</h3>
 				{form.organizer && <div className="muted small">Oleh {form.organizer}</div>}
 				<div className="p-meta">
-					{form.starts_at && <span>🕒 {fmtDateLong(toIsoWib(form.starts_at))} · {fmtTime(toIsoWib(form.starts_at))}–{form.ends_at ? fmtTime(toIsoWib(form.ends_at)) : ""} WIB</span>}
-					{form.location && <span>📍 {form.location}</span>}
-					{form.registration_url && form.registration_open && <span>🎟 Pendaftaran: terbuka</span>}
+					{form.starts_at && (
+						<span className="meta-item">
+							<IconClock size={13} /> {fmtDateLong(toIsoWib(form.starts_at))} · {fmtTime(toIsoWib(form.starts_at))}–{form.ends_at ? fmtTime(toIsoWib(form.ends_at)) : ""} WIB
+						</span>
+					)}
+					{form.location && (
+						<span className="meta-item">
+							<IconMapPin size={13} /> {form.location}
+						</span>
+					)}
+					{form.registration_url && form.registration_open && (
+						<span className="meta-item">
+							<IconTicket size={13} /> Pendaftaran: terbuka
+						</span>
+					)}
 				</div>
 				{form.description && <p className="small" style={{ whiteSpace: "pre-wrap" }}>{form.description}</p>}
 				{sessions.length > 0 && (

@@ -55,7 +55,9 @@ input, textarea, select { font: inherit; }
 }
 .nav a:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
 .nav a.active { background: rgba(206, 174, 101, 0.18); color: #fff; }
-.nav .icon { width: 20px; text-align: center; font-size: 16px; }
+/* Ikon SVG nav — flex centering, warna ikut teks link (currentColor). */
+.nav .icon { width: 20px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.nav .icon-svg { display: block; }
 .nav .soon {
 	margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
 	background: rgba(255, 255, 255, 0.15); border-radius: 99px; padding: 2px 8px;
@@ -89,7 +91,7 @@ input, textarea, select { font: inherit; }
 .topbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 main.page { padding: 24px 28px 96px; max-width: 1160px; width: 100%; margin: 0 auto; }
 
-.menu-btn { display: none; background: none; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.menu-btn { display: none; background: none; border: 1px solid var(--border); border-radius: 8px; padding: 8px; color: var(--text); align-items: center; justify-content: center; }
 
 /* ---- Komponen umum ---- */
 .card {
@@ -99,7 +101,10 @@ main.page { padding: 24px 28px 96px; max-width: 1160px; width: 100%; margin: 0 a
 .card:last-child { margin-bottom: 0; }
 /* Kartu di dalam kartu (agenda kalender, preview) tanpa margin bawah global. */
 .card .card { margin-bottom: 0; }
-.btn {
+/* Icon di dalam tombol — sejajar teks, ikut warna tombol. */
+.btn .icon-svg { flex-shrink: 0; }
+
+.badge {
 	display: inline-flex; align-items: center; gap: 8px; justify-content: center;
 	padding: 9px 16px; border: 0; border-radius: 10px; font-weight: 600; font-size: 14px;
 	background: var(--teal); color: #fff; text-decoration: none;
@@ -207,6 +212,9 @@ textarea { resize: vertical; }
 .event-card h3 { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
 .event-card .slug { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
 .event-card .meta { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+/* Baris meta dengan ikon: sejajar vertikal, ikon warna muted (currentColor). */
+.meta-item { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.meta-item .icon-svg { flex-shrink: 0; opacity: 0.75; }
 .event-card .actions { display: flex; gap: 8px; margin-top: auto; padding-top: 6px; flex-wrap: wrap; }
 .empty-state {
 	border: 2px dashed var(--border); border-radius: var(--radius); padding: 48px 24px;
@@ -257,6 +265,9 @@ html, body { overflow-x: hidden; }
 .agenda-ev-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
 .agenda-card { margin-top: 14px; }
 .card-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+/* Link "buka penuh" dengan chevron — sejajar & ikut warna link. */
+.overview-link { display: inline-flex; align-items: center; gap: 2px; text-decoration: none; font-weight: 600; }
+.overview-link .icon-svg { opacity: 0.7; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
 .stat {
 	background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px;
@@ -347,6 +358,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 	.sidebar.open { left: 0; box-shadow: 0 0 60px rgba(0, 0, 0, 0.4); }
 	.sidebar-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
 	.menu-btn { display: inline-flex; }
+@media (min-width: 901px) { .menu-btn { display: none; } }
 	main.page { padding: 16px 14px 88px; }
 	.topbar { padding: 12px 14px; }
 	.grid-2 { grid-template-columns: 1fr; }
