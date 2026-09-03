@@ -3,6 +3,7 @@ import { HashRouter, Link, Navigate, Route, Routes, useNavigate } from "react-ro
 import { api, errText, setToken as persistToken, clearToken, signIn } from "./api.js";
 import { ToastProvider } from "./components/ui.jsx";
 import { Login, Shell } from "./components/Shell.jsx";
+import { IconCalendar, IconPlus } from "./components/Icons.jsx";
 import Overview from "./pages/Overview.jsx";
 import EventList from "./pages/EventList.jsx";
 import EventCalendar from "./pages/EventCalendar.jsx";
@@ -69,8 +70,12 @@ function App() {
 						crumb="Modul · Event"
 						actions={
 							<>
-								<Link className="btn ghost" to="/events/kalender">📅 Kalender</Link>
-								<Link className="btn gold" to="/events/baru">+ Event baru</Link>
+								<Link className="btn ghost" to="/events/kalender">
+									<IconCalendar size={16} /> Kalender
+								</Link>
+								<Link className="btn gold" to="/events/baru">
+									<IconPlus size={16} /> Event baru
+								</Link>
 							</>
 						}
 					>
@@ -85,7 +90,11 @@ function App() {
 						{...shellProps}
 						title="Kalender Event"
 						crumb="Modul · Event · Kalender"
-						actions={<Link className="btn gold" to="/events/baru">+ Event baru</Link>}
+						actions={
+							<Link className="btn gold" to="/events/baru">
+								<IconPlus size={16} /> Event baru
+							</Link>
+						}
 					>
 						<EventCalendar events={events} onEdit={onEdit} />
 					</Shell>

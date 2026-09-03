@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { displayStatus, fmtRange, gcalUrl, publicLink } from "../api.js";
 import { useToast } from "../components/ui.jsx";
+import { IconCalendar, IconClock, IconMapPin, IconPlus, IconUsers } from "../components/Icons.jsx";
 
 const LABEL = { draft: "Draft", ongoing: "Terbit — Berlangsung", upcoming: "Terbit — Akan Datang", past: "Terbit — Selesai" };
 const FILTERS = [
@@ -65,7 +66,9 @@ export default function EventList({ events, onEdit }) {
 							? "Belum ada event sama sekali."
 							: "Tidak ada event yang cocok dengan pencarian atau filter."}
 					</p>
-					<button className="btn gold" onClick={() => navigate("/events/baru")}>+ Buat event pertama</button>
+					<button className="btn gold" onClick={() => navigate("/events/baru")}>
+						<IconPlus size={16} /> Buat event pertama
+					</button>
 				</div>
 			) : (
 				<div className="event-grid">
@@ -83,9 +86,9 @@ export default function EventList({ events, onEdit }) {
 										<span className={`badge ${st}`}>{LABEL[st]}</span>
 									</div>
 									<div className="meta">
-										<span>🕒 {fmtRange(e.starts_at, e.ends_at)}</span>
-										<span>📍 {e.location}</span>
-										<span>👥 {e.sessions?.length || 0} sesi runsheet{e.organizer ? ` · ${e.organizer}` : ""}</span>
+										<span className="meta-item"><IconClock size={14} /> {fmtRange(e.starts_at, e.ends_at)}</span>
+										<span className="meta-item"><IconMapPin size={14} /> {e.location}</span>
+										<span className="meta-item"><IconUsers size={14} /> {e.sessions?.length || 0} sesi runsheet{e.organizer ? ` · ${e.organizer}` : ""}</span>
 									</div>
 									<div className="actions">
 										<button className="btn sec sm" onClick={() => copyLink(e)}>Salin link</button>
@@ -103,7 +106,7 @@ export default function EventList({ events, onEdit }) {
 												}
 											}}
 										>
-											📅 Kalender
+											<IconCalendar size={14} /> Kalender
 										</a>
 									</div>
 								</div>

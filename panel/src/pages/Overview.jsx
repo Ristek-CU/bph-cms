@@ -3,6 +3,7 @@ import { displayStatus, fmtRange, publicLink } from "../api.js";
 import { useToast } from "../components/ui.jsx";
 import { href } from "../components/Shell.jsx";
 import Calendar from "../components/Calendar.jsx";
+import { IconChevronRight } from "../components/Icons.jsx";
 
 const LABEL = { draft: "Draft", ongoing: "Berlangsung", upcoming: "Akan Datang", past: "Selesai" };
 
@@ -52,7 +53,9 @@ export default function Overview({ events, onEdit }) {
 					<div className="card">
 						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
 							<h2 className="card-title">Kalender event</h2>
-							<Link to="/events/kalender" className="small">Buka penuh →</Link>
+							<Link to="/events/kalender" className="small overview-link">
+								Buka penuh <IconChevronRight size={13} />
+							</Link>
 						</div>
 						<Calendar events={events} onEdit={onEdit} compact />
 					</div>

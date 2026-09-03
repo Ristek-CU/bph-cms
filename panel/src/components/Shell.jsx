@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { clearToken } from "../api.js";
 import { useEscape } from "./ui.jsx";
+import { IconCalendar, IconClipboard, IconGrid, IconLink, IconMenu } from "./Icons.jsx";
 
 // Logomark SGA Cakrawala — outline putih transparan (dari landing page).
 import logoSga from "/logo-sga.webp";
@@ -70,17 +71,17 @@ export function Shell({ user, children, title, crumb, actions }) {
 	const nav = (
 		<nav className="nav" aria-label="Modul">
 			<NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>
-				<span className="icon" aria-hidden>▦</span> Ringkasan
+				<span className="icon" aria-hidden><IconGrid /></span> Ringkasan
 			</NavLink>
 			<NavLink to="/events" className={({ isActive }) => (isActive ? "active" : "")}>
-				<span className="icon" aria-hidden>📅</span> Event
+				<span className="icon" aria-hidden><IconCalendar /></span> Event
 			</NavLink>
 			<NavLink to="/qpr" className={({ isActive }) => (isActive ? "active" : "")}>
-				<span className="icon" aria-hidden>📋</span> QPR <span className="soon">SEGERA</span>
+				<span className="icon" aria-hidden><IconClipboard /></span> QPR <span className="soon">SEGERA</span>
 			</NavLink>
 			<div className="nav-sep" />
 			<a href="/docs/" target="_blank" rel="noreferrer" title="Dokumentasi API untuk developer">
-				<span className="icon" aria-hidden>🔗</span> Dokumentasi API
+				<span className="icon" aria-hidden><IconLink /></span> Dokumentasi API
 			</a>
 		</nav>
 	);
@@ -113,7 +114,9 @@ export function Shell({ user, children, title, crumb, actions }) {
 			<div className="content">
 				<header className="topbar">
 					<div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-						<button className="menu-btn" aria-label="Buka menu" onClick={() => setDrawer(true)}>☰</button>
+						<button className="menu-btn" aria-label="Buka menu" onClick={() => setDrawer(true)}>
+							<IconMenu />
+						</button>
 						<div style={{ minWidth: 0 }}>
 							<h1>{title}</h1>
 							{crumb && <div className="crumb">{crumb}</div>}
