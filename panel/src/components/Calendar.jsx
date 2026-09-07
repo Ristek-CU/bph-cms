@@ -7,7 +7,10 @@ import { IconCalendar, IconChevronLeft, IconChevronRight, IconClock, IconMapPin,
 const DOW = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
 const MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
-export const ymd = (y, m, d) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+export const ymd = (y, m, d) => {
+	const date = new Date(Date.UTC(y, m, d));
+	return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+};
 
 // Event aktif di tanggal tsb (overlap rentang, hari dalam WIB).
 export function eventsOnDay(events, dayKey) {
@@ -109,10 +112,10 @@ export default function Calendar({ events, onEdit, compact = false }) {
 		const out = [];
 		const prevDays = new Date(ym.y, ym.m, 0).getDate();
 		for (let i = offset; i > 0; i--)
-			out.push({ key: ymd(ym.y, ym.m - 1 < 0 ? 11 : ym.m - 1, prevDays - i + 1), other: true });
+			out.push({ key: ymd(ym.y, ym.m - 1, prevDays - i + 1), other: true });
 		for (let d = 1; d <= daysInMonth; d++) out.push({ key: ymd(ym.y, ym.m, d) });
 		while (out.length % 7 !== 0)
-			out.push({ key: ymd(ym.y, (ym.m + 1) % 12, out.length - offset - daysInMonth + 1), other: true });
+			out.push({ key: ymd(ym.y, ym.m + 1, out.length - offset - daysInMonth + 1), other: true });
 		return out;
 	}, [ym]);
 

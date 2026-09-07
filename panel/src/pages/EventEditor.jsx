@@ -120,6 +120,11 @@ function SessionCard({ s, i, err, onChange, onRemove }) {
 	);
 }
 
+const hasSessionDraft = (s) =>
+	Boolean(s.name.trim() || s._date || s.speaker || s.location || s.description);
+
+const notifyEventsChanged = () => window.dispatchEvent(new Event("bph:events-changed"));
+
 // Pratinjau lokal (draft tidak bisa dipratinjau dari endpoint publik — 404).
 function Preview({ form, sessions, cover }) {
 	return (
@@ -237,7 +242,7 @@ export default function EventEditor({ event, prefillDate }) {
 			organizer: form.organizer.trim() || null,
 			cover_image_url: cover,
 			sessions: sortedSessions
-				.filter((s) => s.name.trim() && s._date && s._start && s._end)
+				.filter((s) => hasSessionDraft(s) && s.name.trim() && s._date && s._start && s._end)
 				.map((s) => {
 					const overnight = s._end <= s._start;
 					return {
@@ -261,8 +266,10 @@ export default function EventEditor({ event, prefillDate }) {
 		if (form.starts_at && form.ends_at && form.ends_at <= form.starts_at)
 			errs.ends_at = "Jam selesai harus setelah jam mulai.";
 		if (!form.location.trim()) errs.location = "Lokasi wajib diisi.";
-		// Sesi bernama wajib lengkap: tanggal + jam.
+		// Sesi kosong boleh diabaikan; sesi yang mulai diisi wajib lengkap.
 		sortedSessions.forEach((s, i) => {
+			if (!hasSessionDraft(s)) return;
+			if (!s.name.trim()) errs[`sessions.${i}.name`] = "Nama sesi wajib diisi.";
 			if (!s._date) errs[`sessions.${i}.date`] = "Tanggal sesi belum diisi.";
 			if (!s._start) errs[`sessions.${i}.starts_at`] = "Jam mulai sesi belum diisi.";
 			if (!s._end) errs[`sessions.${i}.ends_at`] = "Jam selesai sesi belum diisi.";
@@ -305,6 +312,7 @@ export default function EventEditor({ event, prefillDate }) {
 			} else {
 				toast("Tersimpan sebagai draft.");
 			}
+			notifyEventsChanged();
 			navigate(`/events/${id}/edit`);
 		} catch (e) {
 			const translated = translateErrors(e?.errors);
@@ -319,6 +327,7 @@ export default function EventEditor({ event, prefillDate }) {
 		try {
 			await api(`/admin/events/${savedId}/unpublish`, { method: "POST" });
 			setPublished(false);
+			notifyEventsChanged();
 			toast("Event ditarik — tidak terlihat publik.");
 		} catch (e) {
 			toast(e?.message || "Gagal menarik event.", "err");
@@ -329,6 +338,7 @@ export default function EventEditor({ event, prefillDate }) {
 		setAskDelete(false);
 		try {
 			await api(`/admin/events/${savedId}`, { method: "DELETE" });
+			notifyEventsChanged();
 			toast("Event dihapus permanen.");
 			navigate("/events");
 		} catch (e) {

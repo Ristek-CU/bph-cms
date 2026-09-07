@@ -40,6 +40,34 @@ export type SessionRow = typeof eventSessions.$inferSelect;
 
 type SessionValidation = { startsAt: string; endsAt: string };
 
+const toAdminSessionShape = (s: SessionRow) => ({
+	id: s.id,
+	name: s.name,
+	starts_at: s.startsAt,
+	ends_at: s.endsAt,
+	speaker: s.speaker,
+	location: s.location,
+	description: s.description,
+	sort_order: s.sortOrder,
+});
+
+const toAdminEventShape = (e: EventRow, sessions: SessionRow[] = []) => ({
+	id: e.id,
+	slug: e.slug,
+	title: e.title,
+	description: e.description,
+	cover_image_url: e.coverImageUrl,
+	starts_at: e.startsAt,
+	ends_at: e.endsAt,
+	location: e.location,
+	location_url: e.locationUrl,
+	registration_url: e.registrationUrl,
+	registration_open: e.registrationOpen,
+	organizer: e.organizer,
+	status: e.status,
+	sessions: sessions.map(toAdminSessionShape),
+});
+
 // Sesi tidak boleh di luar rentang event (SDD §4.4). Return map field -> pesan.
 const validateSessionsInRange = (
 	eventStart: string,
@@ -152,21 +180,9 @@ export const eventService = {
 			.from(eventSessions)
 			.where(eq(eventSessions.eventId, id))
 			.orderBy(asc(eventSessions.sortOrder), asc(eventSessions.startsAtMs));
-		// Shape admin konsisten snake_case (sama seperti listAdmin) — FE panel tidak
-		// perlu tahu nama kolom internal Drizzle (camelCase).
-		return {
-			...event,
-			sessions: sessions.map((s) => ({
-				id: s.id,
-				name: s.name,
-				starts_at: s.startsAt,
-				ends_at: s.endsAt,
-				speaker: s.speaker,
-				location: s.location,
-				description: s.description,
-				sort_order: s.sortOrder,
-			})),
-		};
+		// Shape admin konsisten snake_case — FE panel tidak perlu tahu nama kolom
+		// internal Drizzle (camelCase).
+		return toAdminEventShape(event, sessions);
 	},
 
 	async update(db: Db, id: string, input: UpdateEventInput) {
@@ -175,8 +191,19 @@ export const eventService = {
 		const startsAt = input.starts_at ?? ev.startsAt;
 		const endsAt = input.ends_at ?? ev.endsAt;
 
-		// Rentang baru harus tetap menampung semua sesi lama.
-		if (input.starts_at || input.ends_at) {
+		if (input.sessions !== undefined) {
+			const errors = validateSessionsInRange(
+				startsAt,
+				endsAt,
+				asValidation(input.sessions),
+			);
+			if (Object.keys(errors).length > 0) {
+				throw ApiError.validation("Validation failed", errors);
+			}
+		}
+
+		// Jika sessions tidak dikirim, rentang baru harus tetap menampung semua sesi lama.
+		if ((input.starts_at || input.ends_at) && input.sessions === undefined) {
 			const sessions = await db
 				.select({ starts_at: eventSessions.startsAt, ends_at: eventSessions.endsAt })
 				.from(eventSessions)
@@ -216,6 +243,13 @@ export const eventService = {
 				updatedAt: new Date().toISOString(),
 			})
 			.where(eq(events.id, id));
+
+		if (input.sessions !== undefined) {
+			await db.delete(eventSessions).where(eq(eventSessions.eventId, id));
+			if (input.sessions.length) {
+				await this.insertSessions(db, id, input.sessions);
+			}
+		}
 
 		return this.getWithSessions(db, id);
 	},
@@ -334,30 +368,7 @@ export const eventService = {
 			arr.push(s);
 			byEvent.set(s.eventId, arr);
 		}
-		return rows.map((e) => ({
-			id: e.id,
-			slug: e.slug,
-			title: e.title,
-			description: e.description,
-			cover_image_url: e.coverImageUrl,
-			starts_at: e.startsAt,
-			ends_at: e.endsAt,
-			location: e.location,
-			location_url: e.locationUrl,
-			registration_url: e.registrationUrl,
-			registration_open: e.registrationOpen,
-			organizer: e.organizer,
-			status: e.status,
-			sessions: (byEvent.get(e.id) || []).map((s) => ({
-				id: s.id,
-				name: s.name,
-				starts_at: s.startsAt,
-				ends_at: s.endsAt,
-				speaker: s.speaker,
-				location: s.location,
-				description: s.description,
-			})),
-		}));
+		return rows.map((e) => toAdminEventShape(e, byEvent.get(e.id) || []));
 	},
 
 	async setStatus(db: Db, id: string, status: "draft" | "published") {

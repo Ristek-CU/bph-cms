@@ -239,7 +239,7 @@ Validasi gagal → `422` `errors` (mis. `sessions.0: ["Session must be within th
 
 ### 4.3 `PUT /admin/events/:id` — update parsial
 
-Body = subset field di atas (semua opsional). Rentang baru harus tetap menampung sesi lama — kalau tidak → `422` "Event range does not cover existing sessions". `200` → data terbaru.
+Body = subset field di atas (semua opsional). Jika `sessions` dikirim, seluruh runsheet event diganti sesuai array tersebut. Jika `sessions` tidak dikirim, rentang baru harus tetap menampung sesi lama — kalau tidak → `422` "Event range does not cover existing sessions". `200` → data terbaru.
 
 ### 4.4 `DELETE /admin/events/:id` — hapus permanen
 

@@ -145,6 +145,7 @@ export const updateEventBody = z.object({
 	registration_url: urlField.nullable().optional(),
 	registration_open: z.boolean().optional(),
 	organizer: z.string().max(200).nullable().optional(),
+	sessions: z.array(sessionBodySchema).max(100).optional().describe("Jika dikirim, mengganti seluruh runsheet event."),
 });
 
 export const updateSessionBody = z.object({
@@ -164,4 +165,3 @@ export const signInBody = z.object({
 	email: z.string().email(),
 	password: z.string().min(8),
 });
-
