@@ -19,6 +19,10 @@ export const sessionInputSchema = z
 		speaker: z.string().max(200).nullish(),
 		location: z.string().max(200).nullish(),
 		description: z.string().max(5000).nullish(),
+	})
+	.refine((v) => Date.parse(v.ends_at) > Date.parse(v.starts_at), {
+		message: "ends_at must be after starts_at",
+		path: ["ends_at"],
 	});
 export type SessionInput = z.infer<typeof sessionInputSchema>;
 
@@ -60,6 +64,7 @@ export const updateEventSchema = z
 		registration_url: urlField.nullish(),
 		registration_open: z.boolean().optional(),
 		organizer: z.string().max(200).nullish(),
+		sessions: z.array(sessionInputSchema).max(100).optional(),
 	})
 	.refine(
 		(v) =>
@@ -70,11 +75,7 @@ export const updateEventSchema = z
 	);
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
 
-export const createSessionSchema = sessionInputSchema
-	.refine((v) => Date.parse(v.ends_at) > Date.parse(v.starts_at), {
-		message: "ends_at must be after starts_at",
-		path: ["ends_at"],
-	});
+export const createSessionSchema = sessionInputSchema;
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 export type UpdateSessionInput = z.infer<typeof updateSessionSchema>;
 

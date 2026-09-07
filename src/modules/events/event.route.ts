@@ -82,7 +82,7 @@ adminEventRouter.put(
 	"/:id",
 	ok(
 		"Update event (partial)",
-		"Body parsial — field mana pun boleh dikirim. Rentang baru harus menampung sesi lama.",
+		"Body parsial — field mana pun boleh dikirim. Jika sessions dikirim, seluruh runsheet event diganti. Jika sessions tidak dikirim, rentang baru harus menampung sesi lama.",
 		successWrapper(adminEventSchema),
 		{ 404: { description: "Not found" } },
 	),

@@ -104,7 +104,7 @@ main.page { padding: 24px 28px 96px; max-width: 1160px; width: 100%; margin: 0 a
 /* Icon di dalam tombol — sejajar teks, ikut warna tombol. */
 .btn .icon-svg { flex-shrink: 0; }
 
-.badge {
+.btn {
 	display: inline-flex; align-items: center; gap: 8px; justify-content: center;
 	padding: 9px 16px; border: 0; border-radius: 10px; font-weight: 600; font-size: 14px;
 	background: var(--teal); color: #fff; text-decoration: none;

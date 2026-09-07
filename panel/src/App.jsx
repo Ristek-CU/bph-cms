@@ -18,6 +18,7 @@ function App() {
 	const navigate = useNavigate();
 
 	const load = useCallback(async () => {
+		setLoadErr("");
 		const d = await api("/admin/events");
 		setEvents(d.items || d || []);
 	}, []);
@@ -34,6 +35,15 @@ function App() {
 			}
 		});
 	}, [token, load, navigate]);
+
+	useEffect(() => {
+		if (!token) return;
+		const refresh = () => {
+			load().catch((e) => setLoadErr(errText(e)));
+		};
+		window.addEventListener("bph:events-changed", refresh);
+		return () => window.removeEventListener("bph:events-changed", refresh);
+	}, [token, load]);
 
 	const handleLogin = async (email, password) => {
 		const data = await signIn(email, password);
