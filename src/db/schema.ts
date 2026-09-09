@@ -78,6 +78,18 @@ export const auditLogs = sqliteTable(
 	],
 );
 
+// Fixed-window counter. Binding RATE_LIMITER Cloudflare tidak menegakkan limit di
+// production (selalu success:true), jadi penegakan nyata ada di sini.
+export const rateLimits = sqliteTable(
+	"rate_limits",
+	{
+		rowKey: text("row_key").primaryKey(),
+		windowStart: integer("window_start").notNull(),
+		count: integer("count").notNull(),
+	},
+	(table) => [index("rate_limits_window_idx").on(table.windowStart)],
+);
+
 export const events = sqliteTable(
 	"events",
 	{

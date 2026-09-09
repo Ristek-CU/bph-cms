@@ -10,21 +10,25 @@ import type { AppContext, UserMembership } from "../types";
  * Memuat profil user dan membership CMS, lalu menetapkan permission dan activeDivisionId.
  */
 export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
+	// Hanya Bearer. Cookie sengaja tidak diterima: panel dan halaman docs memakai
+	// Authorization header, dan menerima cookie menambah permukaan CSRF tanpa ada
+	// satu pun klien yang membutuhkannya.
 	const authHeader = c.req.header("Authorization");
-	const cookieHeader = c.req.header("Cookie");
-
-	if (!authHeader?.startsWith("Bearer ") && !cookieHeader) {
+	if (!authHeader?.startsWith("Bearer ")) {
 		throw ApiError.unauthorized();
 	}
 
-	const sessionHeaders: Record<string, string> = {};
-	if (authHeader) sessionHeaders["Authorization"] = authHeader;
-	if (cookieHeader) sessionHeaders["Cookie"] = cookieHeader;
+	const sessionHeaders: Record<string, string> = { Authorization: authHeader };
 
 	let userId = "";
 	let userRole = "user";
 	let userEmail = "";
-	const allowDevAuth = c.env.ALLOW_DEV_AUTH === "true";
+	// Dua syarat sekaligus: flag dev ON *dan* request benar-benar datang lewat
+	// localhost. Worker production hanya menerima trafik dari hostname publik, jadi
+	// ALLOW_DEV_AUTH yang keliru ter-set di dashboard tetap tidak membuka apa pun.
+	const requestHost = new URL(c.req.url).hostname;
+	const isLocalRequest = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(requestHost);
+	const allowDevAuth = c.env.ALLOW_DEV_AUTH === "true" && isLocalRequest;
 
 	try {
 		const sessionResponse = await c.env.AUTH_SERVICE.fetch(
@@ -46,7 +50,7 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 	}
 
 	// Fallback hanya untuk dev lokal eksplisit. Jangan aktifkan di production.
-	if (allowDevAuth && !userId && authHeader?.startsWith("Bearer ")) {
+	if (allowDevAuth && !userId) {
 		const rawToken = authHeader.replace("Bearer ", "").trim();
 		if (rawToken === "dev-token" || rawToken.startsWith("dev-")) {
 			userId = "01990000-0000-7000-8000-000000000001";
@@ -94,9 +98,16 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 
 	// Bootstrap awal: hanya akun BPH yang boleh jadi platform_admin bila membership
 	// belum dibuat. Akun divisi lain wajib punya cms_membership eksplisit.
+	// Daftar email dibaca dari var supaya bisa dicabut tanpa ubah kode; default
+	// dipertahankan karena production saat ini belum punya baris cms_memberships.
 	if (memberships.length === 0) {
+		const configured = (c.env.PLATFORM_BOOTSTRAP_EMAILS ?? "").trim();
+		const bootstrapEmails = (configured || "bph@cakrawala.com")
+			.split(",")
+			.map((e) => e.trim().toLowerCase())
+			.filter(Boolean);
 		const [bph] = await db.select().from(divisions).where(eq(divisions.slug, "bph")).limit(1);
-		if (bph && userEmail.toLowerCase() === "bph@cakrawala.com") {
+		if (bph && bootstrapEmails.includes(userEmail.toLowerCase())) {
 			memberships = [
 				{
 					division: {

@@ -27,7 +27,19 @@ export const recordAuditLog = async (c: Context<AppContext>, params: AuditParams
 			userAgent: c.req.header("user-agent") || null,
 			createdAt: new Date().toISOString(),
 		});
-	} catch {
-		// ponytail: jangan blokir request utama bila audit log gagal disimpan
+	} catch (err) {
+		// Jangan blokir request utama bila audit log gagal disimpan — tetapi jangan
+		// diam juga: jejak audit yang hilang tanpa tanda adalah masalah tersendiri.
+		console.error(
+			JSON.stringify({
+				timestamp: new Date().toISOString(),
+				level: "WARN",
+				message: "audit log gagal disimpan",
+				action: params.action,
+				resourceType: params.resourceType,
+				resourceId: params.resourceId ?? null,
+				reason: err instanceof Error ? err.message : String(err),
+			}),
+		);
 	}
 };

@@ -367,10 +367,15 @@ export const eventService = {
 					.select()
 					.from(events)
 					.orderBy(desc(events.startsAtMs));
-		const all = await db
-			.select()
-			.from(eventSessions)
-			.orderBy(asc(eventSessions.sortOrder), asc(eventSessions.startsAtMs));
+		// Sesi diambil hanya untuk event yang ada di scope. Sebelumnya semua sesi
+		// dari semua divisi ikut terbaca lalu dibuang di memori.
+		const all = rows.length
+			? await db
+					.select()
+					.from(eventSessions)
+					.where(inArray(eventSessions.eventId, rows.map((e) => e.id)))
+					.orderBy(asc(eventSessions.sortOrder), asc(eventSessions.startsAtMs))
+			: [];
 		const byEvent = new Map<string, typeof eventSessions.$inferSelect[]>();
 		for (const s of all) {
 			const arr = byEvent.get(s.eventId) ?? [];

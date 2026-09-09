@@ -18,11 +18,22 @@ import { meRouter } from "./modules/me/me.route";
 import { adminAccountRouter } from "./modules/accounts/account.route";
 import { eventService } from "./modules/events/event.service";
 import { adminAuth } from "./middlewares/admin-auth";
+import { d1RateLimiter } from "./middlewares/rate-limiter";
 import { getDb } from "./db/connection";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 app.use("*", requestId());
+
+// Header keamanan untuk semua respons yang dihasilkan Worker (API + /storage).
+// HTML panel diserve Cloudflare Assets langsung, jadi tidak lewat sini.
+app.use("*", async (c, next) => {
+	await next();
+	c.header("X-Content-Type-Options", "nosniff");
+	c.header("Referrer-Policy", "no-referrer");
+	c.header("X-Frame-Options", "DENY");
+	c.header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+});
 
 app.use("*", (c, next) => {
 	const originHeader = c.req.header("origin");
@@ -31,7 +42,9 @@ app.use("*", (c, next) => {
 	const allowedOrigins = c.env.CORS_ORIGIN.split(",").map((url) => url.trim());
 	return cors({
 		origin: allowedOrigins,
-		allowHeaders: ["Content-Type", "Authorization"],
+		// X-Division-Id wajib masuk allowHeaders: adminAuth membacanya untuk pindah
+		// divisi aktif, tanpa ini preflight lintas-origin menolaknya.
+		allowHeaders: ["Content-Type", "Authorization", "X-Division-Id"],
 		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "DELETE"],
 		credentials: true,
 	})(c, next);
@@ -71,11 +84,17 @@ v1.route("/me", meRouter);
 // tidak punya apa pun untuk dirender. Endpoint publik (/events) tetap terbuka.
 const docsAccess = async (c: Parameters<Handler<AppContext>>[0], next: Next) => {
 	if (c.req.method === "OPTIONS") return next(); // preflight CORS tidak bawa token
-	await adminAuth(c, next);
-	const allow = c.env.DOCS_ALLOW_EMAILS.split(",").map((e) => e.trim().toLowerCase());
-	if (!allow.includes((c.get("userEmail") ?? "").toLowerCase())) {
-		throw ApiError.forbidden("Forbidden: akun tidak berwenang membuka dokumentasi");
-	}
+	// Cek allowlist disisipkan sebagai `next` milik adminAuth, bukan dijalankan
+	// sesudahnya. Versi lama menjalankan handler lebih dulu lalu melempar 403 —
+	// hasilnya tetap 403, tetapi spec sudah terlanjur dibuat untuk akun yang tidak
+	// berwenang dan urutannya bergantung pada onError mengganti respons.
+	return adminAuth(c, async () => {
+		const allow = c.env.DOCS_ALLOW_EMAILS.split(",").map((e) => e.trim().toLowerCase());
+		if (!allow.includes((c.get("userEmail") ?? "").toLowerCase())) {
+			throw ApiError.forbidden("Forbidden: akun tidak berwenang membuka dokumentasi");
+		}
+		return next();
+	});
 };
 v1.get("/openapi", docsAccess, (c, _next) =>
 	openAPIRouteHandler(v1, {
@@ -133,8 +152,43 @@ const proxyAuth = (path: string) => async (c: Parameters<import("hono").Handler>
 	});
 };
 
+// Brute-force guard untuk proxy auth. Sebelumnya /auth/sign-in tidak dibatasi
+// sama sekali (diverifikasi: puluhan percobaan beruntun semuanya lolos tanpa 429).
+// Hono meng-cache body request, jadi membaca email di sini tidak menghabiskan
+// body yang nanti dipakai proxyAuth.
+const FIFTEEN_MIN = 15 * 60_000;
+const authEmail = async (c: Parameters<Handler<AppContext>>[0]) => {
+	try {
+		const body = JSON.parse(await c.req.text()) as { email?: unknown };
+		return String(body?.email ?? "").toLowerCase().trim().slice(0, 254);
+	} catch {
+		return "";
+	}
+};
+
+// Dua lapis: per IP+email (blokir tebak password satu akun) dan per IP (blokir
+// password spraying ke banyak email).
+const signInPerEmailLimiter = d1RateLimiter({
+	prefix: "auth:sign-in",
+	limit: 20,
+	windowMs: FIFTEEN_MIN,
+	suffix: authEmail,
+});
+const signInPerIpLimiter = d1RateLimiter({
+	prefix: "auth:sign-in-ip",
+	limit: 60,
+	windowMs: FIFTEEN_MIN,
+});
+const signUpLimiter = d1RateLimiter({
+	prefix: "auth:sign-up",
+	limit: 10,
+	windowMs: FIFTEEN_MIN,
+});
+
 v1.post(
 	"/auth/sign-in",
+	signInPerEmailLimiter,
+	signInPerIpLimiter,
 	describeAuth(
 		"Sign in (proxy ke service auth superapp)",
 		"Body: { email, password }. 200 → { token, user }. Token dipakai: Authorization: Bearer <token> untuk semua endpoint admin.",
@@ -143,6 +197,7 @@ v1.post(
 );
 v1.post(
 	"/auth/sign-up",
+	signUpLimiter,
 	describeAuth(
 		"Sign up (proxy)",
 		"Body: { name, email, password (min 8) }. User baru role 'user' — perlu dijadikan admin oleh pengelola untuk akses panel.",

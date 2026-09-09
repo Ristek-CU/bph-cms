@@ -1,7 +1,6 @@
 import type { Context } from "hono";
-import { z } from "zod";
 import { ApiResponse } from "../../shared/api-response";
-import { ApiError } from "../../shared/api-error";
+import { parseJson, parseParams } from "../../shared/parse-request";
 import { getDb } from "../../db/connection";
 import { eventService } from "./event.service";
 import { recordAuditLog } from "../audit/audit.service";
@@ -16,30 +15,6 @@ import {
 import type { AppContext } from "../../types";
 
 type Ctx = Context<AppContext>;
-
-// Parse & validate JSON body — lempar 422 dengan errors: { field: [msg] }.
-export const parseJson = async <S extends z.ZodType>(c: Ctx, schema: S): Promise<z.infer<S>> => {
-	let raw: unknown;
-	try {
-		raw = await c.req.json();
-	} catch {
-		throw ApiError.badRequest("Invalid JSON body");
-	}
-	const result = schema.safeParse(raw);
-	if (!result.success) {
-		throw ApiError.validation(
-			"Validation failed",
-			z.flattenError(result.error as z.ZodError).fieldErrors as Record<string, string[]>,
-		);
-	}
-	return result.data;
-};
-
-export const parseParams = <S extends z.ZodType>(c: Ctx, schema: S): z.infer<S> => {
-	const result = schema.safeParse(c.req.param());
-	if (!result.success) throw ApiError.badRequest("Invalid parameters");
-	return result.data;
-};
 
 export const listEvents = async (c: Ctx) => {
 	const permissions = c.get("permissions") ?? [];

@@ -6,9 +6,26 @@ import { adminAuth } from "../../middlewares/admin-auth";
 import { requirePermission } from "../../middlewares/require-permission";
 import { ApiResponse } from "../../shared/api-response";
 import { ApiError } from "../../shared/api-error";
+import { parseJson } from "../../shared/parse-request";
 import { divisions, cmsMemberships, auditLogs } from "../../db/schema";
 import { recordAuditLog } from "../audit/audit.service";
+import { createDivisionSchema, createMembershipSchema } from "./account.schema";
 import type { AppContext } from "../../types";
+
+// Error D1 berisi potongan SQL dan nama kolom — jangan pernah diteruskan ke klien.
+// Cukup kenali pelanggaran unique supaya bisa dibalas 409 yang wajar.
+// Drizzle membungkus error D1 ("Failed query: ...") dan menaruh penyebab asli di
+// `.cause`, jadi rantainya harus ditelusuri, bukan cuma pesan terluar.
+const isUniqueViolation = (err: unknown): boolean => {
+	let current: any = err;
+	for (let depth = 0; current && depth < 8; depth++) {
+		if (typeof current.message === "string" && /UNIQUE constraint failed/i.test(current.message)) {
+			return true;
+		}
+		current = current.cause;
+	}
+	return false;
+};
 
 export const adminAccountRouter = new Hono<AppContext>();
 
@@ -40,27 +57,26 @@ adminAccountRouter.post(
 		security: [{ bearerAuth: [] }],
 	}),
 	async (c) => {
-		const body = (await c.req.json()) as { slug: string; name: string; email?: string };
-		if (!body.slug || !body.name) {
-			throw ApiError.validation("Data divisi tidak lengkap", {
-				slug: [!body.slug ? "Slug wajib diisi" : ""].filter(Boolean),
-				name: [!body.name ? "Nama wajib diisi" : ""].filter(Boolean),
-			});
-		}
+		const body = await parseJson(c, createDivisionSchema);
 
 		const db = c.get("db");
 		const id = uuidv7();
 		const now = new Date().toISOString();
 
-		await db.insert(divisions).values({
-			id,
-			slug: body.slug.toLowerCase().trim(),
-			name: body.name.trim(),
-			email: body.email?.trim() || null,
-			isActive: true,
-			createdAt: now,
-			updatedAt: now,
-		});
+		try {
+			await db.insert(divisions).values({
+				id,
+				slug: body.slug,
+				name: body.name,
+				email: body.email?.trim() || null,
+				isActive: true,
+				createdAt: now,
+				updatedAt: now,
+			});
+		} catch (err) {
+			if (isUniqueViolation(err)) throw ApiError.conflict("Slug divisi sudah dipakai");
+			throw err;
+		}
 
 		await recordAuditLog(c, {
 			action: "divisions.create",
@@ -121,31 +137,43 @@ adminAccountRouter.post(
 		security: [{ bearerAuth: [] }],
 	}),
 	async (c) => {
-		const body = (await c.req.json()) as {
-			user_id: string;
-			user_email: string;
-			division_id: string;
-			role: "platform_admin" | "division_admin" | "contributor" | "viewer";
-		};
-
-		if (!body.user_id || !body.user_email || !body.division_id || !body.role) {
-			throw ApiError.validation("Data akun tidak lengkap");
-		}
+		const body = await parseJson(c, createMembershipSchema);
 
 		const db = c.get("db");
+
+		// SQLite tidak menjamin foreign key ditegakkan di D1 — cek eksplisit supaya
+		// membership tidak menunjuk divisi yang tidak ada.
+		const [division] = await db
+			.select({ id: divisions.id })
+			.from(divisions)
+			.where(eq(divisions.id, body.division_id))
+			.limit(1);
+		if (!division) {
+			throw ApiError.validation("Validation failed", {
+				division_id: ["Divisi tidak ditemukan"],
+			});
+		}
+
 		const id = uuidv7();
 		const now = new Date().toISOString();
 
-		await db.insert(cmsMemberships).values({
-			id,
-			userId: body.user_id,
-			userEmail: body.user_email.toLowerCase().trim(),
-			divisionId: body.division_id,
-			role: body.role,
-			status: "active",
-			createdAt: now,
-			updatedAt: now,
-		});
+		try {
+			await db.insert(cmsMemberships).values({
+				id,
+				userId: body.user_id,
+				userEmail: body.user_email.toLowerCase().trim(),
+				divisionId: body.division_id,
+				role: body.role,
+				status: "active",
+				createdAt: now,
+				updatedAt: now,
+			});
+		} catch (err) {
+			if (isUniqueViolation(err)) {
+				throw ApiError.conflict("User sudah punya membership di divisi ini");
+			}
+			throw err;
+		}
 
 		await recordAuditLog(c, {
 			action: "accounts.membership_create",
