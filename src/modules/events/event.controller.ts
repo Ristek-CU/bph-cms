@@ -4,6 +4,7 @@ import { ApiResponse } from "../../shared/api-response";
 import { ApiError } from "../../shared/api-error";
 import { getDb } from "../../db/connection";
 import { eventService } from "./event.service";
+import { recordAuditLog } from "../audit/audit.service";
 import {
 	createEventSchema,
 	createSessionSchema,
@@ -41,13 +42,28 @@ export const parseParams = <S extends z.ZodType>(c: Ctx, schema: S): z.infer<S> 
 };
 
 export const listEvents = async (c: Ctx) => {
-	const result = await eventService.listAdmin(getDb(c.env.DB));
+	const permissions = c.get("permissions") ?? [];
+	const activeDivisionId = c.get("activeDivisionId");
+	const isAll = permissions.includes("events.read.all");
+	const result = await eventService.listAdmin(getDb(c.env.DB), {
+		divisionId: isAll ? undefined : activeDivisionId,
+	});
 	return ApiResponse.ok(c, "OK", result);
 };
 
 export const createEvent = async (c: Ctx) => {
 	const input = await parseJson(c, createEventSchema);
-	const result = await eventService.create(getDb(c.env.DB), input);
+	const divisionId = c.get("activeDivisionId");
+	const userId = c.get("userId");
+	const result = await eventService.create(getDb(c.env.DB), input, { divisionId, userId });
+	if (result) {
+		await recordAuditLog(c, {
+			action: "events.create",
+			resourceType: "event",
+			resourceId: result.id,
+			metadata: { title: result.title, slug: result.slug, divisionId },
+		});
+	}
 	return ApiResponse.created(c, "Event created", result);
 };
 
@@ -55,6 +71,11 @@ export const updateEvent = async (c: Ctx) => {
 	const { id } = parseParams(c, idParamSchema);
 	const input = await parseJson(c, updateEventSchema);
 	const result = await eventService.update(getDb(c.env.DB), id, input);
+	await recordAuditLog(c, {
+		action: "events.update",
+		resourceType: "event",
+		resourceId: id,
+	});
 	return ApiResponse.ok(c, "Event updated", result);
 };
 

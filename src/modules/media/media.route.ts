@@ -5,7 +5,8 @@ import { ApiResponse } from "../../shared/api-response";
 import { successWrapper, errorWrapper, mediaUploadSchema } from "../openapi/schemas";
 import { uuidv7 } from "uuidv7";
 import { adminAuth } from "../../middlewares/admin-auth";
-import { requireRole } from "../../middlewares/require-role";
+import { requirePermission } from "../../middlewares/require-permission";
+import { recordAuditLog } from "../audit/audit.service";
 import type { AppContext } from "../../types";
 
 // SDD §4.4: JPG/PNG/WebP ≤ 5MB.
@@ -18,8 +19,8 @@ const MAX_SIZE = 5 * 1024 * 1024;
 
 export const mediaRouter = new Hono<AppContext>();
 
-// Upload = operasi admin: wajib session + role admin (SDD §6).
-mediaRouter.use("*", adminAuth, requireRole("admin"));
+// Upload = operasi admin/divisi dengan permission media.
+mediaRouter.use("*", adminAuth, requirePermission("media.upload.own_division"));
 
 mediaRouter.post(
 	"/",
@@ -66,6 +67,13 @@ mediaRouter.post(
 	const key = `covers/${uuidv7()}.${ext}`;
 	await c.env.BUCKET.put(key, file.stream(), {
 		httpMetadata: { contentType: file.type },
+	});
+
+	await recordAuditLog(c, {
+		action: "media.upload",
+		resourceType: "media",
+		resourceId: key,
+		metadata: { contentType: file.type, size: file.size },
 	});
 
 	return ApiResponse.created(c, "Media uploaded", {

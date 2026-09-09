@@ -14,10 +14,10 @@ import type { AppContext, Bindings, Variables } from "./types";
 import { adminEventRouter } from "./modules/events/event.route";
 import { publicEventRouter } from "./modules/events/event.public.route";
 import { mediaRouter } from "./modules/media/media.route";
+import { meRouter } from "./modules/me/me.route";
+import { adminAccountRouter } from "./modules/accounts/account.route";
 import { eventService } from "./modules/events/event.service";
 import { adminAuth } from "./middlewares/admin-auth";
-// dipakai docsAccess di bawah
-import { requireRole } from "./middlewares/require-role";
 import { getDb } from "./db/connection";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -63,6 +63,8 @@ v1.get("/storage/*", async (c) => {
 v1.route("/events", publicEventRouter);
 v1.route("/admin/events", adminEventRouter);
 v1.route("/admin/media", mediaRouter);
+v1.route("/admin", adminAccountRouter);
+v1.route("/me", meRouter);
 
 // Spec OpenAPI + halaman docs hanya untuk email di allowlist (var DOCS_ALLOW_EMAILS,
 // koma-separator). Spec dilindungi — tanpa Bearer valid + email terdaftar, docs

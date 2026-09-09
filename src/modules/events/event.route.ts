@@ -3,8 +3,9 @@ import { z } from "zod";
 import { describeRoute, resolver } from "hono-openapi";
 import type { AppContext } from "../../types";
 import { adminAuth } from "../../middlewares/admin-auth";
-import { requireRole } from "../../middlewares/require-role";
+import { requirePermission } from "../../middlewares/require-permission";
 import { ApiResponse } from "../../shared/api-response";
+import { recordAuditLog } from "../audit/audit.service";
 import { getDb } from "../../db/connection";
 import { eventService } from "./event.service";
 import {
@@ -55,10 +56,11 @@ const eventOk = (summary: string, description: string, extra: Record<number, { d
 export const adminEventRouter = new Hono<AppContext>();
 
 // Semua endpoint admin wajib session valid + role admin (SDD §5/§6).
-adminEventRouter.use("*", adminAuth, requireRole("admin"));
+adminEventRouter.use("*", adminAuth);
 
 adminEventRouter.get(
 	"/",
+	requirePermission("events.read.own_division"),
 	ok(
 		"List all events (admin, incl. drafts, with sessions)",
 		"Semua event termasuk draft. status kolom: draft|published — status tampilan (ongoing/upcoming/past) dihitung klien dari waktu.",
@@ -69,6 +71,7 @@ adminEventRouter.get(
 
 adminEventRouter.post(
 	"/",
+	requirePermission("events.create.own_division"),
 	ok(
 		"Create event (sessions inline optional)",
 		"Slug auto dari judul bila kosong. Sesi harus di dalam rentang event. 201 → event lengkap + sessions.",
@@ -80,6 +83,7 @@ adminEventRouter.post(
 
 adminEventRouter.put(
 	"/:id",
+	requirePermission("events.update.own_division", { resourceType: "event" }),
 	ok(
 		"Update event (partial)",
 		"Body parsial — field mana pun boleh dikirim. Jika sessions dikirim, seluruh runsheet event diganti. Jika sessions tidak dikirim, rentang baru harus menampung sesi lama.",
@@ -91,6 +95,7 @@ adminEventRouter.put(
 
 adminEventRouter.delete(
 	"/:id",
+	requirePermission("events.delete.own_division", { resourceType: "event" }),
 	ok("Delete event + cascade sessions", "Hapus permanen, tidak ada soft delete.", successWrapper(z.object({})), {
 		404: { description: "Not found" },
 	}),
@@ -99,6 +104,7 @@ adminEventRouter.delete(
 
 adminEventRouter.post(
 	"/:id/sessions",
+	requirePermission("events.update.own_division", { resourceType: "event" }),
 	ok(
 		"Add session (must be within event range)",
 		"Sesi wajib di dalam rentang event dan ends_at > starts_at. 201 → event + sessions terbaru.",
@@ -110,12 +116,14 @@ adminEventRouter.post(
 
 adminEventRouter.put(
 	"/:id/sessions/order",
+	requirePermission("events.update.own_division", { resourceType: "event" }),
 	ok("Reorder sessions by id array", "Body: { session_ids: [id…] } — id asing/dua event → 422.", successWrapper(adminEventSchema)),
 	reorderSessions,
 );
 
 adminEventRouter.put(
 	"/sessions/:id",
+	requirePermission("events.update.own_division", { resourceType: "session" }),
 	ok(
 		"Update session (partial)",
 		"Body parsial: name/starts_at/ends_at/speaker/location/description.",
@@ -125,28 +133,41 @@ adminEventRouter.put(
 );
 adminEventRouter.delete(
 	"/sessions/:id",
+	requirePermission("events.update.own_division", { resourceType: "session" }),
 	ok("Delete session", "Hapus satu sesi.", successWrapper(z.object({}))),
 	deleteSession,
 );
 
 adminEventRouter.post(
 	"/:id/publish",
+	requirePermission("events.publish.own_division", { resourceType: "event" }),
 	ok("Publish event (visible publicly)", "Event langsung terlihat di endpoint publik.", successWrapper(adminEventSchema), {
 		404: { description: "Not found" },
 	}),
 	async (c) => {
 		const id = c.req.param("id");
 		const result = await eventService.setStatus(getDb(c.env.DB), id, "published");
+		await recordAuditLog(c, {
+			action: "events.publish",
+			resourceType: "event",
+			resourceId: id,
+		});
 		return ApiResponse.ok(c, "Event published", result);
 	},
 );
 
 adminEventRouter.post(
 	"/:id/unpublish",
+	requirePermission("events.publish.own_division", { resourceType: "event" }),
 	ok("Unpublish event (back to draft, hidden from public)", "Publik kembali 404.", successWrapper(adminEventSchema)),
 	async (c) => {
 		const id = c.req.param("id");
 		const result = await eventService.setStatus(getDb(c.env.DB), id, "draft");
+		await recordAuditLog(c, {
+			action: "events.unpublish",
+			resourceType: "event",
+			resourceId: id,
+		});
 		return ApiResponse.ok(c, "Event unpublished", result);
 	},
 );

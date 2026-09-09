@@ -7,7 +7,7 @@ import { IconChevronRight } from "../components/Icons.jsx";
 
 const LABEL = { draft: "Draft", ongoing: "Berlangsung", upcoming: "Akan Datang", past: "Selesai" };
 
-export default function Overview({ events, onEdit }) {
+export default function Overview({ events, onEdit, capabilities }) {
 	const toast = useToast();
 
 	const counts = events.reduce(
@@ -57,7 +57,7 @@ export default function Overview({ events, onEdit }) {
 								Buka penuh <IconChevronRight size={13} />
 							</Link>
 						</div>
-						<Calendar events={events} onEdit={onEdit} compact />
+						<Calendar events={events} onEdit={onEdit} capabilities={capabilities} compact />
 					</div>
 				</div>
 
@@ -66,8 +66,13 @@ export default function Overview({ events, onEdit }) {
 						<h2 className="card-title" style={{ marginBottom: 10 }}>Event terdekat</h2>
 						{soonest.length === 0 ? (
 							<p className="muted">
-								Belum ada event yang terbit.{" "}
-								<a href={href("/events/baru")}>Buat event baru</a> dulu.
+								Belum ada event yang terbit.
+								{capabilities?.canCreateEvent && (
+									<>
+										{" "}
+										<a href={href("/events/baru")}>Buat event baru</a> dulu.
+									</>
+								)}
 							</p>
 						) : (
 							<div className="tbl-wrap">
@@ -83,7 +88,9 @@ export default function Overview({ events, onEdit }) {
 												<td><span className={`badge ${displayStatus(e)}`}>{LABEL[displayStatus(e)]}</span></td>
 												<td>
 													<button className="btn sec sm" onClick={() => copyLink(e)}>Salin link</button>{" "}
-													<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
+													{capabilities?.canEditEvent?.(e) && (
+														<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
+													)}
 												</td>
 											</tr>
 										))}
