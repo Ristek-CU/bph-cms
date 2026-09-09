@@ -619,6 +619,55 @@ eq(
 	null,
 );
 
+// ── 14b. Proxy auth — path yang benar di service auth yang terdeploy ─────────
+section("Proxy auth");
+
+// authRouter service auth yang terdeploy tidak punya /v1/access/sign-up (404
+// kosong dari wildcard better-auth). Proxy harus menunjuk endpoint native
+// /sign-up/email dan membungkus responsnya agar kontraknya sama dengan sign-in.
+const signUpOk = await h.req("/api/v1/auth/sign-up", {
+	method: "POST",
+	json: { name: "Divisi Uji", email: "uji@cakrawala.com", password: "rahasia123!" },
+});
+eq("sign-up valid → 200 (bukan 404)", signUpOk.status, 200);
+eq("sign-up dibungkus success:true", signUpOk.body?.success, true);
+ok(
+	"sign-up mengembalikan token di data.token",
+	typeof signUpOk.body?.data?.token === "string" && signUpOk.body.data.token.length > 0,
+	signUpOk.body?.data,
+);
+eq("sign-up meneruskan email user", signUpOk.body?.data?.user?.email, "uji@cakrawala.com");
+eq("sign-up meneruskan role default auth service", signUpOk.body?.data?.user?.role, "user");
+
+const signUpIncomplete = await h.req("/api/v1/auth/sign-up", {
+	method: "POST",
+	json: { email: "uji@cakrawala.com" },
+});
+eq("sign-up body tidak lengkap → 400", signUpIncomplete.status, 400);
+ok(
+	"400 sign-up membawa pesan, bukan body kosong",
+	typeof signUpIncomplete.body?.message === "string" && signUpIncomplete.body.message.length > 0,
+	signUpIncomplete.body,
+);
+
+const signUpEmpty = await h.req("/api/v1/auth/sign-up", {
+	method: "POST",
+	headers: { "Content-Type": "application/json" },
+	body: "",
+});
+eq("sign-up body kosong → 400 rapi (bukan 500 upstream)", signUpEmpty.status, 400);
+
+const signInWrong = await h.req("/api/v1/auth/sign-in", {
+	method: "POST",
+	json: { email: "korban@example.com", password: "salah-panjang" },
+});
+eq("sign-in kredensial salah → 401", signInWrong.status, 401);
+eq(
+	"sign-in meneruskan wrapper upstream apa adanya",
+	signInWrong.body?.errors?.code,
+	"INVALID_EMAIL_OR_PASSWORD",
+);
+
 // ── 15. Storage R2 ───────────────────────────────────────────────────────────
 section("Storage R2");
 

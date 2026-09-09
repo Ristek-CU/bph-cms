@@ -119,19 +119,51 @@ export const startHarness = async (
 			// Kode harus tahan tanpa binding itu (skip guard), dan d1RateLimiter yang
 			// menegakkan limit di test.
 			serviceBindings: {
-				AUTH_SERVICE: (request: Request) => {
-					const token = (request.headers.get("Authorization") ?? "").replace("Bearer ", "").trim();
-					const user = USERS[token];
-					if (!user) {
-						return new Response(JSON.stringify({ success: false, statusCode: 401 }), {
-							status: 401,
+				// Meniru auth service superapp yang TERDEPLOY (dipetakan 2026-09-10
+				// lewat service binding): authRouter hanya punya sign-in/session/sign-out,
+				// sedangkan sign-up cuma hidup sebagai endpoint native better-auth.
+				AUTH_SERVICE: async (request: Request) => {
+					const json = (value: unknown, status: number) =>
+						new Response(JSON.stringify(value), {
+							status,
 							headers: { "Content-Type": "application/json" },
 						});
+					const path = new URL(request.url).pathname;
+
+					if (path === "/v1/access/sign-up" ) {
+						// Jatuh ke wildcard better-auth → 404 dengan body kosong.
+						return new Response(null, { status: 404 });
 					}
-					return new Response(
-						JSON.stringify({ success: true, statusCode: 200, data: { user } }),
-						{ status: 200, headers: { "Content-Type": "application/json" } },
-					);
+
+					if (path === "/v1/access/sign-up/email" && request.method === "POST") {
+						const body = (await request.json().catch(() => null)) as any;
+						if (!body?.name || !body?.email || !body?.password) {
+							return json({ message: "Invalid input", code: "VALIDATION_ERROR" }, 400);
+						}
+						// Bentuk native: polos, tanpa wrapper { success, data }.
+						return json({
+							token: "tok-signup-baru",
+							user: { id: "u-signup-baru", email: body.email, name: body.name, role: "user" },
+						}, 200);
+					}
+
+					if (path === "/v1/access/sign-in" && request.method === "POST") {
+						return json(
+							{
+								success: false,
+								message: "Invalid email or password",
+								statusCode: 401,
+								errors: { message: "Invalid email or password", code: "INVALID_EMAIL_OR_PASSWORD" },
+							},
+							401,
+						);
+					}
+
+					// GET /v1/access/session
+					const token = (request.headers.get("Authorization") ?? "").replace("Bearer ", "").trim();
+					const user = USERS[token];
+					if (!user) return json({ success: false, statusCode: 401 }, 401);
+					return json({ success: true, statusCode: 200, data: { user } }, 200);
 				},
 			},
 			// Miniflare v4 memakai `bindings` untuk plain var (bukan `vars`).

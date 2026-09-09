@@ -7,7 +7,7 @@ import { successWrapper, errorWrapper, authDataSchema } from "./modules/openapi/
 import { errorHandler } from "./shared/error-handler";
 import { ApiError } from "./shared/api-error";
 import { ApiResponse } from "./shared/api-response";
-import { STATUS_CODES } from "./shared/status-codes";
+import { STATUS_CODES, type StatusCode } from "./shared/status-codes";
 import { dbMiddleware } from "./db/connection";
 import type { AppContext, Bindings, Variables } from "./types";
 
@@ -131,26 +131,55 @@ const describeAuth = (summary: string, description: string) =>
 		},
 	});
 
-const proxyAuth = (path: string) => async (c: Parameters<import("hono").Handler>[0]) => {
-	const raw = await c.req.text();
-	// Tolak body kosong/bukan JSON dengan 400 rapi — sebelumnya 500 "Malformed JSON"
-	// dari service auth saat parsing gagal.
-	if (!raw || /{|\[/.test(raw) === false) {
-		throw ApiError.badRequest("Body JSON wajib: { email, password }");
-	}
-	const res = await c.env.AUTH_SERVICE.fetch(
-		// Path service auth redeploy: /v1/auth/* kini /v1/access/*
-		new Request(`http://internal/v1/access/${path}`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: raw,
-		}),
-	);
-	return new Response(res.body, {
-		status: res.status,
-		headers: { "Content-Type": "application/json" },
-	});
-};
+const proxyAuth =
+	(options: { path: string; native?: boolean }) =>
+	async (c: Parameters<import("hono").Handler>[0]) => {
+		const raw = await c.req.text();
+		// Tolak body kosong/bukan JSON dengan 400 rapi — sebelumnya 500 "Malformed JSON"
+		// dari service auth saat parsing gagal.
+		if (!raw || /{|\[/.test(raw) === false) {
+			throw ApiError.badRequest("Body JSON wajib: { email, password }");
+		}
+		const res = await c.env.AUTH_SERVICE.fetch(
+			// Path service auth redeploy: /v1/auth/* kini /v1/access/*
+			new Request(`http://internal/v1/access/${options.path}`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: raw,
+			}),
+		);
+
+		// sign-in dilayani authRouter service auth yang sudah membungkus respons jadi
+		// { success, message, statusCode, data } — teruskan apa adanya.
+		if (!options.native) {
+			return new Response(res.body, {
+				status: res.status,
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+
+		// authRouter yang terdeploy TIDAK punya /sign-up (diverifikasi: 404 kosong,
+		// jatuh ke wildcard better-auth). Yang hidup adalah endpoint native
+		// /sign-up/email, dan dia membalas { token, user } polos tanpa wrapper.
+		// Dibungkus ulang supaya kontrak publik /auth/sign-up tetap sama dengan
+		// /auth/sign-in dan cocok dengan authDataSchema di spec OpenAPI.
+		const text = await res.text();
+		let body: unknown;
+		try {
+			body = JSON.parse(text);
+		} catch {
+			throw ApiError.server("Service auth membalas respons non-JSON");
+		}
+		if (!res.ok) {
+			const err = body as { message?: string } | null;
+			throw new ApiError(
+				res.status as StatusCode,
+				err?.message || "Sign up gagal",
+				body,
+			);
+		}
+		return ApiResponse.ok(c, "Sign up berhasil", body);
+	};
 
 // Brute-force guard untuk proxy auth. Sebelumnya /auth/sign-in tidak dibatasi
 // sama sekali (diverifikasi: puluhan percobaan beruntun semuanya lolos tanpa 429).
@@ -193,16 +222,16 @@ v1.post(
 		"Sign in (proxy ke service auth superapp)",
 		"Body: { email, password }. 200 → { token, user }. Token dipakai: Authorization: Bearer <token> untuk semua endpoint admin.",
 	),
-	proxyAuth("sign-in"),
+	proxyAuth({ path: "sign-in" }),
 );
 v1.post(
 	"/auth/sign-up",
 	signUpLimiter,
 	describeAuth(
-		"Sign up (proxy)",
-		"Body: { name, email, password (min 8) }. User baru role 'user' — perlu dijadikan admin oleh pengelola untuk akses panel.",
+		"Sign up (proxy ke endpoint native better-auth)",
+		"Body: { name, email, password (min 8) }. User baru role 'user' di auth service; akses panel baru muncul setelah platform_admin membuat baris cms_memberships untuk user itu.",
 	),
-	proxyAuth("sign-up"),
+	proxyAuth({ path: "sign-up/email", native: true }),
 );
 
 app.route("/api/v1", v1);

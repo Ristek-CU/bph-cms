@@ -49,7 +49,11 @@
 
 ### Auth
 
-- Endpoint admin: header `Authorization: Bearer <token>` (dari sign-in §3). Wajib role `admin`.
+- Endpoint admin: header `Authorization: Bearer <token>` (dari sign-in §3). **Hanya Bearer** —
+  sejak 10 Sep 2026 cookie tidak lagi diterima sebagai kredensial.
+- Izin admin **bukan** dari role auth service, tapi dari baris `cms_memberships` di CMS Hub
+  (`platform_admin` / `division_admin` / `contributor` / `viewer`) → dipetakan ke permission
+  di `src/shared/permissions.ts`. Token valid tanpa membership → `permissions` kosong → 403.
 - Endpoint publik: tanpa auth.
 
 ---
@@ -172,16 +176,45 @@ Gunakan `data.token` sebagai Bearer token untuk semua endpoint admin.
 
 ```json
 { "name": "Nama Lengkap", "email": "user@sga.test", "password": "min8karakter" }
-// 201 — body sama dengan sign-in
+// 200 — body sama dengan sign-in
+{ "success": true, "message": "Sign up berhasil", "statusCode": 200,
+  "data": { "token": "…", "user": { "id": "…", "email": "…", "name": "…", "role": "user" } } }
 ```
 
-Catatan: user baru role-nya `user` — tidak bisa akses endpoint admin sampai dijadikan `admin` oleh pengelola superapp.
+Diperbarui 10 Sep 2026:
+
+- Status sukses **200**, bukan 201.
+- Endpoint ini sebelumnya **404 di production**: proxy mengarah ke `/v1/access/sign-up`,
+  sedangkan authRouter service auth yang terdeploy tidak punya route itu. Sekarang proxy
+  diarahkan ke endpoint native better-auth `/v1/access/sign-up/email` dan responsnya yang
+  polos (`{ token, user }`) dibungkus ulang supaya bentuknya sama dengan sign-in.
+- Dibatasi rate limit **10 request / 15 menit per IP**.
+- Catatan akses: user baru dapat role `user` di auth service, tetapi role itu **bukan**
+  penentu akses panel. Akses CMS Hub berasal dari baris `cms_memberships`
+  (`platform_admin` / `division_admin` / `contributor` / `viewer`). Tanpa membership,
+  `permissions` kosong dan semua endpoint admin membalas 403. Lihat
+  [DIVISION-ACCOUNTS.md](./DIVISION-ACCOUNTS.md) dan [RUNNING-GUIDE.md §12](./RUNNING-GUIDE.md).
 
 ---
 
 ## 4. Endpoint Admin — Event
 
-Semua wajib `Authorization: Bearer <token>` + role `admin`. Tanpa/m salah role → `401` / `403`.
+Semua wajib `Authorization: Bearer <token>` **dan** membership aktif dengan permission yang
+cukup untuk divisi target. Token hilang/invalid → `401`; token valid tapi permission atau
+kepemilikan divisi tidak cocok → `403`.
+
+Scope per role:
+
+| Role | Event divisi sendiri | Event divisi lain | Publish/delete | QPR, Akun, Audit |
+|---|---|---|---|---|
+| `platform_admin` | ya | ya (`.all`) | ya | ya |
+| `division_admin` | ya | 403 | ya | 403 |
+| `contributor` | draft saja | 403 | 403 | 403 |
+| `viewer` | baca saja | 403 | 403 | 403 |
+
+Header opsional `X-Division-Id` memilih divisi aktif untuk user dengan lebih dari satu
+membership. Mengisinya dengan divisi yang bukan membership user **diabaikan** — fallback ke
+membership pertama, jadi header ini tidak bisa dipakai menyeberang divisi.
 
 ### 4.1 `GET /admin/events` — semua event (termasuk draft) + sessions
 
@@ -291,11 +324,17 @@ Dilayani dari R2, `Cache-Control: public, max-age=31536000, immutable` — aman 
 |---|---|---|
 | 400 | Body bukan JSON valid | `{ success:false, message:"Invalid JSON body" }` |
 | 401 | Token hilang/salah, draft di endpoint publik* | `{ success:false, message:"Unauthorized" }` |
-| 403 | Token valid, bukan role admin | `{ success:false, message:"Forbidden" }` |
+| 403 | Token valid, tapi permission/kepemilikan divisi tidak cukup | `{ success:false, message:"Forbidden: …" }` |
 | 404 | Slug tidak ada / draft / resource tidak ada | `{ success:false, message:"Event not found" }` |
 | 409 | Slug sudah dipakai | `{ success:false, message:"Slug already exists" }` |
 | 422 | Validasi gagal | `{ success:false, message:"Validation failed", errors: { field: [msg…] } }` |
 | 429 | Kena rate limit (§7) | `{ success:false, message:"Terlalu banyak permintaan…" }` |
+| 500 | Error tak terduga (D1, dsb.) | `{ success:false, message:"Internal server error", requestId:"…" }` |
+
+Semua respons error sekarang menyertakan `requestId` (dari middleware `requestId`). Pakai itu
+untuk mencocokkan dengan log Worker — pesan error internal **sengaja tidak** dikirim ke klien.
+Sebelum 10 Sep 2026 body 500 berisi `err.message` mentah, yang untuk error D1 memuat nama
+tabel, potongan SQL, dan params query.
 
 *Draft di `/events/:slug` = 404, bukan 401.
 
@@ -315,11 +354,44 @@ Key `errors` mengikuti path field (`sessions.<index>` / `sessions.<index>.starts
 
 ## 7. Rate Limit
 
-Endpoint publik (`/events*`) dibatasi **60 request/menit per IP + path** (Cloudflare Workers Rate Limiting). Melebihi → `429`. FE: jangan polling rapat; cache klien 60 detik cukup.
+Diperbarui 10 Sep 2026. Limit ditegakkan oleh **counter fixed-window di D1**
+(`src/db/rate-limit.ts`, tabel `rate_limits`), bukan oleh binding `RATE_LIMITER`.
+
+| Endpoint | Limit | Key |
+|---|---|---|
+| `GET /events*` (publik) | 120 / menit | IP + path |
+| `POST /auth/sign-in` | 20 / 15 menit | IP + path + email |
+| `POST /auth/sign-in` | 60 / 15 menit | IP + path |
+| `POST /auth/sign-up` | 10 / 15 menit | IP + path |
+
+Melebihi → `429`. FE: jangan polling rapat; cache klien 60 detik cukup.
+
+Dua lapis dipasang pada sign-in: yang per-email menahan tebakan password pada satu akun,
+yang per-IP menahan password spraying ke banyak email.
+
+> Binding `RATE_LIMITER` (Cloudflare Workers Rate Limiting, 60/60s) **masih terpasang tetapi
+> tidak menegakkan apa pun di production** — selalu membalas `success: true`. Diverifikasi
+> 10 Sep 2026: 200 request beruntun ke `/api/v1/events` menghasilkan nol 429, sementara kode
+> yang sama di `wrangler dev` memblokir di request ke-61. Binding itu dipertahankan hanya
+> sebagai lapisan murah dengan `skip` guard. Angka 60/menit yang tertulis di versi lama
+> dokumen ini tidak pernah berlaku di production.
+
+Limit publik 120 (bukan 60) sengaja lebih longgar supaya banyak user di satu NAT kampus
+tidak saling mengunci.
 
 ---
 
 ## Changelog
 
+- **1.2 (10 Sep 2026):** Perbaikan keamanan + koreksi dokumentasi.
+  - Rate limit **benar-benar aktif** sekarang, lewat counter D1 (§7). Entri 1.1 yang menyebut
+    "Rate limit aktif" tidak akurat: binding Cloudflare terpasang tetapi tidak pernah
+    menegakkan limit, dan `/auth/sign-in` tidak dibatasi sama sekali.
+  - Izin admin dijelaskan ulang berbasis `cms_memberships` + permission, bukan "role admin" (§Auth, §4).
+  - `POST /auth/sign-up` diperbaiki — sebelumnya 404 di production (§3.2).
+  - Cookie tidak lagi diterima sebagai kredensial; hanya `Authorization: Bearer`.
+  - Body 500 tidak lagi membocorkan pesan error internal; semua respons error membawa `requestId`.
+  - `X-Division-Id` masuk `Access-Control-Allow-Headers`.
+  - Header keamanan ditambahkan pada respons Worker (nosniff, `X-Frame-Options: DENY`, CSP, Referrer-Policy).
 - **1.1 (2 Sep 2026):** `GET /events/:slug` kini mengembalikan `status` (dihitung server). Rate limit aktif. Dokumen mencakup semua endpoint (auth proxy, admin, media, storage).
 - **1.0 (1 Sep 2026):** Rilis awal — contract SDD §4.
