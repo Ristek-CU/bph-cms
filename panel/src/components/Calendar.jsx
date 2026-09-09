@@ -31,7 +31,7 @@ function sessionsOnDay(ev, dayKey) {
 }
 
 // Panel agenda: detail hari terpilih — event + sesi per jam + aksi.
-function DayAgenda({ dayKey, events, onEdit, onNew }) {
+function DayAgenda({ dayKey, events, onEdit, onNew, capabilities }) {
 	return (
 		<div className="card agenda-card">
 			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
@@ -39,9 +39,11 @@ function DayAgenda({ dayKey, events, onEdit, onNew }) {
 					<h2 className="card-title">{fmtDateLong(`${dayKey}T12:00:00+07:00`)}</h2>
 					<span className="muted small">{events.length} event · WIB</span>
 				</div>
-				<button className="btn sec sm" onClick={() => onNew(dayKey)}>
-					<IconPlus size={14} /> Buat event di tanggal ini
-				</button>
+				{capabilities?.canCreateEvent && (
+					<button className="btn sec sm" onClick={() => onNew(dayKey)}>
+						<IconPlus size={14} /> Buat event di tanggal ini
+					</button>
+				)}
 			</div>
 
 			{events.length === 0 ? (
@@ -78,7 +80,9 @@ function DayAgenda({ dayKey, events, onEdit, onNew }) {
 								</ul>
 							)}
 							<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-								<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
+								{capabilities?.canEditEvent?.(e) && (
+									<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
+								)}
 								{e.status !== "draft" && (
 									<a className="btn ghost sm" href={publicLink(e)} target="_blank" rel="noreferrer">Lihat publik</a>
 								)}
@@ -98,7 +102,7 @@ function DayAgenda({ dayKey, events, onEdit, onNew }) {
  * Kalender bulanan lengkap + agenda hari terpilih.
  * Dipakai di /events/kalender (penuh) dan Ringkasan (compact).
  */
-export default function Calendar({ events, onEdit, compact = false }) {
+export default function Calendar({ events, onEdit, compact = false, capabilities }) {
 	const now = new Date();
 	const [ym, setYm] = useState({ y: now.getFullYear(), m: now.getMonth() });
 	const [picked, setPicked] = useState(null);
@@ -197,7 +201,15 @@ export default function Calendar({ events, onEdit, compact = false }) {
 				</p>
 			)}
 
-			{picked && <DayAgenda dayKey={picked.dayKey} events={picked.events} onEdit={onEdit} onNew={setAskNew} />}
+			{picked && (
+				<DayAgenda
+					dayKey={picked.dayKey}
+					events={picked.events}
+					onEdit={onEdit}
+					onNew={setAskNew}
+					capabilities={capabilities}
+				/>
+			)}
 
 			<Confirm
 				open={!!askNew}

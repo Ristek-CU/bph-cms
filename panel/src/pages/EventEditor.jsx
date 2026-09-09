@@ -177,7 +177,7 @@ function Preview({ form, sessions, cover }) {
 	);
 }
 
-export default function EventEditor({ event, prefillDate }) {
+export default function EventEditor({ event, prefillDate, canPublish = true, canDelete = true }) {
 	const navigate = useNavigate();
 	const toast = useToast();
 	const editing = !!event?.id;
@@ -278,6 +278,10 @@ export default function EventEditor({ event, prefillDate }) {
 	}
 
 	async function save(publishAfter) {
+		if (publishAfter && !canPublish) {
+			toast("Akun ini tidak punya akses untuk menerbitkan event.", "err");
+			return;
+		}
 		const errs = clientValidate();
 		setErrors(errs);
 		if (Object.keys(errs).length) {
@@ -477,26 +481,30 @@ export default function EventEditor({ event, prefillDate }) {
 						<button className="btn" onClick={() => save(false)} disabled={saving}>
 							{saving ? "Menyimpan…" : "Simpan Draft"}
 						</button>
-						<button className="btn gold" onClick={() => save(true)} disabled={saving}>
-							Simpan &amp; Terbitkan
-						</button>
+						{canPublish && (
+							<button className="btn gold" onClick={() => save(true)} disabled={saving}>
+								Simpan &amp; Terbitkan
+							</button>
+						)}
 					</>
 				) : (
 					<>
 						<button className="btn" onClick={() => save(false)} disabled={saving}>
 							{saving ? "Menyimpan…" : "Simpan Perubahan"}
 						</button>
-						{published ? (
-							<button className="btn sec" onClick={unpublish}>Tarik (kembali ke draft)</button>
-						) : (
-							<button className="btn gold" onClick={() => setAskPublish(true)}>Terbitkan</button>
+						{canPublish && (
+							published ? (
+								<button className="btn sec" onClick={unpublish}>Tarik (kembali ke draft)</button>
+							) : (
+								<button className="btn gold" onClick={() => setAskPublish(true)}>Terbitkan</button>
+							)
 						)}
 					</>
 				)}
 				<button className="btn ghost" onClick={() => setShowPreview(!showPreview)}>
 					{showPreview ? "Sembunyikan pratinjau" : "Pratinjau"}
 				</button>
-				{savedId && (
+				{savedId && canDelete && (
 					<button className="btn danger" style={{ marginLeft: "auto" }} onClick={() => setAskDelete(true)}>
 						Hapus Permanen
 					</button>

@@ -92,7 +92,7 @@ const asValidation = (s: Array<{ starts_at: string; ends_at: string }>) =>
 	s.map((x) => ({ startsAt: x.starts_at, endsAt: x.ends_at }));
 
 export const eventService = {
-	async create(db: Db, input: CreateEventInput) {
+	async create(db: Db, input: CreateEventInput, meta?: { divisionId?: string; userId?: string }) {
 		const slug = input.slug
 			? (await eventService.assertSlugFree(db, input.slug), input.slug)
 			: await uniqueSlug(db, slugify(input.title));
@@ -122,6 +122,9 @@ export const eventService = {
 				registrationUrl: input.registration_url ?? null,
 				registrationOpen: input.registration_open,
 				organizer: input.organizer ?? null,
+				divisionId: meta?.divisionId ?? null,
+				createdByUserId: meta?.userId ?? null,
+				updatedByUserId: meta?.userId ?? null,
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -352,12 +355,18 @@ export const eventService = {
 		return this.getWithSessions(db, eventId);
 	},
 
-	async listAdmin(db: Db) {
+	async listAdmin(db: Db, options?: { divisionId?: string }) {
 		// ponytail: no pagination — admin panel fetches all; add when > 100 events.
-		const rows = await db
-			.select()
-			.from(events)
-			.orderBy(desc(events.startsAtMs));
+		const rows = options?.divisionId
+			? await db
+					.select()
+					.from(events)
+					.where(eq(events.divisionId, options.divisionId))
+					.orderBy(desc(events.startsAtMs))
+			: await db
+					.select()
+					.from(events)
+					.orderBy(desc(events.startsAtMs));
 		const all = await db
 			.select()
 			.from(eventSessions)

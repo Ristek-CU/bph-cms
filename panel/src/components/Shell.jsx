@@ -68,6 +68,9 @@ export function Shell({ user, children, title, crumb, actions }) {
 		.join("")
 		.toUpperCase();
 
+	const permissions = user?.permissions || [];
+	const canSeeQpr = permissions.includes("qpr.manage");
+
 	const nav = (
 		<nav className="nav" aria-label="Modul">
 			<NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>
@@ -76,9 +79,11 @@ export function Shell({ user, children, title, crumb, actions }) {
 			<NavLink to="/events" className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconCalendar /></span> Event
 			</NavLink>
-			<NavLink to="/qpr" className={({ isActive }) => (isActive ? "active" : "")}>
-				<span className="icon" aria-hidden><IconClipboard /></span> QPR <span className="soon">SEGERA</span>
-			</NavLink>
+			{canSeeQpr && (
+				<NavLink to="/qpr" className={({ isActive }) => (isActive ? "active" : "")}>
+					<span className="icon" aria-hidden><IconClipboard /></span> QPR <span className="soon">BPH</span>
+				</NavLink>
+			)}
 			<div className="nav-sep" />
 			<a href="/docs/" target="_blank" rel="noreferrer" title="Dokumentasi API untuk developer">
 				<span className="icon" aria-hidden><IconLink /></span> Dokumentasi API
@@ -91,8 +96,8 @@ export function Shell({ user, children, title, crumb, actions }) {
 			<div className="brand">
 				<img className="brand-logo-img" src={logoSga} alt="Logo SGA Cakrawala" />
 				<div>
-					<strong>CMS BPH</strong>
-					<small>SGA Cakrawala</small>
+					<strong>SGA CMS Hub</strong>
+					<small>{user?.division?.name ? `Divisi ${user.division.name}` : "SGA Cakrawala"}</small>
 				</div>
 			</div>
 			{nav}

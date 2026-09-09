@@ -13,7 +13,7 @@ const FILTERS = [
 	["past", "Selesai"],
 ];
 
-export default function EventList({ events, onEdit }) {
+export default function EventList({ events, onEdit, capabilities }) {
 	const [q, setQ] = useState("");
 	const [filter, setFilter] = useState("all");
 	const navigate = useNavigate();
@@ -66,9 +66,11 @@ export default function EventList({ events, onEdit }) {
 							? "Belum ada event sama sekali."
 							: "Tidak ada event yang cocok dengan pencarian atau filter."}
 					</p>
-					<button className="btn gold" onClick={() => navigate("/events/baru")}>
-						<IconPlus size={16} /> Buat event pertama
-					</button>
+					{capabilities?.canCreateEvent && (
+						<button className="btn gold" onClick={() => navigate("/events/baru")}>
+							<IconPlus size={16} /> Buat event pertama
+						</button>
+					)}
 				</div>
 			) : (
 				<div className="event-grid">
@@ -92,7 +94,9 @@ export default function EventList({ events, onEdit }) {
 									</div>
 									<div className="actions">
 										<button className="btn sec sm" onClick={() => copyLink(e)}>Salin link</button>
-										<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
+										{capabilities?.canEditEvent?.(e) && (
+											<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
+										)}
 										<a
 											className="btn ghost sm"
 											href={gcalUrl(e)}

@@ -1,14 +1,22 @@
 # CONTEXT.md — Baca Ini Sebelum Ngoding
 
 > File ini untuk agent/developer yang baru buka repo. Baca berurutan:
-> `PRD.md` → `SDD.md` → sisa dokumen di folder ini. Semua konteks ada di sini.
+> `PRD-SGA-CMS-HUB.md` → `SDD-SGA-CMS-HUB.md` → `RUNNING-GUIDE.md`
+> → `DIVISION-ACCOUNTS.md` → `PRD.md` → `SDD.md`
+> → sisa dokumen di folder ini.
+> Semua konteks ada di sini.
 
 ## 1. Apa ini
 
-**bph-cms** = service backend CMS milik divisi BPH SGA Cakrawala. Menangani:
+**bph-cms** = service backend CMS SGA Cakrawala yang awalnya dibuat untuk BPH,
+dan kini diarahkan menjadi **SGA CMS Hub**: dashboard terpadu multi-divisi dengan
+akses per divisi/per fitur. Lihat [PRD-SGA-CMS-HUB.md](./PRD-SGA-CMS-HUB.md).
+
+Menangani:
 
 - **Modul Student Event** ← *yang dikerjakan sekarang* (lihat [PRD.md](./PRD.md), [SDD.md](./SDD.md))
 - Modul form QPR — menyusul, struktur harus siap menampung
+- Modul multi-divisi: akun, membership, permission, audit log, dan fitur masa depan
 
 Dikonsumsi oleh **Landing Page SGA** (`Ristek-CU/sga-landing-page`, React SPA di Cloudflare
 Pages, tanpa backend). FE hanya konsumen `GET` publik.
@@ -25,12 +33,15 @@ Pages, tanpa backend). FE hanya konsumen `GET` publik.
 | Auth | reuse service `auth` (better-auth) via service binding — JANGAN bikin tabel user sendiri |
 | Opsi yang gugur | GCP (tim all-Cloudflare), "tabel di landing page" (LP statis, gak punya DB), gabung ke Advocation |
 
-## 3. Konteks ekosistem (tiga CMS terpisah)
+## 3. Konteks ekosistem
+
+Kondisi awal: tiga CMS terpisah per divisi. Arah terbaru: repo ini menjadi hub
+terpadu untuk modul yang bisa dipakai lintas divisi, dimulai dari Event.
 
 | CMS | Divisi | Domain | Status |
 |---|---|---|---|
 | CMS Advo | Advocation | Student Voice | live — `satgas.sga-cakrawala.org` |
-| **CMS BPH** (repo ini) | BPH | **Event** + QPR nanti | dibangun sekarang |
+| **CMS Hub** (repo ini) | SGA lintas divisi | **Event semua divisi** + QPR BPH + modul baru | arah baru, PRD draft |
 | CMS Ristek | Ristek | konten LP + UKM | rencana |
 
 FE landing page punya env per CMS: `VITE_ADVOCATION_API_URL` (live),
@@ -61,6 +72,9 @@ Milestone M1–M6 di [SDD.md §10](./SDD.md). Ringkas:
 - Semua timestamp ISO 8601 dengan offset. Tampilan WIB.
 - Error shape konsisten `errors: { field: [msg] }` — FE sudah mengandalkannya.
 - Endpoint publik read-only, hanya `published`, draft tidak bocor (404).
+- Akses admin harus deny-by-default: menu boleh disembunyikan di panel, tapi izin wajib dicek di backend.
+- Data event multi-divisi harus punya owner division; user divisi tidak boleh edit event divisi lain tanpa permission eksplisit.
+- QPR hanya untuk akun BPH sampai ada keputusan baru.
 - Contract SDD §4 itu final sampai didiskusikan ulang — FE sudah membangun dummy JSON darinya.
 
 ## 7. Google Calendar
@@ -80,6 +94,12 @@ self-check status (`npm test`, 9 checks). Siap integrasi FE — contract SDD §4
 sudah match e2e.
 
 Dokumen perencanaan panel + modul berikutnya:
+[PRD-SGA-CMS-HUB.md](./PRD-SGA-CMS-HUB.md) (arah dashboard terpadu multi-divisi),
+[SDD-SGA-CMS-HUB.md](./SDD-SGA-CMS-HUB.md) (desain teknis multi-divisi),
+[RUNNING-GUIDE.md](./RUNNING-GUIDE.md) (cara setup, run, test, build, deploy),
+[PRODUCTION-READINESS-2026-09-09.md](./PRODUCTION-READINESS-2026-09-09.md) (status deploy production multi-divisi),
+[DIVISION-ACCOUNTS.md](./DIVISION-ACCOUNTS.md) (daftar akun per divisi),
+[ACCOUNTS-ACCESS.md](./ACCOUNTS-ACCESS.md) (rencana akun divisi, akses, dan special workspace),
 [PANEL-UI.md](./PANEL-UI.md) (spesifikasi dashboard admin), [QPR-PRD.md](./QPR-PRD.md)
 (konsep modul penilaian internal — butuh konfirmasi BPH sebelum SDD),
 [API.md](./API.md) (**contract lengkap semua endpoint — sumber utama untuk FE**),
