@@ -19,6 +19,14 @@ jobs:
       - name: Install API dependencies
         run: npm ci --legacy-peer-deps
 
+      # Gate sebelum apa pun menyentuh production: typecheck + suite keamanan
+      # (matriks otorisasi, isolasi divisi, rate limit, kebocoran error).
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
       - name: Install panel dependencies
         run: npm ci --legacy-peer-deps
         working-directory: panel

@@ -4,7 +4,7 @@ import { describeRoute, resolver } from "hono-openapi";
 import { ApiError } from "../../shared/api-error";
 import { ApiResponse } from "../../shared/api-response";
 import { getDb } from "../../db/connection";
-import { publicRateLimiter } from "../../middlewares/rate-limiter";
+import { publicRateLimiter, d1RateLimiter } from "../../middlewares/rate-limiter";
 import { publicEventService } from "./event.public.service";
 import type { AppContext } from "../../types";
 import {
@@ -60,7 +60,15 @@ const ok = (
 export const publicEventRouter = new Hono<AppContext>();
 
 // Endpoint publik di rate-limit per IP+path (SDD §6).
+// Binding RATE_LIMITER tetap dipasang sebagai lapisan murah, tetapi di production
+// dia tidak pernah menegakkan limit (diverifikasi: 200 request beruntun, nol 429),
+// jadi counter D1 di bawah yang benar-benar membatasi. 120/menit/IP sengaja lebih
+// longgar dari kontrak 60 supaya banyak user di satu NAT kampus tidak ikut kena.
 publicEventRouter.use("*", publicRateLimiter);
+publicEventRouter.use(
+	"*",
+	d1RateLimiter({ prefix: "public:events", limit: 120, windowMs: 60_000 }),
+);
 
 // PENTING: /calendar didaftarkan sebelum /:slug agar tidak tertelan param.
 publicEventRouter.get(

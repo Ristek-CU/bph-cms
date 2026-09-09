@@ -30,6 +30,8 @@ export type Bindings = {
 	API_BASE_URL: string;
 	CORS_ORIGIN: string;
 	DOCS_ALLOW_EMAILS: string;
+	/** Email yang boleh jadi platform_admin tanpa baris cms_memberships. */
+	PLATFORM_BOOTSTRAP_EMAILS?: string;
 	ALLOW_DEV_AUTH?: string;
 };
 

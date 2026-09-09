@@ -21,7 +21,10 @@
 	"vars": {
 		"API_BASE_URL": "https://bph-cms.sga-cakrawala.org/api/v1",
 		"CORS_ORIGIN": "https://sga-cakrawala.org,https://cms.sga-cakrawala.org,http://localhost:5173",
-		"DOCS_ALLOW_EMAILS": "ristek@cakrawala.com"
+		"DOCS_ALLOW_EMAILS": "ristek@cakrawala.com",
+		// Bootstrap platform_admin selama cms_memberships masih kosong. Kosongkan
+		// (set "") setelah membership BPH dibuat di database agar jalur ini mati.
+		"PLATFORM_BOOTSTRAP_EMAILS": "bph@cakrawala.com"
 	},
 	"r2_buckets": [
 		{
