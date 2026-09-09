@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { HashRouter, Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
-import { api, errText, setToken as persistToken, clearToken, signIn } from "./api.js";
+import { api, errText, setToken as persistToken, clearToken, signIn, requestWorkspaceHandoff } from "./api.js";
 import { ToastProvider } from "./components/ui.jsx";
 import { Login, Shell } from "./components/Shell.jsx";
 import { IconCalendar, IconPlus } from "./components/Icons.jsx";
@@ -30,6 +30,8 @@ function App() {
 	const [user, setUser] = useState(null);
 	const [workspaces, setWorkspaces] = useState([]);
 	const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
+	const [wsBusy, setWsBusy] = useState(false);
+	const [wsErr, setWsErr] = useState("");
 	const [events, setEvents] = useState([]);
 	const [loadErr, setLoadErr] = useState("");
 	const navigate = useNavigate();
@@ -90,10 +92,27 @@ function App() {
 		navigate("/", { replace: true });
 	};
 
-	const handleSelectWorkspace = (ws) => {
-		setShowWorkspaceModal(false);
-		if (ws.kind === "external_dashboard" && ws.url) {
-			window.location.href = ws.url;
+	const handleSelectWorkspace = async (ws) => {
+		setWsErr("");
+
+		// cms_hub (atau workspace tanpa URL): perilaku lama sudah benar —
+		// tutup modal dan jatuh ke <Routes>. Dibuat eksplisit.
+		if (ws.kind !== "external_dashboard" || !ws.url) {
+			setShowWorkspaceModal(false);
+			return;
+		}
+
+		// external_dashboard: JANGAN window.location.href = ws.url telanjang.
+		// Minta kode handoff sekali pakai dulu, baru pindah ke redirect_to yang
+		// dibalas backend (SDD §4.5). Modal tetap terbuka sampai berhasil supaya
+		// pesan error punya tempat tampil.
+		setWsBusy(true);
+		try {
+			const data = await requestWorkspaceHandoff(ws.id);
+			window.location.href = data.redirect_to;
+		} catch (e) {
+			setWsBusy(false);
+			setWsErr(errText(e));
 		}
 	};
 
@@ -113,7 +132,14 @@ function App() {
 
 	if (!token) return <Login onLogin={handleLogin} />;
 	if (showWorkspaceModal && workspaces.length > 1) {
-		return <WorkspaceModal workspaces={workspaces} onSelect={handleSelectWorkspace} />;
+		return (
+			<WorkspaceModal
+				workspaces={workspaces}
+				onSelect={handleSelectWorkspace}
+				busy={wsBusy}
+				error={wsErr}
+			/>
+		);
 	}
 
 	return (

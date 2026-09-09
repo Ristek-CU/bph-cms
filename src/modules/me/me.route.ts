@@ -27,7 +27,12 @@ meRouter.get(
 		const activeDivisionId = c.get("activeDivisionId");
 
 		const db = c.get("db");
-		let userWorkspaces: Array<{ label: string; kind: "cms_hub" | "external_dashboard"; url: string | null }> = [];
+		let userWorkspaces: Array<{
+			id: string | null;
+			label: string;
+			kind: "cms_hub" | "external_dashboard";
+			url: string | null;
+		}> = [];
 
 		if (activeDivisionId) {
 			const rows = await db
@@ -39,6 +44,8 @@ meRouter.get(
 			userWorkspaces = rows
 				.filter((w) => w.isActive)
 				.map((w) => ({
+					// id dibutuhkan panel untuk meminta kode handoff (POST /admin/workspace-handoff).
+					id: w.id,
 					label: w.label,
 					kind: w.kind as "cms_hub" | "external_dashboard",
 					url: w.url,
@@ -46,7 +53,7 @@ meRouter.get(
 		}
 
 		if (userWorkspaces.length === 0) {
-			userWorkspaces = [{ label: "Dashboard Terpadu", kind: "cms_hub", url: null }];
+			userWorkspaces = [{ id: null, label: "Dashboard Terpadu", kind: "cms_hub", url: null }];
 		}
 
 		return ApiResponse.ok(c, "OK", {
