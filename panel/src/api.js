@@ -36,6 +36,15 @@ export async function signIn(email, password) {
 	return b.data; // { token, user }
 }
 
+// Minta kode handoff sekali pakai untuk pindah ke dashboard eksternal.
+// Backend membalas { redirect_to } = <workspace.url>/sso?code=<kode>.
+export async function requestWorkspaceHandoff(workspaceOptionId) {
+	return api("/admin/workspace-handoff", {
+		method: "POST",
+		json: { workspace_option_id: workspaceOptionId },
+	});
+}
+
 // datetime-local value -> ISO 8601 WIB
 export const toIsoWib = (v) => (v ? `${v}:00+07:00` : "");
 

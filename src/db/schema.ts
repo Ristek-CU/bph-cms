@@ -57,6 +57,28 @@ export const workspaceOptions = sqliteTable(
 	(table) => [index("workspace_options_division_idx").on(table.divisionId, table.sortOrder)],
 );
 
+// Kode sekali pakai untuk handoff sesi ke dashboard eksternal (SDD §4.5, tugas T2).
+// expires_at/used_at/created_at disimpan ISO UTC ber-millisecond (toISOString),
+// jadi aman dibandingkan secara leksikografis di SQL tanpa BigInt.
+export const workspaceHandoffs = sqliteTable(
+	"workspace_handoffs",
+	{
+		code: text("code").primaryKey(),
+		userId: text("user_id").notNull(),
+		userEmail: text("user_email").notNull(),
+		divisionId: text("division_id")
+			.notNull()
+			.references(() => divisions.id, { onDelete: "cascade" }),
+		targetWorkspaceId: text("target_workspace_id")
+			.notNull()
+			.references(() => workspaceOptions.id, { onDelete: "cascade" }),
+		expiresAt: text("expires_at").notNull(),
+		usedAt: text("used_at"),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [index("workspace_handoffs_expires_idx").on(table.expiresAt)],
+);
+
 export const auditLogs = sqliteTable(
 	"audit_logs",
 	{

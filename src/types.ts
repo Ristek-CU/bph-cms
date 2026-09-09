@@ -32,6 +32,8 @@ export type Bindings = {
 	DOCS_ALLOW_EMAILS: string;
 	/** Email yang boleh jadi platform_admin tanpa baris cms_memberships. */
 	PLATFORM_BOOTSTRAP_EMAILS?: string;
+	/** Shared secret untuk endpoint internal handoff (wrangler secret, jangan di-commit). */
+	HANDOFF_SHARED_SECRET?: string;
 	ALLOW_DEV_AUTH?: string;
 };
 

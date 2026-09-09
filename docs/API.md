@@ -296,6 +296,61 @@ Publish → tampil di endpoint publik. Unpublish → kembali draft (publik 404).
 
 Semua mengembalikan `200/201` dengan data event lengkap + sessions terbaru. Aturan: sesi harus di dalam rentang event dan `ends_at > starts_at`.
 
+### 4.7 `POST /admin/workspace-handoff` — minta kode handoff sekali pakai
+
+Ditambahkan 10 Sep 2026 (SDD §4.5, keputusan D-A). Bearer token wajib.
+
+```json
+// request
+{ "workspace_option_id": "01990002-…" }
+// 200
+{ "success": true, "message": "Handoff code dibuat", "statusCode": 200,
+  "data": { "redirect_to": "https://satgas.sga-cakrawala.org/sso?code=<kode>" } }
+```
+
+Aturan:
+
+- `workspace_option_id` diambil dari `GET /api/v1/me` → `workspace_options[].id`.
+- Izin **deny-by-default**: user harus punya membership aktif atas divisi pemilik
+  workspace itu. Bukan member → `403`. (Termasuk `platform_admin` — membership tetap
+  syaratnya, bukan role.)
+- Workspace `is_active = 0`, tidak ada, atau bukan `external_dashboard` → `404` / `422`.
+- Kode acak entropi tinggi (WebCrypto, 32 byte base64url), TTL **60 detik**, sekali pakai.
+- `redirect_to` hanya membawa param `code`. Tidak ada token/session di URL.
+- Panel memanggil ini dulu untuk `kind === "external_dashboard"`, baru
+  `window.location.href = redirect_to` (`panel/src/App.jsx`). Untuk `cms_hub` panel
+  menutup modal dan jatuh ke route lokal — tanpa handoff.
+
+| Kode | Kapan |
+|---|---|
+| 401 | Token hilang/salah |
+| 403 | Bukan member divisi pemilik workspace |
+| 404 | Workspace tidak ada / nonaktif |
+| 422 | Body tidak valid / workspace bukan dashboard eksternal |
+
+### 4.8 `POST /internal/handoff/exchange` — tukar kode (INTERNAL, bukan publik)
+
+**Bukan endpoint untuk browser/panel.** Hanya boleh dipanggil worker dashboard tujuan
+(AdvocationDashboard) server-to-server, membawa shared secret di header
+`X-Handoff-Secret`. Secret disimpan sebagai **wrangler secret**
+(`HANDOFF_SHARED_SECRET`) — tidak pernah di-commit karena repo public.
+
+```json
+// request
+{ "code": "<kode>" }
+// 200
+{ "success": true, "message": "Handoff code ditukar", "statusCode": 200,
+  "data": { "user_id": "01a0…", "email": "advo@cakrawala.com", "name": null } }
+```
+
+- Kode tidak dikenal → `404`; sudah dipakai → `409`; kadaluarsa → `410`.
+- Secret absent/salah → `401`. Kalau `HANDOFF_SHARED_SECRET` belum dikonfigurasi di
+  Worker, endpoint menolak semua pemanggil (`503`) — fail closed.
+- `name` selalu `null` sampai D-A selesai: Hub tidak menyimpan profil user dan auth
+  service belum punya endpoint baca-profil-by-id. Sisi tujuan boleh fallback ke `email`.
+- Sesi sesungguhnya tetap dibuat oleh dashboard tujuan (cookie HttpOnly miliknya sendiri).
+  Hub hanya menegaskan identitas, bukan menerbitkan sesi.
+
 ---
 
 ## 5. Endpoint Admin — Media & Storage
@@ -383,6 +438,9 @@ tidak saling mengunci.
 
 ## Changelog
 
+- **1.3 (10 Sep 2026):** Endpoint handoff sesi antar dashboard (§4.7, §4.8) — kode sekali
+  pakai TTL 60 detik, exchange internal ber-shared-secret. `/api/v1/me` kini mengembalikan
+  `id` per `workspace_options` supaya panel bisa meminta handoff.
 - **1.2 (10 Sep 2026):** Perbaikan keamanan + koreksi dokumentasi.
   - Rate limit **benar-benar aktif** sekarang, lewat counter D1 (§7). Entri 1.1 yang menyebut
     "Rate limit aktif" tidak akurat: binding Cloudflare terpasang tetapi tidak pernah

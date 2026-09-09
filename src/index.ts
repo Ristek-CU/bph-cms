@@ -16,6 +16,7 @@ import { publicEventRouter } from "./modules/events/event.public.route";
 import { mediaRouter } from "./modules/media/media.route";
 import { meRouter } from "./modules/me/me.route";
 import { adminAccountRouter } from "./modules/accounts/account.route";
+import { adminHandoffRouter, internalHandoffRouter } from "./modules/handoff/handoff.route";
 import { eventService } from "./modules/events/event.service";
 import { adminAuth } from "./middlewares/admin-auth";
 import { d1RateLimiter } from "./middlewares/rate-limiter";
@@ -77,6 +78,8 @@ v1.route("/events", publicEventRouter);
 v1.route("/admin/events", adminEventRouter);
 v1.route("/admin/media", mediaRouter);
 v1.route("/admin", adminAccountRouter);
+v1.route("/admin", adminHandoffRouter);
+v1.route("/internal", internalHandoffRouter);
 v1.route("/me", meRouter);
 
 // Spec OpenAPI + halaman docs hanya untuk email di allowlist (var DOCS_ALLOW_EMAILS,
