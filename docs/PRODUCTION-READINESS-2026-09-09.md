@@ -6,6 +6,24 @@
 **Deployment version:** `73b4f9d3-4420-4a58-870b-95a4999870f0`  
 **Status akhir:** production sudah running setelah migration D1 remote dan deploy Worker.
 
+> ## ⚠️ Dikoreksi 10 Sep 2026 — jangan pakai laporan ini sebagai acuan keamanan
+>
+> Laporan ini **catatan historis** dan dibiarkan apa adanya. Tiga klaim di dalamnya
+> terbukti salah saat diverifikasi ulang dengan request nyata pada 10 Sep 2026:
+>
+> | Klaim di laporan ini | Kenyataan saat diverifikasi |
+> |---|---|
+> | §4 "binding `env.RATE_LIMITER`: rate limit 60 requests/60s" — disebut sebagai kontrol yang aktif | Binding terpasang dan terbaca, tetapi **tidak pernah menegakkan limit**. 200 request beruntun ke `/api/v1/events` → nol 429. Kode yang sama di `wrangler dev` memblokir di request ke-61. |
+> | `/auth/sign-in` (tidak dibahas sebagai risiko) | **Tidak dibatasi sama sekali** — brute-force password terbuka. |
+> | §8.5 "login BPH berhasil, memberships: 1" | `cms_memberships` production **kosong (0 baris)**. "memberships: 1" itu membership sintetis dari jalur bootstrap email yang di-hardcode, bukan data database. |
+>
+> §6 juga mencatat official D1 export gagal (`Authentication error [code: 10000]`). Export
+> **berhasil** dijalankan 10 Sep 2026 — jadi kegagalan itu gangguan sesaat pada sisi
+> Cloudflare, bukan batasan akun atau token.
+>
+> Kondisi sekarang, perbaikan yang dilakukan, dan hasil verifikasinya ada di
+> **[PRODUCTION-READINESS-2026-09-10.md](./PRODUCTION-READINESS-2026-09-10.md)**.
+
 ---
 
 ## 1. Ringkasan
