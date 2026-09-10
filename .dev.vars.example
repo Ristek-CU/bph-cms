@@ -1,6 +1,28 @@
-# Copy ke .dev.vars (jangan di-commit).
-# Local dev: binding AUTH_SERVICE menunjuk worker auth superapp.
-# Opsi: (1) jalankan auth worker lokal (pnpm --filter auth dev, port 8789)
-#       dan set URL test di test ADMIN_AUTH_URL, atau
-#       (2) pakai remote binding (wrangler dev --x-remote-bindings).
-ADMIN_AUTH_URL = "http://localhost:8789/v1/auth/session"
+# Copy ke .dev.vars (jangan di-commit). File ini dibaca `wrangler dev`, BUKAN `wrangler deploy`.
+#
+# PENTING — auth tidak dikonfigurasi lewat URL. Worker ini memakai service binding
+# AUTH_SERVICE (lihat wrangler.jsonc) yang memanggil `http://internal/v1/access/session`.
+# Tidak ada var ADMIN_AUTH_URL di kode; jangan tambah. Untuk local dev pilih salah satu:
+#
+#   (1) jalankan auth worker superapp secara lokal, atau
+#   (2) pakai remote binding:  npx wrangler dev --x-remote-bindings
+#
+# Kalau dua-duanya tidak tersedia, endpoint admin dan login akan gagal — endpoint publik
+# dan build tetap bisa dites. Lihat docs/RUNNING-GUIDE.md §5 dan §14.
+
+# Dev-auth fallback. Sejak 10 Sep 2026 butuh DUA syarat sekaligus: var ini "true" DAN
+# request benar-benar datang lewat hostname lokal (localhost / 127.0.0.1 / [::1]).
+# Jadi walaupun nilai ini keliru ter-set di production, efeknya nol.
+# Saat aktif, `Authorization: Bearer dev-token` diterima sebagai platform_admin bootstrap
+# — hanya untuk development, jangan dipakai menguji perilaku otorisasi yang sebenarnya.
+ALLOW_DEV_AUTH = "true"
+
+# Shared secret untuk POST /api/v1/internal/handoff/exchange (SSO handoff, SDD §4.5).
+# Di production ini wrangler SECRET, bukan var:
+#
+#   npx wrangler secret put HANDOFF_SHARED_SECRET
+#
+# Kalau kosong/tidak ada, endpoint exchange fail-closed dengan 503 — itu perilaku yang
+# benar dan aman. Untuk menguji handoff secara lokal, buka komentar di bawah, isi nilai
+# apa pun, dan pastikan sisi Advokasi memakai nilai yang sama.
+# HANDOFF_SHARED_SECRET = "ganti-dengan-nilai-lokal"

@@ -3,6 +3,7 @@ import { eq, lt } from "drizzle-orm";
 import { z } from "zod";
 import { describeRoute, resolver } from "hono-openapi";
 import { adminAuth } from "../../middlewares/admin-auth";
+import { d1RateLimiter } from "../../middlewares/rate-limiter";
 import { ApiResponse } from "../../shared/api-response";
 import { ApiError } from "../../shared/api-error";
 import { parseJson } from "../../shared/parse-request";
@@ -15,6 +16,21 @@ import type { AppContext } from "../../types";
 // panel -> /sso Advokasi -> tukar kode, tapi terlalu singkat untuk dipakai ulang
 // oleh pihak yang mencegat URL.
 const HANDOFF_TTL_MS = 60_000;
+
+// Exchange adalah satu-satunya endpoint mutasi yang bisa dipanggil tanpa sesi user, dan
+// prefix `/internal` cuma penamaan — route ini ter-mount di domain publik. Pertahanan
+// yang sebenarnya tetap kode 32-byte + perbandingan secret konstan-waktu (brute-force
+// tidak realistis), jadi limiter ini bukan pengganti keduanya; ini menahan pembanjiran
+// log dan write ke tabel rate_limits.
+//
+// Limitnya longgar karena polenya server-to-server: worker dashboard tujuan memanggil
+// satu kali per user pindah dashboard. 30 request / 5 menit per IP jauh di atas kebutuhan
+// nyata, tapi cukup supaya endpoint ini tidak jadi satu-satunya jalur mutasi tanpa batas.
+const exchangeLimiter = d1RateLimiter({
+	prefix: "handoff:exchange",
+	limit: 30,
+	windowMs: 5 * 60_000,
+});
 
 const handoffRequestSchema = z.object({
 	workspace_option_id: z.string().min(1, "workspace_option_id wajib diisi"),
@@ -135,11 +151,13 @@ export const internalHandoffRouter = new Hono<AppContext>();
 
 internalHandoffRouter.post(
 	"/handoff/exchange",
+	exchangeLimiter,
 	describeRoute({
 		summary: "Tukar kode handoff (internal, bukan endpoint publik)",
 		description:
 			"Hanya boleh dipanggil worker dashboard tujuan (AdvocationDashboard) lewat shared secret " +
-			"di header X-Handoff-Secret. Kode sekali pakai: penukaran kedua ditolak, kode kadaluarsa ditolak.",
+			"di header X-Handoff-Secret. Kode sekali pakai: penukaran kedua ditolak, kode kadaluarsa ditolak. " +
+			"Dibatasi 30 request / 5 menit per IP.",
 		tags: ["Handoff"],
 		responses: {
 			200: {
@@ -156,6 +174,8 @@ internalHandoffRouter.post(
 			404: { description: "Kode tidak dikenal" },
 			409: { description: "Kode sudah dipakai" },
 			410: { description: "Kode kadaluarsa" },
+			429: { description: "Melewati 30 request / 5 menit per IP" },
+			503: { description: "HANDOFF_SHARED_SECRET belum dikonfigurasi (fail closed)" },
 		},
 	}),
 	async (c) => {

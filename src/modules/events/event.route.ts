@@ -8,16 +8,7 @@ import { ApiResponse } from "../../shared/api-response";
 import { recordAuditLog } from "../audit/audit.service";
 import { getDb } from "../../db/connection";
 import { eventService } from "./event.service";
-import {
-	successWrapper,
-	errorWrapper,
-	adminEventSchema,
-	createEventBodySchema,
-	updateEventBody,
-	sessionBodySchema,
-	updateSessionBody,
-	reorderBody,
-} from "../openapi/schemas";
+import { successWrapper, errorWrapper, adminEventSchema } from "../openapi/schemas";
 import {
 	listEvents,
 	createEvent,
@@ -30,6 +21,15 @@ import {
 } from "./event.controller";
 
 // describeRoute admin dengan response schema — docs Scalar detail lengkap.
+//
+// Catatan: body request TIDAK didokumentasikan di spec. hono-openapi v1.3 membangun
+// `requestBody` dari validator middleware (`vValidator`), bukan dari key `request:` di
+// describeRoute — key itu tidak dikenal dan akan lolos mentah ke spec sebagai field
+// non-standar dengan schema `{"vendor":"zod"}` yang tidak ter-resolve. Menambah
+// `vValidator` berarti menambah lapisan validasi kedua di atas `parseJson` yang sudah ada
+// di controller, dan default-nya 400 sedangkan kontrak repo ini 422 (PLAN.md D4). Jadi
+// itu keputusan tersendiri, bukan sekadar melengkapi docs. Aturan body didokumentasikan
+// di `description` tiap endpoint dan di docs/API.md.
 const ok = (
 	summary: string,
 	description: string,
@@ -74,7 +74,7 @@ adminEventRouter.post(
 	requirePermission("events.create.own_division"),
 	ok(
 		"Create event (sessions inline optional)",
-		"Slug auto dari judul bila kosong. Sesi harus di dalam rentang event. 201 → event lengkap + sessions.",
+		"Slug auto dari judul bila kosong. Sesi harus di dalam rentang event. Aturan lintas-field yang tidak tergambar di schema: ends_at wajib setelah starts_at. 201 → event lengkap + sessions.",
 		successWrapper(adminEventSchema),
 		{ 201: { description: "Created" }, 409: { description: "Slug conflict" } },
 	),
@@ -86,7 +86,7 @@ adminEventRouter.put(
 	requirePermission("events.update.own_division", { resourceType: "event" }),
 	ok(
 		"Update event (partial)",
-		"Body parsial — field mana pun boleh dikirim. Jika sessions dikirim, seluruh runsheet event diganti. Jika sessions tidak dikirim, rentang baru harus menampung sesi lama.",
+		"Body parsial — field mana pun boleh dikirim. Jika sessions dikirim, seluruh runsheet event diganti. Jika sessions tidak dikirim, rentang baru harus menampung sesi lama. Aturan lintas-field: bila starts_at dan ends_at dua-duanya dikirim, ends_at wajib lebih akhir.",
 		successWrapper(adminEventSchema),
 		{ 404: { description: "Not found" } },
 	),
@@ -107,7 +107,7 @@ adminEventRouter.post(
 	requirePermission("events.update.own_division", { resourceType: "event" }),
 	ok(
 		"Add session (must be within event range)",
-		"Sesi wajib di dalam rentang event dan ends_at > starts_at. 201 → event + sessions terbaru.",
+		"Sesi wajib di dalam rentang event dan ends_at > starts_at (aturan lintas-field, tidak tergambar di schema). 201 → event + sessions terbaru.",
 		successWrapper(adminEventSchema),
 		{ 201: { description: "Created" }, 404: { description: "Event not found" } },
 	),
@@ -117,7 +117,11 @@ adminEventRouter.post(
 adminEventRouter.put(
 	"/:id/sessions/order",
 	requirePermission("events.update.own_division", { resourceType: "event" }),
-	ok("Reorder sessions by id array", "Body: { session_ids: [id…] } — id asing/dua event → 422.", successWrapper(adminEventSchema)),
+	ok(
+		"Reorder sessions by id array",
+		"Body: { session_ids: [id…] } — id asing/dua event → 422.",
+		successWrapper(adminEventSchema),
+	),
 	reorderSessions,
 );
 
@@ -126,7 +130,7 @@ adminEventRouter.put(
 	requirePermission("events.update.own_division", { resourceType: "session" }),
 	ok(
 		"Update session (partial)",
-		"Body parsial: name/starts_at/ends_at/speaker/location/description.",
+		"Body parsial: name/starts_at/ends_at/speaker/location/description. Aturan lintas-field: bila starts_at dan ends_at dua-duanya dikirim, ends_at wajib lebih akhir.",
 		successWrapper(adminEventSchema),
 	),
 	updateSession,

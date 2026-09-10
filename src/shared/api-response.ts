@@ -1,7 +1,8 @@
 import { STATUS_CODES, type StatusCode } from "./status-codes";
 import type { Context } from "hono";
 
-// ponytail: copy of @internal/shared (superapp) — standalone repo can't import workspace pkg.
+// Salinan dari @internal/shared (superapp) — repo standalone tidak bisa import
+// workspace package. Lihat PLAN.md D2.
 type ApiResponseParams<T> = {
 	success: boolean;
 	message: string;
