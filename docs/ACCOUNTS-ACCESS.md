@@ -165,6 +165,67 @@ Pilihan workspace:
 
 Redirect jangan membawa password. Gunakan session/token yang aman dari auth service.
 
+### 6.1 Update 10 Sep 2026 — mekanisme handoff sudah diputuskan
+
+Keputusan **D-A**: `AdvocationDashboard` **pindah ke auth service superapp**,
+meninggalkan Auth.js v5 Credentials + tabel `User`/`PasswordResetToken` lokal.
+
+Konsekuensinya untuk flow di atas: setelah D-A, kedua aplikasi mengakui **penerbit sesi
+yang sama**, jadi "redirect ke service milik divisi" tidak lagi butuh protokol tukar
+token buatan sendiri. Yang dibawa cukup referensi sesi yang aman; cookie sesi di scope
+domain induk `.sga-cakrawala.org`.
+
+> ⚠️ Kalimat di atas soal **cookie domain induk sudah dicabut** oleh koreksi SDD §4.5
+> (10 Sep 2026): panel Hub menyimpan token di `localStorage` yang terisolasi per origin,
+> dan backend Hub menolak cookie secara sengaja. Mekanisme yang dipakai adalah
+> **one-time handoff code**, bukan cookie bersama. Lihat SDD §4.5 untuk versi yang benar.
+
+Desain lengkap, aturan yang mengikat, dan rencana peralihan (termasuk syarat **jendela
+dual-accept** supaya admin Advokasi tidak terkunci keluar): [SDD-SGA-CMS-HUB.md §4.5](./SDD-SGA-CMS-HUB.md).
+
+**Status implementasi sisi Hub: selesai 10 Sep 2026 dan SUDAH live di production**
+(commit `c485574`, CI run `34399102006` hijau, worker ter-deploy 2026-09-09T20:07Z).
+
+> Dikoreksi 11 Sep 2026: baris ini sebelumnya menulis "belum di-deploy ke production".
+> Sudah diverifikasi ulang lewat request nyata ke production:
+> `POST /api/v1/admin/workspace-handoff` tanpa token → **401** (bukan 404, jadi route-nya
+> ter-mount), `POST /api/v1/internal/handoff/exchange` → **503 "Handoff exchange belum
+> dikonfigurasi"** (fail-closed, karena secret belum dipasang), dan tabel
+> `workspace_handoffs` ada di D1 remote.
+
+- Tabel `workspace_handoffs` + migration `0003_wide_hellcat.sql` (SDD §4.5, tugas T2) —
+  **sudah ter-apply ke D1 remote**.
+- `POST /api/v1/admin/workspace-handoff` — kode sekali pakai TTL 60 detik via WebCrypto;
+  izin deny-by-default berdasarkan membership atas divisi pemilik workspace
+  (`src/modules/handoff/handoff.route.ts`).
+- `POST /api/v1/internal/handoff/exchange` — internal, wajib header `X-Handoff-Secret`
+  (wrangler secret `HANDOFF_SHARED_SECRET`, tidak pernah di-commit karena repo public).
+  Sekali pakai (penukaran kedua 409), kadaluarsa 410, tanpa secret 401/503.
+- `GET /api/v1/me` kini mengembalikan `id` per `workspace_options`.
+- Panel `App.jsx` `handleSelectWorkspace` (`panel/src/App.jsx:96-118`): untuk
+  `external_dashboard` memanggil handoff dulu lalu pindah ke `redirect_to`; untuk `cms_hub`
+  modal ditutup eksplisit dan jatuh ke `<Routes>`. Modal menampilkan keadaan loading dan
+  pesan error bila handoff gagal.
+- Self-check `src/handoff.test.ts` (24 check) ikut dijalankan `npm test` dan jadi gate CI.
+
+Yang **belum** ada: sisi AdvocationDashboard (route `/sso` + penukaran server-to-server) —
+itu pekerjaan repo terpisah (PROMPT 3). Sampai itu selesai, memilih "Dashboard Advokasi"
+mengirim user ke `/sso?code=…` yang belum ditangani Advokasi, jadi handoff belum bisa
+diuji end-to-end lintas origin.
+
+**Langkah operasional sebelum dipakai:** set `HANDOFF_SHARED_SECRET` via
+`wrangler secret put` di Worker Hub **dan** secret yang sama di Worker Advokasi. Tanpa itu
+endpoint exchange menolak semua pemanggil (fail closed).
+
+⚠️ **Diverifikasi 11 Sep 2026: secret ini BELUM dipasang.** `npx wrangler secret list`
+mengembalikan `[]` untuk worker `sga-superapp-bph-cms`. Jadi langkah ini masih terbuka,
+dan sampai dikerjakan endpoint exchange akan terus membalas 503.
+
+✅ Baris `Dashboard Ristek` (`https://ristek.sga-cakrawala.org`, tidak resolve) sudah
+dinonaktifkan lewat `UPDATE workspace_options SET is_active = 0 …` **langsung di D1
+production** (10 Sep 2026), sengaja bukan lewat migration supaya tidak memicu deploy
+penuh. Karena `/api/v1/me` memfilter `is_active`, opsi mati itu tidak lagi muncul di panel.
+
 ---
 
 ## 7. Provisioning Checklist
@@ -214,8 +275,30 @@ type Division = {
 
 ## 9. Open Questions
 
+Diperbarui 10 Sep 2026.
+
+Masih terbuka:
+
 - Domain final akun baru pakai `@cakrawala.ac.id` atau semua disamakan ke `@cakrawala.com`?
 - Public Relation pakai email `pr@...` atau `publicrelation@...`?
 - BPH boleh edit event semua divisi, atau hanya lihat semua dan edit BPH saja?
 - Akun divisi mau satu shared account per divisi, atau akun personal per pengurus? Rekomendasi tetap akun personal untuk audit yang benar.
-- Dashboard Ristek dan Advokasi nanti redirect URL finalnya apa?
+
+Sudah terjawab sebagian:
+
+- ~~Dashboard Ristek dan Advokasi nanti redirect URL finalnya apa?~~ → URL **sudah
+  ter-seed** di `workspace_options` (`drizzle/0001_watery_skreet.sql:72-76`):
+  Advokasi → `https://satgas.sga-cakrawala.org` (hidup, tapi menjawab `307 → /login`),
+  Ristek → `https://ristek.sga-cakrawala.org` (**tidak resolve**). Jadi yang tersisa
+  bukan "URL-nya apa", tapi: dashboard Ristek mau dibangun atau barisnya
+  di-nonaktifkan dulu, dan handoff sesinya belum ada (D-A, §6.1).
+
+Bertambah dari keputusan 10 Sep 2026:
+
+- Setelah D-A, siapa yang memetakan baris `model User` AdvocationDashboard yang sudah ada
+  ke akun auth service? Ristek perlu akses ke data itu, atau Advokasi yang menyerahkan
+  daftar email adminnya?
+- Setelah D-A, fitur **register** dan **hapus akun** di Advokasi hilang. Pendaftaran admin
+  baru lewat mana — provisioning oleh BPH di Hub, atau self-service di auth service?
+- Setelah D-B, divisi mana yang dibolehkan bikin form di Hub dan mana yang tetap di
+  Advokasi? Advokasi sendiri boleh pakai modul Form Hub, atau khusus Campaign Studio?

@@ -33,14 +33,30 @@ Ringkasnya:
 
 ```text
 bph-cms/
-  src/                 Backend Cloudflare Worker + Hono
-  src/modules/events/  Modul Student Event
-  src/modules/media/   Upload cover ke R2
-  src/db/              Drizzle schema + D1 connection
-  drizzle/             Migration D1
-  panel/               React admin panel
-  docs/                PRD, SDD, API, running guide
+  src/                  Backend Cloudflare Worker + Hono
+  src/index.ts          Urutan middleware + mounting semua route. Juga tempat
+                        securityHeaders, proxyAuth (`/api/v1/auth/*`), dan
+                        serveDocs (`/docs/*`) didefinisikan inline
+  src/middlewares/      admin-auth.ts, rate-limiter.ts (d1RateLimiter),
+                        require-permission.ts, require-role.ts
+  src/modules/accounts/ Akun & membership (khusus platform)
+  src/modules/audit/    Audit log (khusus platform)
+  src/modules/events/   Modul Student Event + sessions (admin & publik)
+  src/modules/handoff/  SSO handoff antar dashboard (SDD §4.5)
+  src/modules/me/       GET /api/v1/me — divisi, role, permission, workspace
+  src/modules/media/    Upload cover ke R2 + serve /storage/*
+  src/modules/openapi/  Spec OpenAPI + gate allowlist email
+  src/db/               connection.ts, schema.ts (Drizzle), rate-limit.ts (counter D1)
+  src/shared/           api-response, api-error, status-codes, error-handler,
+                        parse-request, permissions (ROLE_PERMISSIONS)
+  src/test/harness.ts   Harness Miniflare/workerd untuk suite keamanan & handoff
+  drizzle/              Migration D1
+  panel/                React admin panel (Vite)
+  docs/                 PRD, SDD, API, running guide
 ```
+
+Catatan: `requestId` dan `cors` bukan middleware lokal — dua-duanya di-import dari Hono
+(`hono/request-id`, `hono/cors`).
 
 ---
 
@@ -111,6 +127,13 @@ Binding yang dipakai:
 | `DOCS_ALLOW_EMAILS` | email yang boleh buka docs protected |
 | `PLATFORM_BOOTSTRAP_EMAILS` | email yang boleh jadi `platform_admin` tanpa baris `cms_memberships`. Kosongkan (`""`) setelah membership BPH ada di database |
 | `ALLOW_DEV_AUTH` | opsional, set `true` **hanya di `.dev.vars`**. Tidak cukup sendirian — lihat catatan di bawah |
+| `HANDOFF_SHARED_SECRET` | **secret**, bukan `vars` — dipasang lewat `npx wrangler secret put HANDOFF_SHARED_SECRET`, jadi tidak muncul di `wrangler.jsonc`. Dipakai `POST /api/v1/internal/handoff/exchange` untuk memastikan pemanggilnya worker Advokasi. Opsional di tipe (`src/types.ts:36`); kalau absent endpoint **fail-closed** `503` |
+
+⚠️ **Status 11 Sep 2026:** `npx wrangler secret list` untuk worker `sga-superapp-bph-cms`
+mengembalikan `[]` — artinya `HANDOFF_SHARED_SECRET` **belum dipasang** di production, dan
+endpoint exchange akan membalas `503 "Handoff exchange belum dikonfigurasi"` untuk semua
+pemanggil. Aman (fail-closed), tapi handoff belum bisa dipakai end-to-end. Lihat
+[SDD-SGA-CMS-HUB.md §4.5](./SDD-SGA-CMS-HUB.md).
 
 ### Rate limit
 
@@ -187,13 +210,30 @@ Apply migration remote:
 npm run db:migrate:remote
 ```
 
-Untuk arah multi-divisi, migration baru harus mengikuti [SDD-SGA-CMS-HUB.md](./SDD-SGA-CMS-HUB.md):
+Untuk arah multi-divisi, migration baru harus mengikuti [SDD-SGA-CMS-HUB.md](./SDD-SGA-CMS-HUB.md).
 
-- `divisions`
-- `cms_memberships`
-- `workspace_options`
-- `audit_logs`
-- kolom ownership di `events`
+Delapan tabel aplikasi yang ada di D1 production saat ini (dikonfirmasi 11 Sep 2026 lewat
+`sqlite_master`):
+
+| Tabel | Migration | Isi |
+|---|---|---|
+| `events` | `0000` | Modul Student Event |
+| `event_sessions` | `0000` | Runsheet per event |
+| `divisions` | `0001` | 8 divisi ter-seed |
+| `cms_memberships` | `0001` | user ↔ divisi ↔ role. **6 baris aktif** per 11 Sep 2026 |
+| `workspace_options` | `0001` | Pilihan dashboard di panel. Baris `Dashboard Ristek` sudah `is_active = 0` |
+| `audit_logs` | `0001` | Jejak aksi admin |
+| `rate_limits` | `0002` | Counter fixed-window — ini yang benar-benar menegakkan limit |
+| `workspace_handoffs` | `0003` | Kode SSO sekali pakai (SDD §4.5) |
+
+Kolom ownership (`division_id`, `created_by_user_id`, `updated_by_user_id`, `*_ms`) di
+`events` / `event_sessions` juga dari `0001`.
+
+⚠️ `workspace_handoffs` dideklarasikan di `src/db/schema.ts:63` dan tabelnya ada di
+D1, tetapi **tidak pernah di-query lewat Drizzle** — `src/modules/handoff/handoff.route.ts`
+memakai raw `c.env.DB.prepare(...)` karena butuh perbandingan leksikografis `expires_at`
+dan `used_at IS NULL` yang lebih bersih ditulis sebagai SQL. Bukan bug, tapi jangan cari
+query-nya di Drizzle.
 
 ---
 
@@ -270,24 +310,30 @@ npm --prefix panel run dev
 
 ## 9. Test & Check
 
-Semua test (status event + suite keamanan):
+Semua test (status event + suite keamanan + handoff):
 
 ```bash
 npm test
 ```
 
-`npm test` menjalankan dua file:
+`npm test` menjalankan **tiga** file berurutan (total **188 check**):
 
 | File | Isi |
 |---|---|
 | `src/modules/events/status.test.ts` | 9 self-check `computeStatus` (pure function) |
 | `src/security.test.ts` | 155 check keamanan — menjalankan **Worker asli** di Miniflare/workerd dengan D1 + R2 nyata dan `AUTH_SERVICE` di-stub |
+| `src/handoff.test.ts` | 24 check SSO handoff (SDD §4.5) — pakai harness yang sama, dengan `HANDOFF_SHARED_SECRET` di-set lewat `vars` |
 
 Suite keamanan menutup matriks yang dulu tidak punya test sama sekali: autentikasi,
 isolasi lintas divisi (read/update/delete/publish/sesi), contributor draft-only, viewer
 read-only, endpoint khusus `platform_admin` (QPR/akun/audit), gate docs, draft tidak bocor
 ke endpoint publik, validasi input, redaksi pesan error internal, header keamanan, CORS,
 upload R2, proxy auth, dan titik blokir rate limit.
+
+Suite handoff menutup: izin deny-by-default per membership divisi pemilik workspace,
+entropi kode, `redirect_to` hanya membawa param `code` (tidak pernah token/session),
+sekali pakai (penukaran kedua 409), kadaluarsa 410, tanpa/salah secret 401, cleanup kode
+lama, dan filter `is_active` di `/api/v1/me`.
 
 Harness ada di `src/test/harness.ts`. Catatan bila mengubahnya:
 
