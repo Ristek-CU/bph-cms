@@ -346,10 +346,20 @@ Aturan:
 - Kode tidak dikenal → `404`; sudah dipakai → `409`; kadaluarsa → `410`.
 - Secret absent/salah → `401`. Kalau `HANDOFF_SHARED_SECRET` belum dikonfigurasi di
   Worker, endpoint menolak semua pemanggil (`503`) — fail closed.
+- **Melewati 30 request / 5 menit per IP → `429`** (ditambahkan 11 Sep 2026). Prefix
+  `/internal` hanya penamaan — route ini ter-mount di domain publik, jadi ikut dibatasi.
+  Pertahanan utamanya tetap kode 32-byte + perbandingan secret konstan-waktu; limiter ini
+  lapisan tambahan, bukan pengganti keduanya.
 - `name` selalu `null` sampai D-A selesai: Hub tidak menyimpan profil user dan auth
   service belum punya endpoint baca-profil-by-id. Sisi tujuan boleh fallback ke `email`.
 - Sesi sesungguhnya tetap dibuat oleh dashboard tujuan (cookie HttpOnly miliknya sendiri).
   Hub hanya menegaskan identitas, bukan menerbitkan sesi.
+
+⚠️ **Konsumen endpoint ini wajib membaca `data`, bukan root.** Respons ter-wrapper
+`{ success, message, statusCode, data }` seperti semua endpoint lain di ekosistem
+(`CONTEXT.md` §2). Sisi AdvocationDashboard sempat mem-parse di root sehingga Zod
+men-strip seluruh key dan handoff gagal 100% — diperbaiki 11 Sep 2026 di
+`AdvocationDashboard/src/lib/sso.ts`.
 
 ---
 

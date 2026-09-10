@@ -221,9 +221,16 @@ diuji end-to-end lintas origin.
 >   `?? src/lib/sso.ts`) — belum di-commit, belum di-push, belum di-deploy.
 > - Konsisten dengan itu: `https://satgas.sga-cakrawala.org/sso` menjawab **404**, baik
 >   dengan maupun tanpa `?code=`.
-> - 🔴 Kalaupun di-deploy apa adanya, **handoff tetap gagal 100%** karena bug kontrak:
->   `src/lib/sso.ts:44` mem-parse respons di root, padahal Hub membalas ter-wrapper di
->   dalam `data`. Bukti dan penjelasan lengkap: [SDD-SGA-CMS-HUB.md §4.5](./SDD-SGA-CMS-HUB.md).
+> - ✅ **Bug kontrak sudah diperbaiki 11 Sep 2026.** Sebelumnya `src/lib/sso.ts` mem-parse
+>   respons di root, padahal Hub membalas ter-wrapper di dalam `data` — Zod men-strip semua
+>   key sehingga handoff gagal 100% bahkan setelah secret dipasang. Sekarang ada schema
+>   wrapper eksplisit dan yang dibaca `parsed.data.data.email`. Diverifikasi dengan
+>   contract test lintas repo terhadap respons asli dari worker Hub (9 check, termasuk
+>   tiga kasus negatif). Bukti dan penjelasan lengkap:
+>   [SDD-SGA-CMS-HUB.md §4.5](./SDD-SGA-CMS-HUB.md).
+> - ⚠️ Perbaikan itu **masih di working tree Advo yang untracked** — belum di-commit,
+>   belum di-deploy. Production `satgas.sga-cakrawala.org/sso` tetap **404** sampai
+>   dikerjakan.
 > - Route itu juga masih memetakan email ke baris `model User` lokal dan menerbitkan cookie
 >   lewat `next-auth/jwt` — artinya **D-A belum dikerjakan**, ini jalur pemetaan sementara.
 
