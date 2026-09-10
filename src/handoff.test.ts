@@ -145,6 +145,52 @@ eq("handoff ke workspace nonaktif → 404", inactiveCreate.status, 404);
 
 await h.sql(`UPDATE workspace_options SET is_active = 1 WHERE id = ?`, extA.id);
 
+// ── Rate limit endpoint exchange ─────────────────────────────────────────────
+// `/internal/handoff/exchange` adalah satu-satunya endpoint mutasi yang bisa dipanggil
+// tanpa sesi user dan ter-mount di domain publik. Kontrol ini harus dilihat benar-benar
+// menolak, bukan hanya dibaca dari config — prinsip yang sama dipakai di
+// PRODUCTION-READINESS-2026-09-10.md §1.
+section("Rate limit exchange");
+
+const EXCHANGE_WINDOW_MS = 5 * 60_000;
+const EXCHANGE_LIMIT = 30;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Jangan mulai burst tepat di ujung window, supaya 31 request tidak terpecah dua window
+// dan titik blokirnya jadi tidak pasti (pola yang sama dipakai security.test.ts).
+const remaining = EXCHANGE_WINDOW_MS - (Date.now() % EXCHANGE_WINDOW_MS);
+if (remaining < 20_000) await sleep(remaining + 100);
+
+// Nol-kan counter prefix ini dulu: panggilan exchange di bagian atas sudah memakainya,
+// dan titik blokir harus dihitung dari nol supaya bisa dipastikan persis.
+await h.sql(`DELETE FROM rate_limits WHERE row_key LIKE '%handoff:exchange%'`);
+
+let exchangeBlockAt = 0;
+for (let i = 1; i <= EXCHANGE_LIMIT + 5; i++) {
+	// Secret salah + kode tidak dikenal: request tetap dihitung limiter (limiter jalan
+	// sebelum pemeriksaan secret) tanpa mengubah isi workspace_handoffs.
+	const r = await exchange("kode-untuk-uji-rate-limit", "secret-salah");
+	if (r.status === 429) {
+		exchangeBlockAt = i;
+		break;
+	}
+}
+eq(`exchange diblokir persis di request ke-${EXCHANGE_LIMIT + 1}`, exchangeBlockAt, EXCHANGE_LIMIT + 1);
+
+const stillBlocked = await exchange("kode-untuk-uji-rate-limit", "secret-salah");
+eq("tetap 429 selama window belum lewat", stillBlocked.status, 429);
+
+// Yang menegakkan limit adalah counter D1, bukan binding RATE_LIMITER Cloudflare
+// (binding itu terbukti tidak menegakkan apa pun di production — lihat
+// docs/RUNNING-GUIDE.md §5). Jadi buktinya dibaca dari tabelnya langsung.
+const counterRows = await h.sql(`SELECT count FROM rate_limits WHERE row_key LIKE '%handoff:exchange%'`);
+eq("tepat satu baris counter untuk prefix exchange", counterRows.length, 1);
+eq(
+	`counter mencatat ${EXCHANGE_LIMIT + 2} percobaan`,
+	counterRows[0]?.count,
+	EXCHANGE_LIMIT + 2, // 30 lolos + request ke-31 + satu verifikasi "tetap 429"
+);
+
 await h.dispose();
 
 console.log("");

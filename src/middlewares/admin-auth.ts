@@ -98,8 +98,10 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 
 	// Bootstrap awal: hanya akun BPH yang boleh jadi platform_admin bila membership
 	// belum dibuat. Akun divisi lain wajib punya cms_membership eksplisit.
-	// Daftar email dibaca dari var supaya bisa dicabut tanpa ubah kode; default
-	// dipertahankan karena production saat ini belum punya baris cms_memberships.
+	// Daftar email dibaca dari var supaya bisa dicabut tanpa ubah kode. Default
+	// dipertahankan karena BPH dan Ristek belum punya baris membership — production
+	// sudah berisi 6 membership divisi lain (per 11 Sep 2026), jadi jalur ini sekarang
+	// hanya menopang dua akun itu, bukan seluruh platform.
 	if (memberships.length === 0) {
 		const configured = (c.env.PLATFORM_BOOTSTRAP_EMAILS ?? "").trim();
 		const bootstrapEmails = (configured || "bph@cakrawala.com")

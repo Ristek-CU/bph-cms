@@ -122,8 +122,9 @@ export const events = sqliteTable(
 		coverImageUrl: text("cover_image_url"),
 		startsAt: text("starts_at").notNull(),
 		endsAt: text("ends_at").notNull(),
-		// ponytail: epoch ms mirrors of starts_at/ends_at — string ISO offsets can't be
-		// compared in SQL; ms columns make status filter/sort one indexed comparison.
+		// Cermin epoch ms dari starts_at/ends_at — string ISO ber-offset tidak bisa
+		// dibandingkan di SQL; kolom ms membuat filter/sort status jadi satu
+		// perbandingan yang ter-index. Lihat PLAN.md D5.
 		startsAtMs: integer("starts_at_ms").notNull(),
 		endsAtMs: integer("ends_at_ms").notNull(),
 		location: text("location").notNull(),

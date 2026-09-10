@@ -24,7 +24,8 @@ const slugify = (title: string) =>
 
 export { slugify };
 
-// ponytail: suffix -2..-N on collision; fine at CMS scale, random suffix if collisions get common.
+// Sufiks -2..-N saat slug bentrok; cukup untuk skala CMS. Ganti ke sufiks acak
+// kalau bentrok mulai sering terjadi.
 const uniqueSlug = async (db: Db, base: string): Promise<string> => {
 	const rows = await db
 		.select({ slug: events.slug })
@@ -344,7 +345,7 @@ export const eventService = {
 			});
 		}
 
-		// ponytail: sequential updates instead of CASE bulk — session counts are ≤ 100.
+		// Update berurutan, bukan bulk dengan CASE — jumlah sesi per event ≤ 100.
 		for (const [i, sid] of sessionIds.entries()) {
 			await db
 				.update(eventSessions)
@@ -356,7 +357,8 @@ export const eventService = {
 	},
 
 	async listAdmin(db: Db, options?: { divisionId?: string }) {
-		// ponytail: no pagination — admin panel fetches all; add when > 100 events.
+		// Tanpa pagination — panel admin mengambil semua baris. Tambahkan pagination
+		// kalau jumlah event sudah melewati ratusan.
 		const rows = options?.divisionId
 			? await db
 					.select()
