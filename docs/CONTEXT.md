@@ -164,10 +164,10 @@ Diperbarui 11 Sep 2026. Dari tiga hal yang menahan visi ini, dua sudah bergeser:
 3. ~~`workspace_options` menunjuk `https://ristek.sga-cakrawala.org` yang tidak resolve~~ →
    barisnya sudah di-set `is_active = 0` di D1 production (diverifikasi ulang 11 Sep), jadi
    tidak muncul lagi di panel. Sisa: handoff ke Advokasi belum end-to-end — sisi Hub sudah
-   menerbitkan kode, tapi route `/sso` di `AdvocationDashboard` **masih untracked dan belum
-   di-deploy** (`satgas.sga-cakrawala.org/sso` → 404), **punya bug kontrak yang menggagalkan
-   handoff 100%**, dan `HANDOFF_SHARED_SECRET` belum dipasang (Phase 3 / KR6). Detail dan
-   bukti: SDD §4.5.
+   menerbitkan kode, route `/sso` di `AdvocationDashboard` **sudah ditulis dan bug
+   kontraknya sudah diperbaiki 11 Sep 2026**, tapi **masih untracked dan belum di-deploy**
+   (`satgas.sga-cakrawala.org/sso` → 404), dan `HANDOFF_SHARED_SECRET` belum dipasang
+   (Phase 3 / KR6). Detail dan bukti: SDD §4.5.
 
 Dokumen perencanaan panel + modul berikutnya:
 

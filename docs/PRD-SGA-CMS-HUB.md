@@ -133,7 +133,7 @@ Kenapa penting:
 | KR3 | Semua divisi bisa membuat, mengedit, publish, dan unpublish event milik divisinya sendiri. | ⚠️ **Hampir.** 6 divisi (UKM, Advokasi, BNP, ICD, PR, Media) sudah punya akun auth **dan** baris `cms_memberships` `division_admin`/`active` — diverifikasi login + terisolasi di production (laporan 10 Sep §6.3, dikonfirmasi ulang 11 Sep: `SELECT count(*) FROM cms_memberships` = 6). BPH bisa lewat jalur bootstrap. **Ristek belum** — tidak punya membership, jadi `permissions` kosong dan 403 di semua endpoint admin termasuk panel |
 | KR4 | Landing page bisa menampilkan event dari semua divisi yang sudah published. | 🟡 **Tertutup di kode, belum tayang** (10 Sep 2026). `sga-landing-page` sudah punya `src/lib/hub-events.ts` (Zod + AbortSignal + cache 60 dtk) dan `VITE_BPH_API_URL`; `sections/event/index.tsx` turun 555 → 371 baris dan sekarang fetch. **Tapi belum di-commit & belum di-deploy** — bundle live `sga-cakrawala.org` belum memuat `bph-cms.sga-cakrawala.org` |
 | KR5 | Semua perubahan penting tercatat di audit log: siapa, divisi apa, aksi apa, kapan. | ✅ Tabel `audit_logs` live |
-| **KR6** | **Login satu pintu: user yang memilih dashboard eksternal tidak diminta login ulang di tujuan.** | 🟡 **Sisi Hub selesai & live** (10 Sep 2026, commit `c485574`): `panel/src/App.jsx:96-118` sudah memanggil `POST /admin/workspace-handoff` dan pindah ke `redirect_to` berisi one-time code — bukan lagi `window.location.href` telanjang. **Sisi Advokasi belum jalan:** route `/sso` sudah ditulis tapi masih untracked & belum di-deploy (`satgas.sga-cakrawala.org/sso` → **404**), punya **bug kontrak yang menggagalkan handoff 100%** (parse di root, Hub balas di `data`), dan `HANDOFF_SHARED_SECRET` belum di-set jadi endpoint exchange fail-closed `503`. Bukti: SDD §4.5 |
+| **KR6** | **Login satu pintu: user yang memilih dashboard eksternal tidak diminta login ulang di tujuan.** | 🟡 **Sisi Hub selesai & live** (10 Sep 2026, commit `c485574`): `panel/src/App.jsx:96-118` sudah memanggil `POST /admin/workspace-handoff` dan pindah ke `redirect_to` berisi one-time code — bukan lagi `window.location.href` telanjang. **Sisi Advokasi:** route `/sso` sudah ditulis **dan bug kontraknya sudah diperbaiki 11 Sep 2026** (dulu parse di root, Hub balas di `data` — diverifikasi ulang lewat contract test lintas repo), tapi **masih untracked & belum di-deploy** (`satgas.sga-cakrawala.org/sso` → **404**), dan `HANDOFF_SHARED_SECRET` belum di-set jadi endpoint exchange fail-closed `503`. Bukti: SDD §4.5 |
 | **KR7** | **Setiap divisi selain Advokasi bisa membuat, membuka, dan merekap form/campaign sendiri di Hub tanpa bantuan Ristek.** | ❌ Belum ada modul Form sama sekali (`src/modules/` = accounts, audit, events, **handoff**, me, media, openapi) |
 
 KR3, KR4, dan KR6 adalah tiga ujung yang belum sepenuhnya bertemu — tapi ketiganya sudah
@@ -142,17 +142,21 @@ yang tersisa Ristek dan pemindahan BPH dari jalur bootstrap ke membership. Dari 
 publik **sudah dibuat** membaca Hub tapi belum ditayangkan (KR4). Di tengah: Hub **sudah**
 menerbitkan kode handoff, tinggal Advokasi yang menukarnya (KR6).
 
-KR4 tinggal satu langkah (review → commit → deploy → cek visual). KR6 butuh tiga langkah di
-repo lain: **betulkan bug kontrak** `src/lib/sso.ts` (parse `body.data`, bukan root),
+KR4 tinggal satu langkah (review → commit → deploy → cek visual). KR6 tinggal **dua**
+langkah di repo lain — bug kontraknya **sudah diperbaiki 11 Sep 2026** — yaitu
 **commit + deploy** route `/sso` yang masih untracked, dan **set `HANDOFF_SHARED_SECRET`**
 di kedua sisi. Jadi **yang paling menahan visi ini sekarang bukan kerja kode di repo ini** —
-KR3 butuh membership Ristek & BPH, KR6 butuh Phase 3 di `AdvocationDashboard`.
+KR3 butuh membership Ristek & BPH, KR6 butuh deploy di `AdvocationDashboard`.
 
 Satu pelajaran yang layak dicatat: bug kontrak KR6 **lolos walaupun Hub punya 24 test yang
 hijau dan benar**, karena tidak ada test yang menguji kedua sisi terhadap kontrak yang sama.
-Selama wrapper `{ success, message, statusCode, data }` hanya didokumentasikan dan tidak
-diuji lintas repo, celah sejenis akan muncul lagi di setiap konsumen baru (tercatat sebagai
-risiko di SDD §10).
+`AdvocationDashboard` bahkan tidak punya infrastruktur test sama sekali — nol test script,
+nol framework, nol file test. Perbaikan 11 Sep diverifikasi dengan **contract test lintas
+repo**: respons asli direkam dari worker Hub di Miniflare, lalu disuapkan ke
+`exchangeHandoffCode()` yang sebenarnya dengan `fetch` di-stub (9 check lolos, termasuk
+tiga kasus negatif). Pendekatannya terbukti dan murah, tapi skripnya tidak dipertahankan
+karena Advo belum punya tempat menaruh test — selama itu belum permanen, celah sejenis
+akan muncul lagi di setiap konsumen baru (tercatat sebagai risiko di SDD §10).
 
 ---
 
@@ -611,7 +615,7 @@ Isi:
   `POST /api/v1/admin/workspace-handoff` lalu pindah ke `redirect_to`. Yang dibawa di URL
   adalah kode sekali pakai TTL 60 detik, **bukan** token (`ACCOUNTS-ACCESS.md` §6
   melarang token di query string; koreksi SDD §4.5 menjelaskan kenapa kode boleh).
-  Sisanya di repo Advokasi: betulkan bug kontrak `src/lib/sso.ts` (parse `body.data`),
+  Sisanya di repo Advokasi (bug kontrak `src/lib/sso.ts` **sudah diperbaiki 11 Sep 2026**):
   commit + deploy route `/sso` yang masih untracked, dan set `HANDOFF_SHARED_SECRET` di
   kedua sisi. Lihat SDD §4.5 untuk bukti dan detail bug-nya.
 - ~~Cookie sesi di scope domain induk `.sga-cakrawala.org`~~ — ❌ **dicabut 10 Sep 2026.**

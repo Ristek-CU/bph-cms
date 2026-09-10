@@ -103,6 +103,40 @@ npm --prefix panel install
 
 Catatan: script root `npm run build` juga otomatis install panel sebelum build.
 
+CI memakai `npm ci --legacy-peer-deps`. Flag itu **mematikan auto-install peer
+dependency**, jadi apa pun yang dibutuhkan sebagai peer harus dideklarasikan eksplisit di
+`package.json` — kalau tidak, dia tidak terpasang di CI walaupun terpasang di mesin lokal.
+
+### ⚠️ Dependency yang terlihat tidak terpakai tapi WAJIB ada
+
+Jangan "merapikan" empat package ini. Semuanya punya **nol import langsung** di `src/`,
+jadi grep tampak seperti dead dependency — padahal build pecah tanpa mereka:
+
+| Package | Kenapa wajib ada |
+|---|---|
+| `@standard-community/standard-json` | peer **wajib** `hono-openapi`. Package itu punya `dependencies: {}` — semuanya digantungkan ke peer |
+| `@standard-community/standard-openapi` | sama |
+| `@hono/standard-validator` | dideklarasikan peer *optional* oleh `hono-openapi`, tapi `hono-openapi/dist/index.js:2` **static-import** dia. Tanpa package ini esbuild gagal: `Could not resolve "@hono/standard-validator"` |
+| `quansync` | peer **wajib** `@standard-community/standard-json` (tidak ada di `peerDependenciesMeta` optional) dan benar-benar di-import di `dist/zod-*.js` — jalur yang dipakai repo ini. `overrides` di `package.json` memaksa versi `^1.0.0` karena package itu meminta `^0.2.11` |
+
+Bukti empiris: menghapus `quansync` dan `@hono/standard-validator` membuat `npm test`
+gagal — `typecheck` tetap hijau karena TypeScript tidak menjalankan kode itu, jadi
+**jangan andalkan typecheck** untuk menilai apakah sebuah dependency boleh dihapus.
+Selalu jalankan `npm ci --legacy-peer-deps && npm test && npm run build`.
+
+Yang **benar-benar** tidak terpakai dan sudah dihapus 11 Sep 2026:
+`@scalar/hono-api-reference` (diganti Swagger UI self-hosted di `panel/public/docs/`,
+commit `232bc40`).
+
+### Dependency test yang sekarang dideklarasikan
+
+`src/test/harness.ts` meng-import `esbuild` dan `miniflare`. Sebelum 11 Sep 2026 keduanya
+tidak ada di `package.json` dan hanya terpasang sebagai dependency transitif `wrangler` —
+artinya bump versi wrangler bisa memecah `npm test` (gate CI sebelum deploy) tanpa satu pun
+perubahan di repo ini. Keduanya sekarang di `devDependencies`. Perhatikan `miniflare`
+terpin ke versi **alpha** (`5.20260831.0-alpha`) karena itu yang kompatibel dengan
+harness; jangan naikkan tanpa menjalankan seluruh suite.
+
 ---
 
 ## 5. Environment & Binding
@@ -151,6 +185,19 @@ Yang benar-benar membatasi adalah counter fixed-window di D1 (`src/db/rate-limit
 | `POST /api/v1/auth/sign-in` | 20 / 15 menit per IP+email, dan 60 / 15 menit per IP |
 | `POST /api/v1/auth/sign-up` | 10 / 15 menit per IP |
 | `GET /api/v1/events*` (publik) | 120 / menit per IP+path |
+| `POST /api/v1/internal/handoff/exchange` | 30 / 5 menit per IP |
+
+Baris exchange ditambahkan 11 Sep 2026. Endpoint itu satu-satunya jalur mutasi yang bisa
+dipanggil tanpa sesi user, dan prefix `/internal` hanya penamaan — route-nya ter-mount di
+domain publik. Pertahanan utamanya tetap kode 32-byte + perbandingan secret konstan-waktu
+(brute-force tidak realistis); limiter ini lapisan tambahan supaya endpoint tidak bisa
+dipakai membanjiri log. Limitnya longgar karena polenya server-to-server: satu panggilan
+per user pindah dashboard.
+
+Catatan yang berlaku untuk **semua** baris di atas: header `X-RateLimit-Limit` /
+`X-RateLimit-Remaining` di-set lewat `c.header()` sebelum limiter melempar `ApiError`,
+jadi pada respons **429 header itu tidak ikut terkirim** — `onError` membangun respons
+baru. Header-nya hanya muncul di respons yang lolos. Ini perilaku lama, bukan regresi.
 
 Limit publik sengaja 120, bukan 60 seperti kontrak lama, supaya banyak user di satu NAT
 kampus tidak saling mengunci. Binding `RATE_LIMITER` tetap dipertahankan sebagai lapisan
@@ -316,13 +363,13 @@ Semua test (status event + suite keamanan + handoff):
 npm test
 ```
 
-`npm test` menjalankan **tiga** file berurutan (total **188 check**):
+`npm test` menjalankan **tiga** file berurutan (total **192 check**):
 
 | File | Isi |
 |---|---|
 | `src/modules/events/status.test.ts` | 9 self-check `computeStatus` (pure function) |
 | `src/security.test.ts` | 155 check keamanan — menjalankan **Worker asli** di Miniflare/workerd dengan D1 + R2 nyata dan `AUTH_SERVICE` di-stub |
-| `src/handoff.test.ts` | 24 check SSO handoff (SDD §4.5) — pakai harness yang sama, dengan `HANDOFF_SHARED_SECRET` di-set lewat `vars` |
+| `src/handoff.test.ts` | 28 check SSO handoff (SDD §4.5) — pakai harness yang sama, dengan `HANDOFF_SHARED_SECRET` di-set lewat `vars` |
 
 Suite keamanan menutup matriks yang dulu tidak punya test sama sekali: autentikasi,
 isolasi lintas divisi (read/update/delete/publish/sesi), contributor draft-only, viewer
@@ -333,7 +380,8 @@ upload R2, proxy auth, dan titik blokir rate limit.
 Suite handoff menutup: izin deny-by-default per membership divisi pemilik workspace,
 entropi kode, `redirect_to` hanya membawa param `code` (tidak pernah token/session),
 sekali pakai (penukaran kedua 409), kadaluarsa 410, tanpa/salah secret 401, cleanup kode
-lama, dan filter `is_active` di `/api/v1/me`.
+lama, filter `is_active` di `/api/v1/me`, dan **titik blokir rate limit exchange** (429
+persis di request ke-31, plus bukti counter D1-nya — bukan cuma dilihat dari config).
 
 Harness ada di `src/test/harness.ts`. Catatan bila mengubahnya:
 
