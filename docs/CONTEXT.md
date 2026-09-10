@@ -162,10 +162,12 @@ Diperbarui 11 Sep 2026. Dari tiga hal yang menahan visi ini, dua sudah bergeser:
 2. Landing page belum membaca Hub sama sekali → KR4 belum tercapai (Phase 4). **Kode di
    `sga-landing-page` sudah dibuat tapi belum di-commit & belum di-deploy.**
 3. ~~`workspace_options` menunjuk `https://ristek.sga-cakrawala.org` yang tidak resolve~~ →
-   barisnya sudah di-set `is_active = 0` di D1 production, jadi tidak muncul lagi di panel.
-   Sisa: handoff ke Advokasi belum end-to-end — sisi Hub sudah menerbitkan kode, tapi route
-   `/sso` di `AdvocationDashboard` belum ada dan `HANDOFF_SHARED_SECRET` belum dipasang
-   (Phase 3 / KR6).
+   barisnya sudah di-set `is_active = 0` di D1 production (diverifikasi ulang 11 Sep), jadi
+   tidak muncul lagi di panel. Sisa: handoff ke Advokasi belum end-to-end — sisi Hub sudah
+   menerbitkan kode, tapi route `/sso` di `AdvocationDashboard` **masih untracked dan belum
+   di-deploy** (`satgas.sga-cakrawala.org/sso` → 404), **punya bug kontrak yang menggagalkan
+   handoff 100%**, dan `HANDOFF_SHARED_SECRET` belum dipasang (Phase 3 / KR6). Detail dan
+   bukti: SDD §4.5.
 
 Dokumen perencanaan panel + modul berikutnya:
 

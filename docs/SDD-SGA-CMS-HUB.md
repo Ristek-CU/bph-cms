@@ -488,20 +488,52 @@ Rules:
 
 ### 4.5 🆕 SSO Handoff Antar Dashboard (D-A)
 
-> **Status: sisi Hub selesai & live 10 Sep 2026 (commit `c485574`). Sisi Advokasi belum
-> ada.** Mewujudkan KR6 (PRD §4) dan keputusan D-A (PRD §1.2).
+> **Status: sisi Hub selesai & live 10 Sep 2026 (commit `c485574`). Sisi Advokasi sudah
+> ditulis tapi belum di-commit, belum di-deploy, dan punya bug kontrak yang menggagalkan
+> handoff 100%.** Mewujudkan KR6 (PRD §4) dan keputusan D-A (PRD §1.2).
 >
 > Yang sudah jalan di production: tabel `workspace_handoffs` (migration
 > `0003_wide_hellcat.sql`), `POST /api/v1/admin/workspace-handoff`,
 > `POST /api/v1/internal/handoff/exchange`, dan `handleSelectWorkspace` di panel.
-> Yang belum: route `/sso` di `AdvocationDashboard` + penukaran server-to-server — itu
-> pekerjaan repo terpisah, jadi handoff **belum bisa diuji end-to-end lintas origin**.
+>
+> **Sisi `AdvocationDashboard` (diverifikasi 11 Sep 2026):** `src/app/sso/route.ts`,
+> `src/app/sso/error/page.tsx`, dan `src/lib/sso.ts` **sudah ada di working tree** tapi
+> masih **untracked** (`?? src/app/sso/`, `?? src/lib/sso.ts` di `git status`) — belum
+> di-commit, belum di-push. `.env.example`-nya juga sudah declaring `HUB_INTERNAL_URL` dan
+> `HANDOFF_SHARED_SECRET`. Konsisten dengan itu, production
+> `https://satgas.sga-cakrawala.org/sso` menjawab **404** (diprobe dengan dan tanpa
+> `?code=`). Jadi handoff **belum bisa diuji end-to-end lintas origin**.
+>
+> 🔴 **Bug kontrak (D-T di register keputusan Ristek) — menggagalkan handoff 100% bahkan
+> setelah secret dipasang.** `AdvocationDashboard/src/lib/sso.ts:44` mem-parse respons di
+> **root**:
+>
+> ```ts
+> exchangeSchema.safeParse(await response.json())   // schema: { user_id, email, name }
+> ```
+>
+> padahal Hub membalas **ter-wrapper** (`handoff.route.ts:202-206` lewat `ApiResponse.ok`):
+> `{ success, message, statusCode, data: { user_id, email, name } }`. Test Hub
+> `src/handoff.test.ts:105-106` mengunci bentuk itu (`good.body?.data?.user_id`). Zod
+> secara default men-strip key yang tidak dikenal → hasil parse `{}` → `user_id` required
+> → `safeParse` gagal → `exchangeHandoffCode` return `null` →
+> `redirect('/sso/error?reason=invalid_code')`.
+> **Yang salah sisi Advokasi** — wrapper `{ success, message, statusCode, data }` adalah
+> kontrak final seluruh ekosistem (`CONTEXT.md` §2, `PLAN.md` D2). Perbaikannya: parse
+> `body.data`, atau bikin schema wrapper-nya eksplisit.
+>
+> Catatan: route `/sso` Advo masih memetakan email ke baris `model User` lokal
+> (`getPrisma().user.findUnique({ where: { email } })`) dan menerbitkan cookie lewat
+> `next-auth/jwt` `encode`. Artinya **D-A belum dikerjakan** — ini jalur pemetaan sementara
+> yang justru dihindari D-A, dan sesuai §4.5 di bawah ("Tanpa D-A, langkah 5 tetap bisa
+> jalan tapi Advokasi harus memetakan `user_id`/email dari Hub ke baris `model User`
+> lokalnya").
 >
 > ⚠️ `HANDOFF_SHARED_SECRET` **belum di-set** di Worker production (`wrangler secret list`
 > → kosong, diverifikasi 11 Sep 2026). Endpoint exchange karenanya fail-closed: membalas
 > `503 "Handoff exchange belum dikonfigurasi"` untuk semua pemanggil. Ini aman, tapi
 > artinya langkah 5 di flow bawah belum bisa jalan sampai secret-nya dipasang di Worker
-> Hub **dan** Worker Advokasi.
+> Hub **dan** di sisi Advokasi (`HANDOFF_SHARED_SECRET` + `HUB_INTERNAL_URL`).
 >
 > Bagian "Kondisi sebelum perbaikan" di bawah adalah **catatan historis** — dibiarkan
 > supaya alasan desainnya tidak hilang.
@@ -871,7 +903,9 @@ Dua hal yang dulu tercatat perlu diberesi, sekarang **sudah beres**:
 
 Yang **masih** menahan handoff benar-benar dipakai end-to-end (semuanya di luar repo ini):
 
-- Route `/sso` di `AdvocationDashboard` belum ada — itu pekerjaan repo terpisah.
+- Route `/sso` di `AdvocationDashboard` **sudah ditulis tapi untracked, belum di-deploy**
+  (production `satgas.sga-cakrawala.org/sso` → 404), dan punya **bug kontrak** yang
+  menggagalkan handoff 100% — detail & bukti di §4.5. Itu pekerjaan repo terpisah.
 - `HANDOFF_SHARED_SECRET` belum di-set di production, jadi endpoint exchange fail-closed
   `503` (§4.5).
 
@@ -987,7 +1021,7 @@ Minimal test cases:
 |---|---|---|
 | Phase 1 | Access Foundation — schema, seed divisi, membership BPH/Ristek, `/me`, feature gate | ✅ live 9 Sep 2026 |
 | Phase 2 | Ownership event + scoped query + endpoint publik gabungan | ⚠️ backend live; **6 divisi sudah punya akun + membership** (10 Sep 2026, diverifikasi ulang 11 Sep). Sisa: membership Ristek, memindahkan BPH off bootstrap, dan rotasi password |
-| Phase 3 | 🆕 One Identity (D-A) — Advokasi pindah ke auth service + handoff sesi nyata | 🟡 **sisi Hub live 10 Sep 2026** (`c485574`): `workspace_handoffs`, 2 endpoint, panel. Sisi Advokasi (route `/sso` + D-A) belum dimulai; `HANDOFF_SHARED_SECRET` belum dipasang |
+| Phase 3 | 🆕 One Identity (D-A) — Advokasi pindah ke auth service + handoff sesi nyata | 🟡 **sisi Hub live 10 Sep 2026** (`c485574`): `workspace_handoffs`, 2 endpoint, panel. Sisi Advokasi: route `/sso` **sudah ditulis tapi untracked & belum di-deploy** (`satgas…/sso` → 404) dan **punya bug kontrak yang menggagalkan handoff 100%** (§4.5). D-A sendiri belum dimulai — route itu masih memetakan email ke `model User` lokal. `HANDOFF_SHARED_SECRET` belum dipasang |
 | Phase 4 | 🆕 Sambungkan event ke `sga-landing-page` (KR4) | 🟡 kode selesai di repo lain, **belum di-commit & belum di-deploy** |
 | Phase 5 | Account & Access Management | ❌ belum |
 | Phase 6 | 🆕 Modul Form lintas divisi (D-B) | ❌ blocked — butuh PRD Form disetujui |
@@ -1015,7 +1049,8 @@ bukan kerja kode. Checklist-nya ada di `ACCOUNTS-ACCESS.md` §7 dan
 | 🆕 **Admin Advokasi terkunci keluar** saat peralihan auth | Jendela **dual-accept** (auth lokal ATAU auth service) wajib ada sebelum auth lokal dicabut. Inventarisasi dan cocokkan semua email user existing **lebih dulu**. Jangan switch sekali jalan. |
 | 🆕 **Riwayat audit Advokasi rusak** | `created_by`/`updated_by`/`deleted_by` menyimpan nama sebagai string bebas. Nilai historis tidak ditulis ulang — menulis ulang = memalsukan riwayat. |
 | 🆕 **Dua form builder divergen** | Konsekuensi D-B yang diterima sadar (PRD §1.4). Perlu pemilik yang jelas untuk masing-masing, dan catatan eksplisit di kedua PRD supaya divisi tidak bingung harus bikin form di mana. |
-| 🆕 **Fitur menggantung** | ~~`workspace_options` menunjuk `https://ristek.sga-cakrawala.org` yang tidak resolve~~ → **sudah diberesi** 10 Sep 2026 (`is_active = 0`). Risikonya sekarang berpindah bentuk: **handoff setengah jalan**. Sisi Hub live dan menerbitkan kode, tapi tidak ada yang menukarnya (route `/sso` Advokasi belum ada) dan `HANDOFF_SHARED_SECRET` belum dipasang. Memilih "Dashboard Advokasi" dari panel production menghasilkan redirect ke `/sso?code=…` yang belum ditangani — **terlihat selesai padahal tidak**. Jangan aktifkan tombolnya untuk user sampai sisi Advokasi ada |
+| 🆕 **Fitur menggantung** | ~~`workspace_options` menunjuk `https://ristek.sga-cakrawala.org` yang tidak resolve~~ → **sudah diberesi** 10 Sep 2026 (`is_active = 0`, diverifikasi ulang 11 Sep). Risikonya sekarang berpindah bentuk: **handoff setengah jalan**. Sisi Hub live dan menerbitkan kode; sisi Advokasi sudah ditulis tapi untracked, belum di-deploy (`satgas…/sso` → 404), dan punya bug kontrak yang menggagalkan 100% (§4.5). Memilih "Dashboard Advokasi" dari panel production menghasilkan redirect ke `/sso?code=…` yang menjawab **404** — **terlihat selesai padahal tidak**, dan kodenya hangus terpakai. Jangan sosialisasikan tombolnya sampai sisi Advokasi di-deploy dan bug kontraknya beres |
+| 🆕 **Kontrak SSO tidak diuji lintas repo** | Bug kontrak §4.5 lolos karena Hub punya 24 test yang hijau dan benar, sementara sisi Advokasi **tidak punya test sso sama sekali** — tidak ada yang menguji kedua sisi terhadap kontrak yang sama. Selama wrapper `{ success, message, statusCode, data }` hanya didokumentasikan dan tidak diuji bersama, celah jenis ini akan muncul lagi di setiap konsumen baru |
 | 🆕 **Data pribadi responden** | Modul Form menyimpan jawaban mahasiswa, mungkin termasuk identitas dan lampiran. Kebijakan retensi dan anonimitas **harus dijawab di PRD Form sebelum modul dipakai**, bukan setelah ada insiden. |
 | 🆕 **Menumpuk modul di atas sambungan yang belum tertutup** | KR4 (landing page baca event) dan adopsi Phase 2 (akun divisi) keduanya belum beres. Membangun Phase 6 di atasnya menambah permukaan yang belum terpakai. Ini risiko urutan (D-D), dicatat sadar bukan diabaikan. |
 | 🆕 **Password 6 akun divisi ada di git history** | `docs/DIVISION-ACCOUNTS.md` memuat password berpola deterministic dan repo ini **public** (`Ristek-CU/bph-cms`). Siapa pun dengan akses repo bisa login sebagai divisi mana pun. Diperparah: **belum ada endpoint suspend/revoke membership**, jadi pencabutan hanya bisa lewat update `status` langsung di D1. Rotasi adalah prioritas tertinggi — `PRODUCTION-READINESS-2026-09-10.md` §6.4 |

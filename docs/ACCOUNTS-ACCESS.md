@@ -208,10 +208,24 @@ dual-accept** supaya admin Advokasi tidak terkunci keluar): [SDD-SGA-CMS-HUB.md 
   pesan error bila handoff gagal.
 - Self-check `src/handoff.test.ts` (24 check) ikut dijalankan `npm test` dan jadi gate CI.
 
-Yang **belum** ada: sisi AdvocationDashboard (route `/sso` + penukaran server-to-server) —
-itu pekerjaan repo terpisah (PROMPT 3). Sampai itu selesai, memilih "Dashboard Advokasi"
+Yang **belum** selesai: sisi AdvocationDashboard (route `/sso` + penukaran server-to-server)
+— itu pekerjaan repo terpisah (PROMPT 3). Sampai itu selesai, memilih "Dashboard Advokasi"
 mengirim user ke `/sso?code=…` yang belum ditangani Advokasi, jadi handoff belum bisa
 diuji end-to-end lintas origin.
+
+> **Dikoreksi 11 Sep 2026.** Paragraf ini sebelumnya menulis route `/sso` "belum ada".
+> Keadaan sebenarnya, diverifikasi langsung:
+>
+> - `src/app/sso/route.ts`, `src/app/sso/error/page.tsx`, dan `src/lib/sso.ts` **sudah
+>   ditulis** di working tree `AdvocationDashboard`, tapi masih **untracked** (`?? src/app/sso/`,
+>   `?? src/lib/sso.ts`) — belum di-commit, belum di-push, belum di-deploy.
+> - Konsisten dengan itu: `https://satgas.sga-cakrawala.org/sso` menjawab **404**, baik
+>   dengan maupun tanpa `?code=`.
+> - 🔴 Kalaupun di-deploy apa adanya, **handoff tetap gagal 100%** karena bug kontrak:
+>   `src/lib/sso.ts:44` mem-parse respons di root, padahal Hub membalas ter-wrapper di
+>   dalam `data`. Bukti dan penjelasan lengkap: [SDD-SGA-CMS-HUB.md §4.5](./SDD-SGA-CMS-HUB.md).
+> - Route itu juga masih memetakan email ke baris `model User` lokal dan menerbitkan cookie
+>   lewat `next-auth/jwt` — artinya **D-A belum dikerjakan**, ini jalur pemetaan sementara.
 
 **Langkah operasional sebelum dipakai:** set `HANDOFF_SHARED_SECRET` via
 `wrangler secret put` di Worker Hub **dan** secret yang sama di Worker Advokasi. Tanpa itu
