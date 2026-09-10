@@ -18,8 +18,15 @@ Menangani:
 - Modul form QPR — menyusul, struktur harus siap menampung
 - Modul multi-divisi: akun, membership, permission, audit log, dan fitur masa depan
 
-Dikonsumsi oleh **Landing Page SGA** (`Ristek-CU/sga-landing-page`, React SPA di Cloudflare
-Pages, tanpa backend). FE hanya konsumen `GET` publik.
+Dikonsumsi oleh **Landing Page SGA** (`Ristek-CU/sga-landing-page`, React SPA di **Cloudflare
+Workers static assets** — `wrangler.jsonc` dengan `assets.directory: ./dist`; bukan Cloudflare
+Pages. Tanpa backend). FE hanya konsumen `GET` publik.
+
+> Dikoreksi 10 Sep 2026: dokumen ini sebelumnya menulis "Cloudflare Pages". Konfigurasi
+> repo-nya Workers assets, dan situs live-nya `https://sga-cakrawala.org`.
+> Workflow `.github/workflows/deployment.yaml` di repo itu (SSH + pm2 ke VPS) adalah
+> **peninggalan yang sudah mati** — trigger-nya hanya branch `development`, yang commit
+> terakhirnya 2025-10-25.
 
 ## 2. Keputusan yang sudah final (jangan dibahas ulang)
 
@@ -32,20 +39,60 @@ Pages, tanpa backend). FE hanya konsumen `GET` publik.
 | Timezone | simpan & kirim ISO 8601 + offset; tampilan WIB |
 | Auth | reuse service `auth` (better-auth) via service binding — JANGAN bikin tabel user sendiri |
 | Opsi yang gugur | GCP (tim all-Cloudflare), "tabel di landing page" (LP statis, gak punya DB), gabung ke Advocation |
+| **Visi terpadu** (10 Sep 2026) | Hub = **satu-satunya pintu masuk autentikasi** untuk semua divisi SGA. Teks kanonik: [PRD-SGA-CMS-HUB.md §1](./PRD-SGA-CMS-HUB.md). Blok visi yang sama diduplikasi di `sga-superapp/README.md`, `AdvocationDashboard/PRD.md`, `sga-landing-page/README.md` |
+| **D-B — modul Form** (10 Sep 2026) | Hub **membangun modul Form/Campaign baru** untuk semua divisi. Campaign/Student Voice Advokasi **TIDAK dimigrasikan** dan tetap milik Advokasi. Konsekuensi diterima sadar: dua form builder dirawat bersamaan. Spek: PRD §7.2-E, SDD §3.7 & §5.4 |
+| **D-A — satu identitas** (10 Sep 2026) | `AdvocationDashboard` **pindah ke auth service superapp**, meninggalkan Auth.js v5 Credentials + tabel `User`/`PasswordResetToken` lokal. Yang dibongkar hanya lapisan identitas — modul data, endpoint publik, URL/QR, dan storage Advokasi tidak disentuh. Batas lengkap: PRD §1.3, desain & rencana peralihan: SDD §4.5 |
+| Handoff antar dashboard | Tidak boleh membawa token/kredensial di query string. Setelah D-A kedua app mengakui penerbit sesi yang sama, jadi cukup referensi sesi aman + cookie scope `.sga-cakrawala.org` |
 
 ## 3. Konteks ekosistem
 
-Kondisi awal: tiga CMS terpisah per divisi. Arah terbaru: repo ini menjadi hub
-terpadu untuk modul yang bisa dipakai lintas divisi, dimulai dari Event.
+> **Dikoreksi 10 Sep 2026.** Versi lama bagian ini menyebut "tiga CMS" dan menyatakan
+> landing page punya tiga env per CMS. Keduanya tidak akurat terhadap kode yang ada.
 
-| CMS | Divisi | Domain | Status |
-|---|---|---|---|
-| CMS Advo | Advocation | Student Voice | live — `satgas.sga-cakrawala.org` |
-| **CMS Hub** (repo ini) | SGA lintas divisi | **Event semua divisi** + QPR BPH + modul baru | arah baru, PRD draft |
-| CMS Ristek | Ristek | konten LP + UKM | rencana |
+Kondisi awal: beberapa CMS terpisah per divisi. Arah sekarang: repo ini menjadi hub
+terpadu — **satu pintu masuk autentikasi** untuk semua divisi (PRD §1).
 
-FE landing page punya env per CMS: `VITE_ADVOCATION_API_URL` (live),
-`VITE_BPH_API_URL` (service ini, nanti), `VITE_RISTEK_CMS_API_URL` (nanti).
+Ada **empat** permukaan admin, bukan tiga:
+
+| Permukaan | Divisi | Domain | Identitas | Status |
+|---|---|---|---|---|
+| CMS Advo (`AdvocationDashboard`) | Advokasi | `satgas.sga-cakrawala.org` | ⚠️ Auth.js v5 + tabel `User` lokal — **akan diganti** ke auth service (D-A) | live |
+| **CMS Hub** (repo ini) | SGA lintas divisi | `bph-cms.sga-cakrawala.org` | ✅ auth service superapp via binding `AUTH_SERVICE` | **live sejak 9 Sep 2026** |
+| `sga-superapp/apps/sga-cms` | (FE admin untuk `sga-profile`) | belum ada target deploy | better-auth client | FE React/Vite, package name masih `vite-react-typescript-starter` v0.0.0, belum di-deploy |
+| CMS Ristek | Ristek | `ristek.sga-cakrawala.org` — **tidak resolve** (HTTP 000, dites 10 Sep 2026) | — | rencana. URL-nya sudah ter-seed di `workspace_options` production, tapi barisnya **sudah di-set `is_active = 0`** (10 Sep 2026) jadi tidak lagi muncul di panel — lihat SDD §4.5 |
+
+### Tumpang tindih yang belum diselesaikan
+
+`sga-superapp/apps/sga-profile` sudah memodelkan `divisions` dan `events`, dan
+`apps/sga-cms` sudah punya FE admin untuk itu (view Divisions, Events, Members, Roles,
+Missions). Repo ini **juga** memodelkan `divisions` dan `events`. Hubungan final keduanya
+**belum diputuskan** — jangan mengasumsikan salah satunya sumber kebenaran.
+
+### Sumber data landing page (kenyataan, bukan rencana)
+
+`sga-landing-page` di production memakai dua env; yang ketiga sudah ada di working tree
+tapi belum tayang:
+
+| Env | Status |
+|---|---|
+| `VITE_ADVOCATION_API_URL` | ✅ live di production |
+| `VITE_STUDENT_VOICE_CAMPAIGN` | ✅ live di production |
+| `VITE_BPH_API_URL` | 🟡 **sudah dibuat 10 Sep 2026** di `.env.example` (`https://bph-cms.sga-cakrawala.org`) — tapi **belum di-commit & belum di-deploy** |
+| `VITE_RISTEK_CMS_API_URL` | ❌ tetap tidak pernah dibuat — dashboard Ristek sendiri belum eksis |
+
+**Update 10 Sep 2026 (Phase 4 dikerjakan, belum tayang):** section event landing page
+sudah diubah dari 555 baris JSX hardcoded menjadi konsumen `GET /api/v1/events` lewat
+`src/lib/hub-events.ts` (Zod mirror `eventListItemSchema`, `AbortSignal`, cache 60 detik).
+File-nya sekarang 371 baris. Fallback saat API gagal = notice di dalam section, halaman
+tidak blank. Status & tanggal dipakai apa adanya dari server sesuai §6.
+
+⚠️ Perubahan itu **masih di working tree** `sga-landing-page`. Bundle live
+`https://sga-cakrawala.org` belum memuat `bph-cms.sga-cakrawala.org` — jadi **KR4 tertutup
+di kode, belum di production**. Yang tersisa: review → commit → deploy → cek visual.
+
+Yang **belum** disentuh: `src/lib/data/*.json` (members, missions, ukm-*) masih statis di
+repo, padahal service `sga-profile` & `ukm-profile` sudah dibangun untuk data yang sama.
+
 
 ## 4. Rekan repo
 
@@ -93,17 +140,47 @@ publish/unpublish, OpenAPI di `/api/v1/openapi` + Scalar `/api/v1/reference`,
 self-check status (`npm test`, 9 checks). Siap integrasi FE — contract SDD §4
 sudah match e2e.
 
+**Multi-divisi live di production (9 Sep 2026)** — `https://bph-cms.sga-cakrawala.org`,
+worker `sga-superapp-bph-cms`. Detail: [PRODUCTION-READINESS-2026-09-09.md](./PRODUCTION-READINESS-2026-09-09.md).
+
+**Visi CMS Terpadu disepakati (10 Sep 2026).** Dua keputusan bentuk diambil — D-B
+(modul Form dibangun baru di Hub, data Advokasi tidak dimigrasi) dan D-A
+(AdvocationDashboard pindah ke auth service superapp). Lihat §2 di atas,
+PRD §1.2–§1.4, dan SDD §3.7 / §4.5 / §5.4.
+
+Kodenya: **D-A sebagian sudah jalan** — sisi Hub (one-time handoff code) live 10 Sep 2026
+(commit `c485574`). **D-B belum ada kodenya sama sekali** (§3.7 / §5.4 masih desain).
+
+Diperbarui 11 Sep 2026. Dari tiga hal yang menahan visi ini, dua sudah bergeser:
+
+1. ~~6 divisi selain BPH & Ristek belum punya akun di auth service~~ → **sudah beres
+   10 Sep 2026.** 6 akun dibuat dan 6 baris `cms_memberships` `division_admin`/`active`
+   ada di D1 production (dikonfirmasi ulang 11 Sep). Yang **masih** menahan Phase 2 / KR3:
+   **Ristek belum punya membership** (403 di semua endpoint admin) dan **BPH masih lewat
+   jalur bootstrap** `PLATFORM_BOOTSTRAP_EMAILS`, bukan baris membership. Ditambah rotasi
+   password 6 akun yang teksnya masih ada di git history.
+2. Landing page belum membaca Hub sama sekali → KR4 belum tercapai (Phase 4). **Kode di
+   `sga-landing-page` sudah dibuat tapi belum di-commit & belum di-deploy.**
+3. ~~`workspace_options` menunjuk `https://ristek.sga-cakrawala.org` yang tidak resolve~~ →
+   barisnya sudah di-set `is_active = 0` di D1 production, jadi tidak muncul lagi di panel.
+   Sisa: handoff ke Advokasi belum end-to-end — sisi Hub sudah menerbitkan kode, tapi route
+   `/sso` di `AdvocationDashboard` belum ada dan `HANDOFF_SHARED_SECRET` belum dipasang
+   (Phase 3 / KR6).
+
 Dokumen perencanaan panel + modul berikutnya:
-[PRD-SGA-CMS-HUB.md](./PRD-SGA-CMS-HUB.md) (arah dashboard terpadu multi-divisi),
-[SDD-SGA-CMS-HUB.md](./SDD-SGA-CMS-HUB.md) (desain teknis multi-divisi),
-[RUNNING-GUIDE.md](./RUNNING-GUIDE.md) (cara setup, run, test, build, deploy),
-[PRODUCTION-READINESS-2026-09-09.md](./PRODUCTION-READINESS-2026-09-09.md) (status deploy production multi-divisi),
-[DIVISION-ACCOUNTS.md](./DIVISION-ACCOUNTS.md) (daftar akun per divisi),
-[ACCOUNTS-ACCESS.md](./ACCOUNTS-ACCESS.md) (rencana akun divisi, akses, dan special workspace),
-[PANEL-UI.md](./PANEL-UI.md) (spesifikasi dashboard admin), [QPR-PRD.md](./QPR-PRD.md)
-(konsep modul penilaian internal — butuh konfirmasi BPH sebelum SDD),
-[API.md](./API.md) (**contract lengkap semua endpoint — sumber utama untuk FE**),
-[FE-INTEGRATION.md](./FE-INTEGRATION.md) (panduan konten/asset/GCal untuk tim FE landing page).
+
+| Dokumen | Versi / status | Isi |
+|---|---|---|
+| [PRD-SGA-CMS-HUB.md](./PRD-SGA-CMS-HUB.md) | **v0.2, 10 Sep 2026** | Arah dashboard terpadu. **§1 = teks kanonik visi SGA CMS Terpadu** |
+| [SDD-SGA-CMS-HUB.md](./SDD-SGA-CMS-HUB.md) | **v0.2, 10 Sep 2026** | Desain teknis multi-divisi + Form + SSO handoff. Bagian 🆕 masih desain |
+| [API.md](./API.md) | — | **Contract lengkap semua endpoint — sumber utama untuk FE.** Belum memuat modul Form |
+| [PRODUCTION-READINESS-2026-09-09.md](./PRODUCTION-READINESS-2026-09-09.md) | 9 Sep 2026 | Status deploy production multi-divisi + checklist operasional §10 |
+| [RUNNING-GUIDE.md](./RUNNING-GUIDE.md) | — | Cara setup, run, test, build, deploy |
+| [DIVISION-ACCOUNTS.md](./DIVISION-ACCOUNTS.md) | v0.1 draft | Daftar akun per divisi |
+| [ACCOUNTS-ACCESS.md](./ACCOUNTS-ACCESS.md) | v0.1 draft | Rencana akun divisi, akses, special workspace. **§9 masih 5 open question** |
+| [PANEL-UI.md](./PANEL-UI.md) | — | Spesifikasi dashboard admin |
+| [QPR-PRD.md](./QPR-PRD.md) | v0.1 draft — **terblokir** | Konsep modul penilaian internal. Butuh konfirmasi BPH sebelum SDD |
+| [FE-INTEGRATION.md](./FE-INTEGRATION.md) | — | Panduan konten/asset/GCal untuk tim FE landing page |
 
 ## 9. Catatan verifikasi (planning 1 Sep 2026 — lihat [PLAN.md](../PLAN.md))
 

@@ -48,7 +48,8 @@ bisa lewat link.
 
 ## 2. Konteks Ekosistem
 
-Landing page SGA adalah **SPA statis** (React + Vite, Cloudflare Pages) tanpa backend.
+Landing page SGA adalah **SPA statis** (React + Vite, Cloudflare Workers static assets —
+`wrangler.jsonc`, bukan Cloudflare Pages) tanpa backend.
 Semua konten dinamis datang dari service terpisah:
 
 | CMS | Divisi | Tanggung jawab | Status |
