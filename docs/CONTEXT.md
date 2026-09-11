@@ -151,7 +151,7 @@ PRD §1.2–§1.4, dan SDD §3.7 / §4.5 / §5.4.
 Kodenya: **D-A sebagian sudah jalan** — sisi Hub (one-time handoff code) live 10 Sep 2026
 (commit `c485574`). **D-B belum ada kodenya sama sekali** (§3.7 / §5.4 masih desain).
 
-Diperbarui 11 Sep 2026 (sore). Dari tiga hal yang menahan visi ini, dua sudah bergeser:
+Diperbarui 11 Sep 2026 (sore, revisi 2). Dari tiga hal yang menahan visi ini, dua sudah bergeser:
 
 1. ~~6 divisi selain BPH & Ristek belum punya akun di auth service~~ → **beres 10 Sep 2026.**
 2. ~~BPH & Ristek belum punya baris `cms_memberships`~~ → **beres 11 Sep 2026.** BPH kini
@@ -165,13 +165,13 @@ Diperbarui 11 Sep 2026 (sore). Dari tiga hal yang menahan visi ini, dua sudah be
    suspend/revoke membership.
 3. Landing page belum membaca Hub sama sekali → KR4 belum tercapai (Phase 4). **Kode di
    `sga-landing-page` sudah dibuat tapi belum di-commit & belum di-deploy.**
-4. ~~`workspace_options` menunjuk `https://ristek.sga-cakrawala.org` yang tidak resolve~~ →
-   barisnya sudah di-set `is_active = 0` di D1 production (diverifikasi ulang 11 Sep), jadi
-   tidak muncul lagi di panel. Sisa: handoff ke Advokasi belum end-to-end — sisi Hub sudah
-   menerbitkan kode, route `/sso` di `AdvocationDashboard` **sudah ditulis dan bug
-   kontraknya sudah diperbaiki 11 Sep 2026**, tapi **masih untracked dan belum di-deploy**
-   (`satgas.sga-cakrawala.org/sso` → 404), dan `HANDOFF_SHARED_SECRET` belum dipasang
-   (Phase 3 / KR6). Detail dan bukti: SDD §4.5.
+4. ~~Handoff ke Advokasi belum end-to-end~~ → **beres 11 Sep 2026.** Route `/sso` di
+   AdvocationDashboard sudah di-deploy (version `d8517db8`), `HANDOFF_SHARED_SECRET`
+   terpasang di kedua worker, dan flow end-to-end diverifikasi: advo minta kode di Hub →
+   redirect `/sso?code=…` → exchange → **session Advokasi terbit, masuk dashboard tanpa
+   login ulang**. Syarat datanya: user di `satgas-db` harus ber-email yang sama dengan
+   akun Hub (`advo@cakrawala.com`) — baris `advo@cakrawala.ac.id` lama sudah di-update.
+   Detail dan bukti: SDD §4.5.
 
 Dokumen perencanaan panel + modul berikutnya:
 
