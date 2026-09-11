@@ -22,11 +22,11 @@
 		"API_BASE_URL": "https://bph-cms.sga-cakrawala.org/api/v1",
 		"CORS_ORIGIN": "https://sga-cakrawala.org,https://cms.sga-cakrawala.org,http://localhost:5173",
 		"DOCS_ALLOW_EMAILS": "ristek@cakrawala.com",
-		// Bootstrap platform_admin untuk email yang BELUM punya baris di cms_memberships.
-		// Per 11 Sep 2026 tabel itu sudah berisi 6 membership divisi (ukm, advo, bnp, icd,
-		// pr, media) — yang belum punya baris tinggal BPH dan Ristek. Kosongkan (set "")
-		// setelah membership BPH dibuat di database agar jalur ini mati.
-		"PLATFORM_BOOTSTRAP_EMAILS": "bph@cakrawala.com"
+		// Jalur bootstrap platform_admin sudah MATI (string kosong): BPH dan Ristek kini
+		// punya baris cms_memberships eksplisit di D1 production (platform_admin dan
+		// division_admin, 11 Sep 2026). Akses admin seluruhnya lewat membership —
+		// tidak ada lagi email yang dapat superadmin otomatis.
+		"PLATFORM_BOOTSTRAP_EMAILS": ""
 	},
 	"r2_buckets": [
 		{
