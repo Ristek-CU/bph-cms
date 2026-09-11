@@ -36,7 +36,7 @@ export default function WorkspaceModal({ workspaces, onSelect, busy = false, err
 									{busy
 										? "Menyiapkan handoff…"
 										: ws.kind === "cms_hub"
-											? "Kelola event lintas SGA dari Dashboard Terpadu."
+											? "Kelola event lintas SGA dari CMS Hub."
 											: "Buka dashboard eksternal khusus divisi."}
 								</div>
 							</div>
