@@ -143,14 +143,15 @@ menambah permukaan CSRF.
 
 **Perbaikan:** hanya `Authorization: Bearer` yang diterima.
 
-### 3.7 Email bootstrap di-hardcode — SEDANG
+### 3.7 Email bootstrap di-hardcode — SELESAI (11 Sep 2026)
 
 Jalur bootstrap membandingkan `userEmail` dengan literal `"bph@cakrawala.com"` di dalam kode.
 
 **Perbaikan:** dibaca dari var `PLATFORM_BOOTSTRAP_EMAILS` (koma-separator) supaya bisa
-dicabut tanpa mengubah dan men-deploy kode. Default dipertahankan sama karena
-`cms_memberships` production belum punya baris untuk BPH — menghapus jalur ini sekarang akan
-mengunci satu-satunya akun admin yang berfungsi.
+dicabut tanpa mengubah dan men-deploy kode. ~~Default dipertahankan sama karena
+`cms_memberships` production belum punya baris untuk BPH~~ — **11 Sep 2026: BPH dan Ristek
+punya baris membership, var dikosongkan + di-deploy (version `42cd77dd`). Jalur bootstrap
+mati; satu-satunya risikonya sudah hilang.**
 
 ### 3.8 Tidak ada header keamanan — SEDANG
 
@@ -360,15 +361,15 @@ Tindakan yang disarankan, berurutan:
 | # | Item | Kenapa belum dikerjakan |
 |---|---|---|
 | 1 | **Rotasi password 6 akun divisi** | Butuh login pertama tiap divisi. Lihat 6.4 — ini prioritas tertinggi. |
-| 2 | **Membership BPH belum ada.** BPH masih masuk lewat bootstrap `PLATFORM_BOOTSTRAP_EMAILS` | Butuh `user_id` dari auth service, yang hanya bisa didapat dengan login sebagai BPH. Setelah barisnya ada, kosongkan var itu untuk mematikan jalur bootstrap. |
-| 3 | **Membership Ristek belum ada.** Ristek bisa membuka docs tetapi `permissions` kosong → 403 di semua endpoint admin, termasuk panel | Sama seperti #2. |
+| ~~2~~ | ~~Membership BPH belum ada~~ **SELESAI 11 Sep 2026** — baris `platform_admin` dibuat lewat insert D1 (`user_id` dari `superapp-auth-db`), bootstrap `PLATFORM_BOOTSTRAP_EMAILS` dikosongkan + di-deploy. Commit `7140652`. |
+| ~~3~~ | ~~Membership Ristek belum ada~~ **SELESAI 11 Sep 2026** — baris `division_admin`, panel bisa dipakai. |
 | 4 | **Belum ada endpoint suspend/revoke membership** | Fitur baru, di luar scope perbaikan keamanan. Tanpa ini tidak ada cara mencabut akses lewat API. |
 | 5 | **Panel HTML belum punya CSP / proteksi clickjacking** | Disajikan Cloudflare Assets, tidak melewati Worker. Butuh `assets.run_worker_first` yang mengubah urutan routing SPA — berisiko, perlu uji terpisah. |
 | 6 | **Token disimpan di `localStorage`** | XSS pada panel = token dicuri. Tidak ada `dangerouslySetInnerHTML` di `panel/src` (diperiksa), tapi ini trade-off yang perlu diputuskan sadar. |
 | 7 | **Auth service membalas email + password plaintext** saat validasi gagal: `{"data":{"email":"…","password":"salah1"}}` | Bug di `sga-superapp-auth`, bukan repo ini. `proxyAuth` meneruskannya apa adanya. |
 | 8 | **Repo superapp tidak sinkron dengan auth service yang terdeploy** (`/v1/auth` vs `/v1/access`, sign-up hilang) | Perlu diperbaiki di repo superapp. Selama berbeda, konsumen lain berisiko menunjuk path mati. |
 | 9 | **`divisions.email` masih `@cakrawala.ac.id`** padahal akunnya `@cakrawala.com` | Kolom informasional, tidak dipakai keputusan auth. Perlu diputuskan: disinkronkan, atau dicatat bahwa itu bukan email login. |
-| 10 | **Baris `Dashboard Ristek` di `workspace_options` menunjuk URL yang tidak resolve**, tapi tombolnya sudah tampil di panel production | Perlu keputusan: dibangun, atau `is_active = 0` dulu. |
+| 10 | ~~**Baris `Dashboard Ristek` di `workspace_options` menunjuk URL yang tidak resolve**~~ **SELESAI 10 Sep 2026** — barisnya di-set `is_active = 0`, tombol tidak muncul lagi di panel. |
 | 11 | **Counter rate limit menambah 1 write D1 per request publik** | Trade-off yang diterima: tanpa ini tidak ada limit sama sekali. Pantau pemakaian write D1; kalau plan Rate Limiting API nanti aktif, lapisan D1 bisa dilonggarkan. |
 | 12 | **`listAdmin` tanpa pagination** | Sudah ada catatan `ponytail` di kode. Bukan masalah keamanan; perlu sebelum event melebihi ratusan. |
 

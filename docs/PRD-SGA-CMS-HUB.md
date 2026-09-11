@@ -583,12 +583,12 @@ production (`PRODUCTION-READINESS-2026-09-10.md` §6.2–§6.3).
 
 Yang **masih** menahan Phase 2 jadi penuh:
 
-- **Ristek belum punya membership** → `permissions` kosong, 403 di semua endpoint admin
-  termasuk panel. Ristek hanya bisa membuka `/docs/` (ada di `DOCS_ALLOW_EMAILS`).
-- **BPH masih lewat jalur bootstrap** `PLATFORM_BOOTSTRAP_EMAILS`, bukan baris membership.
-  Selama ini masih hidup, satu akun admin penuh bergantung pada var config.
-- Keduanya butuh `user_id` dari auth service, yang hanya bisa didapat dengan login sebagai
-  akun itu. Setelah barisnya ada, kosongkan var bootstrap untuk mematikan jalur itu.
+- ~~Ristek belum punya membership~~ → **beres 11 Sep 2026**: `division_admin`, panel bisa
+  dipakai.
+- ~~BPH masih lewat jalur bootstrap~~ → **beres 11 Sep 2026**: baris `cms_memberships`
+  `platform_admin` dibuat lewat insert D1 (`user_id` diambil dari `superapp-auth-db`,
+  tidak perlu login), dan `PLATFORM_BOOTSTRAP_EMAILS` dikosongkan + di-deploy — jalur
+  bootstrap mati. Detail: [DIVISION-ACCOUNTS.md](./DIVISION-ACCOUNTS.md).
 - **Rotasi password 6 akun divisi** — teksnya ada di git history
   (`docs/DIVISION-ACCOUNTS.md`) dan repo ini public. Prioritas tertinggi menurut
   `PRODUCTION-READINESS-2026-09-10.md` §6.4.

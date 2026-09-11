@@ -159,7 +159,7 @@ Binding yang dipakai:
 | `API_BASE_URL` | base URL API |
 | `CORS_ORIGIN` | whitelist origin |
 | `DOCS_ALLOW_EMAILS` | email yang boleh buka docs protected |
-| `PLATFORM_BOOTSTRAP_EMAILS` | email yang boleh jadi `platform_admin` tanpa baris `cms_memberships`. Kosongkan (`""`) setelah membership BPH ada di database |
+| `PLATFORM_BOOTSTRAP_EMAILS` | email yang boleh jadi `platform_admin` tanpa baris `cms_memberships`. **Sudah `""` sejak 11 Sep 2026** — BPH & Ristek punya membership eksplisit, jalur bootstrap mati. Jangan diisi lagi tanpa alasan kuat |
 | `ALLOW_DEV_AUTH` | opsional, set `true` **hanya di `.dev.vars`**. Tidak cukup sendirian — lihat catatan di bawah |
 | `HANDOFF_SHARED_SECRET` | **secret**, bukan `vars` — dipasang lewat `npx wrangler secret put HANDOFF_SHARED_SECRET`, jadi tidak muncul di `wrangler.jsonc`. Dipakai `POST /api/v1/internal/handoff/exchange` untuk memastikan pemanggilnya worker Advokasi. Opsional di tipe (`src/types.ts:36`); kalau absent endpoint **fail-closed** `503` |
 

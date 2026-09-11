@@ -151,17 +151,21 @@ PRD §1.2–§1.4, dan SDD §3.7 / §4.5 / §5.4.
 Kodenya: **D-A sebagian sudah jalan** — sisi Hub (one-time handoff code) live 10 Sep 2026
 (commit `c485574`). **D-B belum ada kodenya sama sekali** (§3.7 / §5.4 masih desain).
 
-Diperbarui 11 Sep 2026. Dari tiga hal yang menahan visi ini, dua sudah bergeser:
+Diperbarui 11 Sep 2026 (sore). Dari tiga hal yang menahan visi ini, dua sudah bergeser:
 
-1. ~~6 divisi selain BPH & Ristek belum punya akun di auth service~~ → **sudah beres
-   10 Sep 2026.** 6 akun dibuat dan 6 baris `cms_memberships` `division_admin`/`active`
-   ada di D1 production (dikonfirmasi ulang 11 Sep). Yang **masih** menahan Phase 2 / KR3:
-   **Ristek belum punya membership** (403 di semua endpoint admin) dan **BPH masih lewat
-   jalur bootstrap** `PLATFORM_BOOTSTRAP_EMAILS`, bukan baris membership. Ditambah rotasi
-   password 6 akun yang teksnya masih ada di git history.
-2. Landing page belum membaca Hub sama sekali → KR4 belum tercapai (Phase 4). **Kode di
+1. ~~6 divisi selain BPH & Ristek belum punya akun di auth service~~ → **beres 10 Sep 2026.**
+2. ~~BPH & Ristek belum punya baris `cms_memberships`~~ → **beres 11 Sep 2026.** BPH kini
+   `platform_admin` (superadmin penuh: semua event semua divisi, QPR, kelola akun, audit)
+   dan Ristek `division_admin` — keduanya lewat insert D1 langsung (`user_id` diambil dari
+   `superapp-auth-db`; commit `7140652`). **`PLATFORM_BOOTSTRAP_EMAILS` sudah dikosongkan
+   dan di-deploy (version `42cd77dd`) — jalur superadmin-otomatis mati, akses admin 100%
+   lewat membership.** Total 8 akun, 8 membership (1 platform_admin + 7 division_admin).
+   Detail + ID: [DIVISION-ACCOUNTS.md](./DIVISION-ACCOUNTS.md). Sisa: **rotasi password 6
+   akun divisi yang teksnya masih di git history**, dan belum ada endpoint
+   suspend/revoke membership.
+3. Landing page belum membaca Hub sama sekali → KR4 belum tercapai (Phase 4). **Kode di
    `sga-landing-page` sudah dibuat tapi belum di-commit & belum di-deploy.**
-3. ~~`workspace_options` menunjuk `https://ristek.sga-cakrawala.org` yang tidak resolve~~ →
+4. ~~`workspace_options` menunjuk `https://ristek.sga-cakrawala.org` yang tidak resolve~~ →
    barisnya sudah di-set `is_active = 0` di D1 production (diverifikasi ulang 11 Sep), jadi
    tidak muncul lagi di panel. Sisa: handoff ke Advokasi belum end-to-end — sisi Hub sudah
    menerbitkan kode, route `/sso` di `AdvocationDashboard` **sudah ditulis dan bug
