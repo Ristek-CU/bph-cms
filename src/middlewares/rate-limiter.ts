@@ -4,8 +4,11 @@ import { ApiError } from "../shared/api-error";
 import { consumeRateLimit, purgeExpiredRateLimits } from "../db/rate-limit";
 import type { AppContext, Bindings } from "../types";
 
+// Hanya cf-connecting-ip — header ini di-set Cloudflare edge dan tidak bisa dipalsukan
+// klien. Fallback x-forwarded-for justru celah: klien bisa ganti nilainya tiap request
+// sehingga counter per-IP di D1 terpecah dan limit tidak pernah tercapai.
 const clientIp = (c: Parameters<MiddlewareHandler<AppContext>>[0]) =>
-	c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "anonymous";
+	c.req.header("cf-connecting-ip") || "anonymous";
 
 // Lapisan pertama: Workers Rate Limiting API (per-PoP, murah). `skip` wajib —
 // tanpa itu library melempar TypeError saat binding tidak ada (mis. di test).

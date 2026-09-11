@@ -59,7 +59,10 @@ v1.onError(errorHandler);
 v1.get("/", (c) => ApiResponse.ok(c, "BPH CMS is running", { service: "bph-cms" }));
 
 // Aset media publik (dipakai cover_image_url). Cache immutable — key uuid unik.
-v1.get("/storage/*", async (c) => {
+// D1 rate limit: dilayani sebelum publicEventRouter, jadi tidak kena limiter manapun.
+// Browser yang me-render cover dari cache tetap lolos — cache-control immutable
+// membuat fetch kedua tidak pernah sampai ke worker.
+v1.get("/storage/*", d1RateLimiter({ prefix: "public:storage", limit: 120, windowMs: 60_000 }), async (c) => {
 	const key = c.req.path.replace("/api/v1/storage/", "");
 	if (!key || key.includes("..")) return c.notFound();
 
