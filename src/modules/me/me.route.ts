@@ -53,7 +53,7 @@ meRouter.get(
 		}
 
 		if (userWorkspaces.length === 0) {
-			userWorkspaces = [{ id: null, label: "Dashboard Terpadu", kind: "cms_hub", url: null }];
+			userWorkspaces = [{ id: null, label: "SGA CMS Hub", kind: "cms_hub", url: null }];
 		}
 
 		return ApiResponse.ok(c, "OK", {

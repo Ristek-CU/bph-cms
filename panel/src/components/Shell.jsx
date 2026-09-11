@@ -34,7 +34,7 @@ export function Login({ onLogin }) {
 				<div className="brand">
 					<img className="brand-logo-img" src={logoSga} alt="Logo SGA Cakrawala" />
 					<div>
-						<h1>CMS BPH</h1>
+						<h1>SGA CMS Hub</h1>
 						<small className="sub" style={{ color: "var(--muted)" }}>
 							SGA Cakrawala · Panel Pengurus
 						</small>

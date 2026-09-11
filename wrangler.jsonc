@@ -14,12 +14,20 @@
 	},
 	"routes": [
 		{
+			"pattern": "cms.sga-cakrawala.org",
+			"custom_domain": true
+		},
+		{
+			// Domain lama tetap aktif: URL cover_image_url lama di DB + env eksternal
+			// masih menunjuk ke sini. Jangan dihapus sebelum semua URL lama dimigrasi.
 			"pattern": "bph-cms.sga-cakrawala.org",
 			"custom_domain": true
 		}
 	],
 	"vars": {
-		"API_BASE_URL": "https://bph-cms.sga-cakrawala.org/api/v1",
+		// Domain kanonik baru. Upload media baru menghasilkan URL cms.*; yang lama
+		// tetap bph-cms.* dan tetap dilayani selama domain lama aktif.
+		"API_BASE_URL": "https://cms.sga-cakrawala.org/api/v1",
 		"CORS_ORIGIN": "https://sga-cakrawala.org,https://cms.sga-cakrawala.org,http://localhost:5173",
 		"DOCS_ALLOW_EMAILS": "ristek@cakrawala.com",
 		// Jalur bootstrap platform_admin sudah MATI (string kosong): BPH dan Ristek kini
