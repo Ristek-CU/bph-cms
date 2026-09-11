@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, lt } from "drizzle-orm";
+import { and, eq, isNull, lt } from "drizzle-orm";
 import { z } from "zod";
 import { describeRoute, resolver } from "hono-openapi";
 import { adminAuth } from "../../middlewares/admin-auth";
@@ -198,15 +198,19 @@ internalHandoffRouter.post(
 			.where(eq(workspaceHandoffs.code, code))
 			.limit(1);
 		if (!row) throw ApiError.notFound("Handoff code tidak dikenal");
-		if (row.usedAt) throw ApiError.conflict("Handoff code sudah dipakai");
 		if (Date.parse(row.expiresAt) <= Date.now()) throw new ApiError(410, "Handoff code kadaluarsa");
 
+		// Klaim atomik (T2): update hanya jika usedAt masih NULL. Dua exchange paralel
+		// dengan kode yang sama — hanya satu yang dapat count=1; yang lain ditolak 409.
 		const usedIso = new Date().toISOString();
-		await db
+		const claimed = await db
 			.update(workspaceHandoffs)
 			.set({ usedAt: usedIso })
-			.where(eq(workspaceHandoffs.code, code))
-			.run();
+			.where(and(eq(workspaceHandoffs.code, code), isNull(workspaceHandoffs.usedAt)))
+			.returning({ code: workspaceHandoffs.code });
+		if (claimed.length === 0) {
+			throw ApiError.conflict("Handoff code sudah dipakai");
+		}
 
 		await recordAuditLog(c, {
 			action: "workspace.handoff_exchange",

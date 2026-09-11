@@ -56,7 +56,13 @@ export const updateEvent = async (c: Ctx) => {
 
 export const deleteEvent = async (c: Ctx) => {
 	const { id } = parseParams(c, idParamSchema);
-	await eventService.delete(getDb(c.env.DB), id);
+	const deleted = await eventService.delete(getDb(c.env.DB), id);
+	await recordAuditLog(c, {
+		action: "events.delete",
+		resourceType: "event",
+		resourceId: id,
+		metadata: { title: deleted.title, slug: deleted.slug, divisionId: deleted.divisionId },
+	});
 	return ApiResponse.ok(c, "Event deleted");
 };
 
@@ -77,6 +83,11 @@ export const updateSession = async (c: Ctx) => {
 export const deleteSession = async (c: Ctx) => {
 	const { id } = parseParams(c, idParamSchema);
 	await eventService.deleteSession(getDb(c.env.DB), id);
+	await recordAuditLog(c, {
+		action: "events.session_delete",
+		resourceType: "session",
+		resourceId: id,
+	});
 	return ApiResponse.ok(c, "Session deleted");
 };
 

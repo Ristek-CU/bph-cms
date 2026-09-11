@@ -261,6 +261,7 @@ export const eventService = {
 	async delete(db: Db, id: string) {
 		const result = await db.delete(events).where(eq(events.id, id)).returning();
 		if (!result.length) throw ApiError.notFound("Event not found");
+		return result[0];
 	},
 
 	async addSession(db: Db, eventId: string, input: CreateSessionInput) {
