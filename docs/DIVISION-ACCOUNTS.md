@@ -61,7 +61,7 @@ Untuk produksi:
 ### BPH — SUPERADMIN
 
 - Email: `bph@cakrawala.com`
-- Password: secret pemilik akun (kandidat di file ini **tidak aktif**)
+- Password: `bphCakrawala2026!` ⚠️ rotasi (di-reset 12 Sep 2026 lewat D1 langsung)
 - `user_id`: `01a05dd1-b695-7bc3-aaa4-779440cd1868`
 - `membership_id`: `01a08f2d-9c2e-7b4f-9be0-eb3aa9d3b5d8`
 - `division_id`: `01990001-0000-7000-8000-000000000001` (slug `bph`)
@@ -181,7 +181,7 @@ Diperbarui 11 Sep 2026 — 8 akun, 8 membership, bootstrap mati.
 
 | Divisi | Email | Password | Role CMS | Status | Login Destination | QPR | Event |
 |---|---|---|---|---|---|---|---|
-| BPH | `bph@cakrawala.com` | secret pemilik (kandidat tidak aktif) | **platform_admin** | ✅ membership 11 Sep | Dashboard Terpadu | Ya | Semua divisi |
+| BPH | `bph@cakrawala.com` | `bphCakrawala2026!` ⚠️ rotasi (reset 12 Sep) | **platform_admin** | ✅ membership 11 Sep | Dashboard Terpadu | Ya | Semua divisi |
 | Ristek | `ristek@cakrawala.com` | `ristekpassword123!` ⚠️ rotasi (terverifikasi) | division_admin | ✅ membership 11 Sep | Select Workspace | Tidak | Divisi Ristek |
 | UKM | `ukm@cakrawala.com` | `ukmpassword123!` ⚠️ rotasi | division_admin | ✅ 10 Sep | Dashboard Terpadu | Tidak | Divisi UKM |
 | Advokasi | `advo@cakrawala.com` | `advopassword123!` ⚠️ rotasi | division_admin | ✅ 10 Sep | Select Workspace | Tidak | Divisi Advokasi |
