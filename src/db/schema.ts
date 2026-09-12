@@ -194,3 +194,126 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
 export const eventSessionsRelations = relations(eventSessions, ({ one }) => ({
 	event: one(events, { fields: [eventSessions.eventId], references: [events.id] }),
 }));
+
+// ---- Form builder (multi-divisi) — kontrak publik identik dengan campaign
+// AdvocationDashboard supaya landing page cukup ganti base URL. ----
+
+export const forms = sqliteTable(
+	"forms",
+	{
+		id: text("id").primaryKey(),
+		divisionId: text("division_id")
+			.notNull()
+			.references(() => divisions.id, { onDelete: "restrict" }),
+		slug: text("slug").notNull().unique(),
+		title: text("title").notNull(),
+		description: text("description"),
+		status: text("status", { enum: ["draft", "published", "closed"] })
+			.notNull()
+			.default("draft"),
+		thankYouMessage: text("thank_you_message")
+			.notNull()
+			.default("Terima kasih. Respons kamu sudah kami terima."),
+		opensAt: text("opens_at"),
+		closesAt: text("closes_at"),
+		createdByUserId: text("created_by_user_id"),
+		updatedByUserId: text("updated_by_user_id"),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(table) => [index("forms_division_idx").on(table.divisionId, table.createdAt)],
+);
+
+export const formFields = sqliteTable(
+	"form_fields",
+	{
+		id: text("id").primaryKey(),
+		formId: text("form_id")
+			.notNull()
+			.references(() => forms.id, { onDelete: "cascade" }),
+		label: text("label").notNull(),
+		description: text("description"),
+		// short_text | paragraph | email | number | multiple_choice | checkboxes |
+		// dropdown | linear_scale | date | file — sama dengan kontrak advo.
+		type: text("type").notNull(),
+		required: integer("required", { mode: "boolean" }).notNull().default(false),
+		// JSON array pilihan (choice types) atau {min,max} (linear_scale).
+		options: text("options"),
+		sortOrder: integer("sort_order").notNull().default(0),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(table) => [index("form_fields_form_idx").on(table.formId, table.sortOrder)],
+);
+
+export const formSubmissions = sqliteTable(
+	"form_submissions",
+	{
+		id: text("id").primaryKey(),
+		formId: text("form_id")
+			.notNull()
+			.references(() => forms.id, { onDelete: "restrict" }),
+		status: text("status", { enum: ["new", "reviewed", "archived"] })
+			.notNull()
+			.default("new"),
+		// SHA-256(secret:ip:ua) — untuk investigasi abuse, bukan pelacakan identitas.
+		fingerprint: text("fingerprint"),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(table) => [index("form_submissions_form_idx").on(table.formId, table.createdAt)],
+);
+
+export const formAnswers = sqliteTable(
+	"form_answers",
+	{
+		id: text("id").primaryKey(),
+		submissionId: text("submission_id")
+			.notNull()
+			.references(() => formSubmissions.id, { onDelete: "cascade" }),
+		// SetNull: field dihapus → jawaban historis tetap utuh (label disnapshot).
+		fieldId: text("field_id").references(() => formFields.id, { onDelete: "set null" }),
+		// Snapshot label/type saat submit — edit pertanyaan tidak merusak histori.
+		fieldLabel: text("field_label").notNull(),
+		fieldType: text("field_type").notNull(),
+		// JSON-encoded scalar/array.
+		value: text("value").notNull(),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [
+		index("form_answers_submission_idx").on(table.submissionId),
+		index("form_answers_field_idx").on(table.fieldId),
+	],
+);
+
+export const formFiles = sqliteTable(
+	"form_files",
+	{
+		id: text("id").primaryKey(),
+		submissionId: text("submission_id")
+			.notNull()
+			.references(() => formSubmissions.id, { onDelete: "cascade" }),
+		fieldId: text("field_id").references(() => formFields.id, { onDelete: "set null" }),
+		storagePath: text("storage_path").notNull(),
+		originalFilename: text("original_filename").notNull(),
+		mimeType: text("mime_type").notNull(),
+		fileSize: integer("file_size").notNull(),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [index("form_files_submission_idx").on(table.submissionId)],
+);
+
+export const formsRelations = relations(forms, ({ one, many }) => ({
+	division: one(divisions, { fields: [forms.divisionId], references: [divisions.id] }),
+	fields: many(formFields),
+}));
+
+export const formFieldsRelations = relations(formFields, ({ one }) => ({
+	form: one(forms, { fields: [formFields.formId], references: [forms.id] }),
+}));
+
+export const formSubmissionsRelations = relations(formSubmissions, ({ one, many }) => ({
+	form: one(forms, { fields: [formSubmissions.formId], references: [forms.id] }),
+	answers: many(formAnswers),
+	files: many(formFiles),
+}));

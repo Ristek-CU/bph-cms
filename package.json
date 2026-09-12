@@ -11,7 +11,7 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate:local": "wrangler d1 migrations apply bph-cms-db --local",
 		"db:migrate:remote": "wrangler d1 migrations apply bph-cms-db --remote",
-		"test": "tsx src/modules/events/status.test.ts && tsx src/security.test.ts && tsx src/handoff.test.ts",
+		"test": "tsx src/modules/events/status.test.ts && tsx src/security.test.ts && tsx src/handoff.test.ts && tsx src/forms.test.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {

@@ -2,12 +2,12 @@ import type { MiddlewareHandler } from "hono";
 import { eq } from "drizzle-orm";
 import { ApiError } from "../shared/api-error";
 import { hasPermission } from "../shared/permissions";
-import { eventSessions, events } from "../db/schema";
+import { eventSessions, events, forms, formSubmissions } from "../db/schema";
 import type { AppContext } from "../types";
 
 export type PermissionOptions = {
 	scope?: "own_division" | "all";
-	resourceType?: "event" | "session" | "division";
+	resourceType?: "event" | "session" | "division" | "form" | "submission";
 };
 
 /**
@@ -73,6 +73,51 @@ export const requirePermission = (
 				const isOwnDivision = Boolean(activeDivisionId && session.divisionId === activeDivisionId);
 				if (!hasPermission(userPermissions, requiredPermission, { isOwnDivision, resourceStatus: session.status })) {
 					throw ApiError.forbidden("Forbidden: tidak memiliki akses ke sesi event divisi ini");
+				}
+				return next();
+			}
+		}
+
+		if (options.resourceType === "form") {
+			const resourceId = c.req.param("id");
+			if (resourceId) {
+				const db = c.get("db");
+				const [form] = await db
+					.select({ divisionId: forms.divisionId })
+					.from(forms)
+					.where(eq(forms.id, resourceId))
+					.limit(1);
+
+				if (!form) {
+					throw ApiError.notFound("Form tidak ditemukan");
+				}
+
+				const isOwnDivision = Boolean(activeDivisionId && form.divisionId === activeDivisionId);
+				if (!hasPermission(userPermissions, requiredPermission, { isOwnDivision })) {
+					throw ApiError.forbidden("Forbidden: tidak memiliki akses ke form divisi ini");
+				}
+				return next();
+			}
+		}
+
+		if (options.resourceType === "submission") {
+			const resourceId = c.req.param("id");
+			if (resourceId) {
+				const db = c.get("db");
+				const [submission] = await db
+					.select({ divisionId: forms.divisionId })
+					.from(formSubmissions)
+					.innerJoin(forms, eq(formSubmissions.formId, forms.id))
+					.where(eq(formSubmissions.id, resourceId))
+					.limit(1);
+
+				if (!submission) {
+					throw ApiError.notFound("Submission tidak ditemukan");
+				}
+
+				const isOwnDivision = Boolean(activeDivisionId && submission.divisionId === activeDivisionId);
+				if (!hasPermission(userPermissions, requiredPermission, { isOwnDivision })) {
+					throw ApiError.forbidden("Forbidden: tidak memiliki akses ke respons divisi ini");
 				}
 				return next();
 			}

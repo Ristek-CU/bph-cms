@@ -2,6 +2,9 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { clearToken } from "../api.js";
 import { useEscape } from "./ui.jsx";
+
+const hasScoped = (permissions, base) =>
+	permissions?.includes(`${base}.all`) || permissions?.includes(`${base}.own_division`);
 import { IconCalendar, IconClipboard, IconGrid, IconLink, IconMenu } from "./Icons.jsx";
 
 // Logomark SGA Cakrawala — outline putih transparan (dari landing page).
@@ -70,6 +73,8 @@ export function Shell({ user, children, title, crumb, actions }) {
 
 	const permissions = user?.permissions || [];
 	const canSeeQpr = permissions.includes("qpr.manage");
+	const canSeeForms =
+		hasScoped(permissions, "forms.read") || hasScoped(permissions, "forms.submissions");
 
 	const nav = (
 		<nav className="nav" aria-label="Modul">
@@ -79,6 +84,11 @@ export function Shell({ user, children, title, crumb, actions }) {
 			<NavLink to="/events" className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconCalendar /></span> Event
 			</NavLink>
+			{canSeeForms && (
+				<NavLink to="/forms" className={({ isActive }) => (isActive ? "active" : "")}>
+					<span className="icon" aria-hidden><IconClipboard /></span> Form
+				</NavLink>
+			)}
 			{canSeeQpr && (
 				<NavLink to="/qpr" className={({ isActive }) => (isActive ? "active" : "")}>
 					<span className="icon" aria-hidden><IconClipboard /></span> QPR <span className="soon">BPH</span>
