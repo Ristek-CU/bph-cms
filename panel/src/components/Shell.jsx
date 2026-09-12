@@ -72,7 +72,7 @@ export function Shell({ user, children, title, crumb, actions }) {
 		.toUpperCase();
 
 	const permissions = user?.permissions || [];
-	const canSeeQpr = permissions.includes("qpr.manage");
+	const canManageQpr = permissions.includes("qpr.manage");
 	const canSeeForms =
 		hasScoped(permissions, "forms.read") || hasScoped(permissions, "forms.submissions");
 
@@ -89,11 +89,10 @@ export function Shell({ user, children, title, crumb, actions }) {
 					<span className="icon" aria-hidden><IconClipboard /></span> Form
 				</NavLink>
 			)}
-			{canSeeQpr && (
-				<NavLink to="/qpr" className={({ isActive }) => (isActive ? "active" : "")}>
-					<span className="icon" aria-hidden><IconClipboard /></span> QPR <span className="soon">BPH</span>
-				</NavLink>
-			)}
+			{/* QPR: semua user punya penugasan menilai; kelola periode khusus qpr.manage */}
+			<NavLink to="/qpr" className={({ isActive }) => (isActive ? "active" : "")}>
+				<span className="icon" aria-hidden><IconClipboard /></span> QPR {!canManageQpr && <span className="soon">Penilaian</span>}
+			</NavLink>
 			<div className="nav-sep" />
 			<a href="/docs/" target="_blank" rel="noreferrer" title="Dokumentasi API untuk developer">
 				<span className="icon" aria-hidden><IconLink /></span> Dokumentasi API

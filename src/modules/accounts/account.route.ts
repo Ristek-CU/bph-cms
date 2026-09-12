@@ -202,19 +202,4 @@ adminAccountRouter.get(
 	},
 );
 
-// GET /api/v1/admin/qpr
-adminAccountRouter.get(
-	"/qpr",
-	requirePermission("qpr.manage"),
-	describeRoute({
-		summary: "QPR Module API (BPH Only)",
-		tags: ["Admin QPR"],
-		security: [{ bearerAuth: [] }],
-	}),
-	async (c) => {
-		return ApiResponse.ok(c, "QPR Module Data (BPH Only)", {
-			status: "active",
-			evaluations: [],
-		});
-	},
-);
+// Modul QPR pindah ke src/modules/qpr/qpr.route.ts (mounted di /admin/qpr).
