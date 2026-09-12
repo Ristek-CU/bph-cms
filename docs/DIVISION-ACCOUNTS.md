@@ -80,7 +80,7 @@ platform_admin yang sudah ada, atau insert D1 langsung). Tidak ada jalur lain.
 ### Ristek
 
 - Email: `ristek@cakrawala.com`
-- Password: secret pemilik akun (kandidat di file ini **tidak aktif**)
+- Password: `ristekpassword123!` ⚠️ rotasi (terverifikasi login 11 Sep 2026)
 - `user_id`: `01a05e42-d465-7d22-bf9b-3ec30edd7a7f`
 - `membership_id`: `01a08f2d-c897-79ed-830d-9997dc0d8dbd`
 - `division_id`: `01990001-0000-7000-8000-000000000002` (slug `ristek`)
@@ -182,7 +182,7 @@ Diperbarui 11 Sep 2026 — 8 akun, 8 membership, bootstrap mati.
 | Divisi | Email | Password | Role CMS | Status | Login Destination | QPR | Event |
 |---|---|---|---|---|---|---|---|
 | BPH | `bph@cakrawala.com` | secret pemilik (kandidat tidak aktif) | **platform_admin** | ✅ membership 11 Sep | Dashboard Terpadu | Ya | Semua divisi |
-| Ristek | `ristek@cakrawala.com` | secret pemilik (kandidat tidak aktif) | division_admin | ✅ membership 11 Sep | Select Workspace | Tidak | Divisi Ristek |
+| Ristek | `ristek@cakrawala.com` | `ristekpassword123!` ⚠️ rotasi (terverifikasi) | division_admin | ✅ membership 11 Sep | Select Workspace | Tidak | Divisi Ristek |
 | UKM | `ukm@cakrawala.com` | `ukmpassword123!` ⚠️ rotasi | division_admin | ✅ 10 Sep | Dashboard Terpadu | Tidak | Divisi UKM |
 | Advokasi | `advo@cakrawala.com` | `advopassword123!` ⚠️ rotasi | division_admin | ✅ 10 Sep | Select Workspace | Tidak | Divisi Advokasi |
 | BNP | `bnp@cakrawala.com` | `bnppassword123!` ⚠️ rotasi | division_admin | ✅ 10 Sep | Dashboard Terpadu | Tidak | Divisi BNP |
