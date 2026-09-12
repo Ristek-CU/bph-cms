@@ -227,10 +227,12 @@ export const startHarness = async (
 			headers["Content-Type"] = "application/json";
 			body = JSON.stringify(init.json);
 		}
+		const method = init.method ?? "GET";
 		const res = await worker.fetch(`http://${init.host ?? "bph-cms.test"}${path}`, {
-			method: init.method ?? "GET",
+			method,
 			headers,
-			body,
+			// GET/HEAD tidak boleh punya body di fetch (undici/workerd menolaknya).
+			...(method === "GET" || method === "HEAD" ? {} : { body }),
 		});
 		const text = await res.text();
 		let parsed: any;

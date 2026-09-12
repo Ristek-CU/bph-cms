@@ -9,6 +9,7 @@ import Overview from "./pages/Overview.jsx";
 import EventList from "./pages/EventList.jsx";
 import EventCalendar from "./pages/EventCalendar.jsx";
 import EventEditor from "./pages/EventEditor.jsx";
+import Forms from "./pages/Forms.jsx";
 import Qpr from "./pages/Qpr.jsx";
 
 const hasScopedPermission = (permissions, base) =>
@@ -24,6 +25,8 @@ const canUpdateEvent = (permissions, event) =>
 
 const canPublishEvent = (permissions) => hasScopedPermission(permissions, "events.publish");
 const canDeleteEvent = (permissions) => hasScopedPermission(permissions, "events.delete");
+const canSeeForms = (permissions) =>
+	hasScopedPermission(permissions, "forms.read") || hasScopedPermission(permissions, "forms.submissions");
 
 function App() {
 	const [token, setToken] = useState(localStorage.getItem("bph_cms_token"));
@@ -214,6 +217,18 @@ function App() {
 				element={
 					<Shell {...shellProps} title="Edit Event" crumb="Modul · Event · Edit">
 						<EditEventRoute events={events} onEdit={onEdit} capabilities={capabilities} />
+					</Shell>
+				}
+			/>
+			<Route
+				path="/forms"
+				element={
+					<Shell {...shellProps} title="Form" crumb="Modul · Form">
+						{canSeeForms(permissions) ? (
+							<Forms user={user} />
+						) : (
+							<NoAccess />
+						)}
 					</Shell>
 				}
 			/>
