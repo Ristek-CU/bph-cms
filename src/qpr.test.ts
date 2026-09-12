@@ -1,7 +1,8 @@
 /**
- * Self-check modul QPR v1 (docs/QPR-PRD.md §5).
- * Alur: BPH buat periode → tambah penugasan → buka → reviewer submit →
- * revisi → rekap → guard (bukan penugasanmu, periode tertutup, delete guard).
+ * Self-check modul QPR v2 — tanpa login (model kejujuran).
+ * Alur: BPH buat periode + roster nama → buka → publik lihat roster →
+ * submit by nama → nama hilang dari roster → submit ulang 409 →
+ * nama tak terdaftar 422 → rekap partisipasi + rata-rata → guard admin.
  * Run: tsx src/qpr.test.ts
  */
 import { startHarness, type Harness } from "./test/harness";
@@ -26,132 +27,133 @@ const section = (name: string) => console.log(`\n── ${name}`);
 
 const h: Harness = await startHarness();
 
-const BASE = "/api/v1/admin/qpr";
+const ADMIN = "/api/v1/admin/qpr";
+const PUB = "/api/v1/qpr";
 
-// ── Akses: non-BPH tidak bisa kelola, tapi bisa /my ─────────────────────────
+// ── Akses admin ─────────────────────────────────────────────────────────────
 section("Akses");
 
-const noAuth = await h.req(`${BASE}/periods`, { method: "POST", json: { title: "x", questions: [{ label: "a", category: "b" }] } });
+const noAuth = await h.req(`${ADMIN}/periods`, { method: "POST", json: { title: "x", questions: [{ label: "a", category: "b" }] } });
 eq("tanpa token → 401", noAuth.status, 401);
+const nonBph = await h.req(`${ADMIN}/periods`, { token: "tok-a-admin" });
+eq("division_admin kelola → 403", nonBph.status, 403);
 
-const nonBph = await h.req(`${BASE}/periods`, { token: "tok-a-admin" });
-eq("division_admin kelola periode → 403", nonBph.status, 403);
-const nonBphMy = await h.req(`${BASE}/my`, { token: "tok-a-admin" });
-eq("division_admin lihat penugasan sendiri → 200", nonBphMy.status, 200);
-eq("penugasan awal kosong", nonBphMy.body?.data?.length, 0);
-
-// ── BPH: periode + penugasan ────────────────────────────────────────────────
-section("Periode & penugasan (BPH)");
+// ── BPH: periode + roster ───────────────────────────────────────────────────
+section("Periode & roster (BPH)");
 
 const QUESTIONS = [
 	{ label: "Menyelesaikan tugas tepat waktu", category: "Kinerja" },
 	{ label: "Berkolaborasi dengan baik", category: "Kolaborasi" },
 ];
 
-const created = await h.req(`${BASE}/periods`, {
+const created = await h.req(`${ADMIN}/periods`, {
 	token: "tok-bph",
 	method: "POST",
-	json: { title: "Penilaian September 2026", questions: QUESTIONS, opens_at: "2026-09-01T00:00:00+07:00", closes_at: "2026-12-31T23:59:59+07:00" },
+	json: { title: "Penilaian September 2026", description: "Menilai: Ketua Ristek", questions: QUESTIONS, closes_at: "2026-12-31T23:59:59+07:00" },
 });
 eq("buat periode → 201", created.status, 201);
 eq("status awal draft", created.body?.data?.status, "draft");
-ok("questions tersimpan", JSON.stringify(created.body?.data?.questions) === JSON.stringify(QUESTIONS), created.body?.data?.questions);
-
-const dup = await h.req(`${BASE}/periods`, {
-	token: "tok-bph",
-	method: "POST",
-	json: { title: "Penilaian September 2026", questions: QUESTIONS },
-});
-eq("judul duplikat → 409", dup.status, 409);
-
 const pid = created.body?.data?.id;
 
-const noAssignOpen = await h.req(`${BASE}/periods/${pid}/open`, { token: "tok-bph", method: "POST" });
-eq("buka periode → 200", noAssignOpen.status, 200);
+// Draft → publik 404
+const draftPublic = await h.req(`${PUB}/${pid}`);
+eq("draft → publik 404", draftPublic.status, 404);
 
-// Penugasan: reviewer = u-a-admin (admin divisi A), dinilai 2 orang.
-const assign = await h.req(`${BASE}/periods/${pid}/assignments`, {
+const entries = await h.req(`${ADMIN}/periods/${pid}/entries`, {
 	token: "tok-bph",
 	method: "POST",
+	json: { entries: [{ name: "Raka Pratama", division: "Ristek" }, { name: "Sinta Dewi", division: "Ristek" }, { name: "Budi Santoso", division: "UKM" }] },
+});
+eq("tambah 3 nama → 201", entries.status, 201);
+
+const dupName = await h.req(`${ADMIN}/periods/${pid}/entries`, {
+	token: "tok-bph",
+	method: "POST",
+	json: { entries: [{ name: "raka pratama" }] },
+});
+eq("nama duplikat → 409", dupName.status, 409);
+
+await h.req(`${ADMIN}/periods/${pid}/open`, { token: "tok-bph", method: "POST" });
+
+// ── Publik: roster → submit → hilang ────────────────────────────────────────
+section("Alur publik no-login");
+
+const roster = await h.req(`${PUB}/${pid}`);
+eq("roster publik → 200", roster.status, 200);
+eq("3 nama tersisa", roster.body?.data?.remaining?.length, 3);
+ok("roster bawa pertanyaan", roster.body?.data?.questions?.length === 2);
+ok("roster tanpa done flag per nama", roster.body?.data?.remaining?.every((r: any) => r.done === undefined), roster.body?.data?.remaining);
+
+const submit = await h.req(`${PUB}/${pid}/submit`, {
+	method: "POST",
 	json: {
-		assignments: [
-			{ reviewer_user_id: "u-a-admin", reviewer_email: "admin.a@example.com", reviewee_name: "Raka Pratama", reviewee_role: "Anggota Ristek" },
-			{ reviewer_user_id: "u-a-admin", reviewer_email: "admin.a@example.com", reviewee_name: "Sinta Dewi", reviewee_role: "Anggota Ristek" },
-			{ reviewer_user_id: "u-a-contrib", reviewer_email: "contrib.a@example.com", reviewee_name: "Ketua Ristek", reviewee_role: "Ketua Ristek" },
+		name: "Raka Pratama",
+		answers: [
+			{ label: QUESTIONS[0].label, category: "Kinerja", score: 4 },
+			{ label: QUESTIONS[1].label, category: "Kolaborasi", score: 5, note: "Sangat membantu" },
 		],
 	},
 });
-eq("tambah penugasan → 201", assign.status, 201);
-eq("3 penugasan dibuat", assign.body?.data?.length, 3);
-const rid1 = assign.body?.data?.[0]?.id;
-const rid2 = assign.body?.data?.[1]?.id;
-const rid3 = assign.body?.data?.[2]?.id;
+eq("submit by nama → 200", submit.status, 200);
 
-const myList = await h.req(`${BASE}/my`, { token: "tok-a-admin" });
-eq("my assignments reviewer → 2", myList.body?.data?.length, 2);
-ok("my assignments bawa pertanyaan", myList.body?.data?.[0]?.questions?.length === 2, myList.body?.data?.[0]);
+const roster2 = await h.req(`${PUB}/${pid}`);
+eq("setelah submit, nama hilang (2 tersisa)", roster2.body?.data?.remaining?.length, 2);
+ok("Raka tidak lagi di roster", !roster2.body?.data?.remaining?.some((r: any) => r.name === "Raka Pratama"));
 
-// ── Submit + guard ──────────────────────────────────────────────────────────
-section("Submit penilaian");
+const resubmit = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Raka Pratama", answers: [{ label: "x", category: "y", score: 3 }] } });
+eq("submit nama yang sudah isi → 409", resubmit.status, 409);
 
-const answers = [
-	{ label: QUESTIONS[0].label, category: "Kinerja", score: 4 },
-	{ label: QUESTIONS[1].label, category: "Kolaborasi", score: 5, note: "Sangat membantu" },
-];
+const unknown = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Orang Luar", answers: [{ label: "x", category: "y", score: 3 }] } });
+eq("nama tak terdaftar → 422", unknown.status, 422);
 
-const wrongReviewer = await h.req(`${BASE}/assignments/${rid3}/submit`, { token: "tok-a-admin", method: "POST", json: { answers } });
-eq("submit penugasan orang lain → 403", wrongReviewer.status, 403);
-
-const badScore = await h.req(`${BASE}/assignments/${rid1}/submit`, {
-	token: "tok-a-admin", method: "POST",
-	json: { answers: [{ label: "x", category: "y", score: 9 }] },
+const badScore = await h.req(`${PUB}/${pid}/submit`, {
+	method: "POST",
+	json: { name: "Sinta Dewi", answers: [{ label: "x", category: "y", score: 9 }] },
 });
 eq("score di luar 1-5 → 422", badScore.status, 422);
 
-const submit1 = await h.req(`${BASE}/assignments/${rid1}/submit`, { token: "tok-a-admin", method: "POST", json: { answers } });
-eq("submit penilaian → 200", submit1.status, 200);
-eq("status penugasan jadi done", submit1.body?.data?.revised, false);
-
-const revise = await h.req(`${BASE}/assignments/${rid1}/submit`, {
-	token: "tok-a-admin", method: "POST",
-	json: { answers: [{ label: QUESTIONS[0].label, category: "Kinerja", score: 3 }, { label: QUESTIONS[1].label, category: "Kolaborasi", score: 4, note: "Sangat membantu" }] },
-});
-eq("revisi saat terbuka → 200", revise.status, 200);
-eq("revisi terdeteksi", revise.body?.data?.revised, true);
-
-const afterList = await h.req(`${BASE}/periods/${pid}`, { token: "tok-bph" });
-eq("1 dari 3 selesai", afterList.body?.data?.assignments?.filter((a: any) => a.status === "done")?.length, 1);
-
-// ── Tutup periode → submit ditolak ──────────────────────────────────────────
+// ── Tutup periode ───────────────────────────────────────────────────────────
 section("Tutup periode");
 
-const closed = await h.req(`${BASE}/periods/${pid}/close`, { token: "tok-bph", method: "POST" });
-eq("tutup periode → 200", closed.status, 200);
-const submitClosed = await h.req(`${BASE}/assignments/${rid2}/submit`, { token: "tok-a-admin", method: "POST", json: { answers } });
-eq("submit setelah tutup → 409", submitClosed.status, 409);
+await h.req(`${ADMIN}/periods/${pid}/close`, { token: "tok-bph", method: "POST" });
+const closedRoster = await h.req(`${PUB}/${pid}`);
+eq("periode tutup → publik 404", closedRoster.status, 404);
+const closedSubmit = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Sinta Dewi", answers: [{ label: "x", category: "y", score: 3 }] } });
+eq("submit setelah tutup → 404", closedSubmit.status, 404);
 
 // ── Rekap ───────────────────────────────────────────────────────────────────
 section("Rekap");
 
-const recap = await h.req(`${BASE}/periods/${pid}/recap`, { token: "tok-bph" });
+// Buka lagi untuk isi 1 nama lain, lalu rekap
+await h.req(`${ADMIN}/periods/${pid}/open`, { token: "tok-bph", method: "POST" });
+await h.req(`${PUB}/${pid}/submit`, {
+	method: "POST",
+	json: { name: "Sinta Dewi", answers: [{ label: QUESTIONS[0].label, category: "Kinerja", score: 2 }, { label: QUESTIONS[1].label, category: "Kolaborasi", score: 3 }] },
+});
+
+const recap = await h.req(`${ADMIN}/periods/${pid}/recap`, { token: "tok-bph" });
 eq("rekap → 200", recap.status, 200);
-const raka = recap.body?.data?.reviewees?.find((r: any) => r.reviewee_name === "Raka Pratama");
-ok("rekap bawa Raka", Boolean(raka), recap.body?.data?.reviewees);
-eq("rata-rata revisi = (3+4)/2 = 3.5", raka?.average, 3.5);
-eq("rata-rata kategori Kinerja = 3", raka?.categories?.["Kinerja"], 3);
-ok("catatan ikut rekap", raka?.notes?.includes("Sangat membantu"), raka?.notes);
-const recapDenied = await h.req(`${BASE}/periods/${pid}/recap`, { token: "tok-a-admin" });
+eq("total 3 nama", recap.body?.data?.total_entries, 3);
+eq("2 sudah isi", recap.body?.data?.done_entries, 2);
+eq("1 pending: Budi", recap.body?.data?.pending?.length, 1);
+eq("pending nama Budi", recap.body?.data?.pending?.[0]?.name, "Budi Santoso");
+eq("rata-rata Kinerja (4+2)/2 = 3", recap.body?.data?.category_averages?.["Kinerja"], 3);
+eq("rata-rata Kolaborasi (5+3)/2 = 4", recap.body?.data?.category_averages?.["Kolaborasi"], 4);
+eq("rata-rata keseluruhan 3.5", recap.body?.data?.overall_average, 3.5);
+ok("catatan ikut rekap", recap.body?.data?.notes?.includes("Sangat membantu"), recap.body?.data?.notes);
+const recapDenied = await h.req(`${ADMIN}/periods/${pid}/recap`, { token: "tok-a-admin" });
 eq("rekap oleh non-BPH → 403", recapDenied.status, 403);
 
 // ── Delete guard ────────────────────────────────────────────────────────────
 section("Delete guard");
 
-const delWithAnswers = await h.req(`${BASE}/periods/${pid}`, { token: "tok-bph", method: "DELETE" });
+const delWithAnswers = await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph", method: "DELETE" });
 eq("hapus periode bersubmission → 409", delWithAnswers.status, 409);
-const delAssign = await h.req(`${BASE}/periods/${pid}/assignments/${rid1}`, { token: "tok-bph", method: "DELETE" });
-eq("hapus penugasan bersubmission → 200 (jawaban ikut)", delAssign.status, 200);
-const delNow = await h.req(`${BASE}/periods/${pid}`, { token: "tok-bph", method: "DELETE" });
-eq("hapus periode tanpa submission → 200", delNow.status, 200);
+const budi = (await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph" })).body?.data?.entries?.find((e: any) => e.name === "Budi Santoso");
+const delEntry = await h.req(`${ADMIN}/periods/${pid}/entries/${budi?.id}`, { token: "tok-bph", method: "DELETE" });
+eq("hapus nama belum isi → 200", delEntry.status, 200);
+const delNow = await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph", method: "DELETE" });
+eq("hapus periode masih ada submission → tetap 409", delNow.status, 409);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.

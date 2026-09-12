@@ -10,7 +10,7 @@ import EventList from "./pages/EventList.jsx";
 import EventCalendar from "./pages/EventCalendar.jsx";
 import EventEditor from "./pages/EventEditor.jsx";
 import Forms from "./pages/Forms.jsx";
-import Qpr from "./pages/Qpr.jsx";
+import Qpr, { PublicFill } from "./pages/Qpr.jsx";
 
 const hasScopedPermission = (permissions, base) =>
 	permissions.includes(`${base}.all`) || permissions.includes(`${base}.own_division`);
@@ -240,6 +240,14 @@ function App() {
 					</Shell>
 				}
 			/>
+			<Route
+				path="/qpr/:periodId"
+				element={
+					<Shell {...shellProps} title="Isi Penilaian QPR" crumb="QPR · Isi">
+						<PublicQprRoute />
+					</Shell>
+				}
+			/>
 			<Route path="/docs" element={<NavigateDocs />} />
 			<Route path="*" element={<Navigate to="/" replace />} />
 		</Routes>
@@ -263,6 +271,12 @@ function NoAccess() {
 			<Link className="btn" to="/events">Kembali ke daftar event</Link>
 		</div>
 	);
+}
+
+// #/qpr/:periodId — halaman isi publik (tanpa login), di-render dalam Shell supaya branding sama.
+function PublicQprRoute() {
+	const periodId = window.location.hash.match(/qpr\/([^/?#]+)/)?.[1];
+	return <PublicFill periodId={periodId} />;
 }
 
 function NewEventRoute({ canPublish }) {
