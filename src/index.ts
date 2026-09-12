@@ -15,6 +15,7 @@ import { adminEventRouter } from "./modules/events/event.route";
 import { publicEventRouter } from "./modules/events/event.public.route";
 import { adminFormRouter, adminFormSubmissionRouter } from "./modules/forms/form.route";
 import { publicFormRouter } from "./modules/forms/form.public.route";
+import { adminQprRouter } from "./modules/qpr/qpr.route";
 import { mediaRouter } from "./modules/media/media.route";
 import { meRouter } from "./modules/me/me.route";
 import { adminAccountRouter } from "./modules/accounts/account.route";
@@ -84,6 +85,7 @@ v1.route("/admin/events", adminEventRouter);
 // Submissions sebelum /forms/:id supaya /forms/submissions/:id tidak tertelan.
 v1.route("/admin/forms/submissions", adminFormSubmissionRouter);
 v1.route("/admin/forms", adminFormRouter);
+v1.route("/admin/qpr", adminQprRouter);
 v1.route("/forms", publicFormRouter);
 v1.route("/admin/media", mediaRouter);
 v1.route("/admin", adminAccountRouter);

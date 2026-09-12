@@ -74,7 +74,7 @@ const adminPaths = [
 	["GET", "/api/v1/admin/accounts"],
 	["POST", "/api/v1/admin/accounts"],
 	["GET", "/api/v1/admin/audit-logs"],
-	["GET", "/api/v1/admin/qpr"],
+	["GET", "/api/v1/admin/qpr/periods"],
 	["GET", "/api/v1/me"],
 	["GET", "/api/v1/openapi"],
 ] as const;
@@ -318,7 +318,7 @@ eq("viewer publish → 403", viewerPublish.status, 403);
 section("Endpoint khusus platform_admin");
 
 for (const token of ["tok-a-admin", "tok-a-contrib", "tok-a-viewer", "tok-b-admin"]) {
-	const qpr = await h.req("/api/v1/admin/qpr", { token });
+	const qpr = await h.req("/api/v1/admin/qpr/periods", { token });
 	eq(`${token} → QPR 403`, qpr.status, 403);
 	const accounts = await h.req("/api/v1/admin/accounts", { token });
 	eq(`${token} → accounts 403`, accounts.status, 403);
@@ -328,7 +328,7 @@ for (const token of ["tok-a-admin", "tok-a-contrib", "tok-a-viewer", "tok-b-admi
 	eq(`${token} → audit-logs 403`, audits.status, 403);
 }
 
-const bphQpr = await h.req("/api/v1/admin/qpr", { token: "tok-bph" });
+const bphQpr = await h.req("/api/v1/admin/qpr/periods", { token: "tok-bph" });
 eq("platform_admin → QPR 200", bphQpr.status, 200);
 const bphAccounts = await h.req("/api/v1/admin/accounts", { token: "tok-bph" });
 eq("platform_admin → accounts 200", bphAccounts.status, 200);

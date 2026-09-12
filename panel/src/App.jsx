@@ -236,7 +236,7 @@ function App() {
 				path="/qpr"
 				element={
 					<Shell {...shellProps} title="QPR" crumb="Modul · QPR">
-						<Qpr />
+						<Qpr user={user} />
 					</Shell>
 				}
 			/>
