@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 import { ApiError } from "../../shared/api-error";
-import { qprAnswers, qprAssignments, qprPeriods } from "../../db/schema";
+import { qprAnswers, qprEntries, qprPeriods } from "../../db/schema";
 import { parseFieldOptions } from "../forms/form.service";
 import type { Db } from "../../db/connection";
 import type { QprQuestion, SubmitAnswersInput } from "./qpr.schema";
@@ -19,16 +19,16 @@ export const qprService = {
 		const periods = await db.select().from(qprPeriods).orderBy(asc(qprPeriods.title));
 		if (!periods.length) return [];
 		const counts = await db
-			.select({ periodId: qprAssignments.periodId, status: qprAssignments.status })
-			.from(qprAssignments)
-			.where(inArray(qprAssignments.periodId, periods.map((p) => p.id)));
+			.select({ periodId: qprEntries.periodId, done: qprEntries.done })
+			.from(qprEntries)
+			.where(inArray(qprEntries.periodId, periods.map((p) => p.id)));
 		return periods.map((p) => {
 			const rows = counts.filter((c) => c.periodId === p.id);
 			return {
 				...p,
 				questions: parseFieldOptions(p.questions),
-				total_assignments: rows.length,
-				done_assignments: rows.filter((r) => r.status === "done").length,
+				total_entries: rows.length,
+				done_entries: rows.filter((r) => r.done).length,
 			};
 		});
 	},
@@ -36,19 +36,15 @@ export const qprService = {
 	async getPeriod(db: Db, id: string) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
-		const assignments = await db
+		const entries = await db
 			.select()
-			.from(qprAssignments)
-			.where(eq(qprAssignments.periodId, id))
-			.orderBy(asc(qprAssignments.reviewerEmail), asc(qprAssignments.revieweeName));
-		return {
-			...period,
-			questions: parseFieldOptions(period.questions),
-			assignments,
-		};
+			.from(qprEntries)
+			.where(eq(qprEntries.periodId, id))
+			.orderBy(asc(qprEntries.name));
+		return { ...period, questions: parseFieldOptions(period.questions), entries };
 	},
 
-	async createPeriod(db: Db, input: { title: string; questions: QprQuestion[]; opens_at?: string | null; closes_at?: string | null; userId: string }) {
+	async createPeriod(db: Db, input: { title: string; description?: string | null; questions: QprQuestion[]; opens_at?: string | null; closes_at?: string | null; userId: string }) {
 		const now = new Date().toISOString();
 		const [existing] = await db.select({ id: qprPeriods.id }).from(qprPeriods).where(eq(qprPeriods.title, input.title)).limit(1);
 		if (existing) throw ApiError.conflict("Periode dengan judul ini sudah ada");
@@ -57,6 +53,7 @@ export const qprService = {
 			.values({
 				id: uuidv7(),
 				title: input.title,
+				description: input.description ?? null,
 				questions: JSON.stringify(input.questions),
 				status: "draft",
 				opensAt: input.opens_at ?? null,
@@ -69,7 +66,7 @@ export const qprService = {
 		return { ...period, questions: input.questions };
 	},
 
-	async updatePeriod(db: Db, id: string, input: Partial<{ title: string; questions: QprQuestion[]; opens_at: string | null; closes_at: string | null }>) {
+	async updatePeriod(db: Db, id: string, input: Partial<{ title: string; description: string | null; questions: QprQuestion[]; opens_at: string | null; closes_at: string | null }>) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
 		if (period.status === "closed" && (input.questions || input.title)) {
@@ -80,6 +77,7 @@ export const qprService = {
 			.update(qprPeriods)
 			.set({
 				...(input.title !== undefined ? { title: input.title } : {}),
+				...(input.description !== undefined ? { description: input.description } : {}),
 				...(input.questions !== undefined ? { questions: JSON.stringify(input.questions) } : {}),
 				...(input.opens_at !== undefined ? { opensAt: input.opens_at } : {}),
 				...(input.closes_at !== undefined ? { closesAt: input.closes_at } : {}),
@@ -104,139 +102,120 @@ export const qprService = {
 		const answered = await db
 			.select({ id: qprAnswers.id })
 			.from(qprAnswers)
-			.innerJoin(qprAssignments, eq(qprAnswers.assignmentId, qprAssignments.id))
-			.where(eq(qprAssignments.periodId, id))
+			.innerJoin(qprEntries, eq(qprAnswers.entryId, qprEntries.id))
+			.where(eq(qprEntries.periodId, id))
 			.limit(1);
-		if (answered.length) throw ApiError.conflict("Periode masih punya penilaian tersimpan — hapus penilaian dulu bila benar-benar mau menghapus");
+		if (answered.length) throw ApiError.conflict("Periode masih punya penilaian tersimpan — rekap dulu sebelum menghapus");
 		await db.delete(qprPeriods).where(eq(qprPeriods.id, id));
 		return period;
 	},
 
-	async addAssignments(db: Db, periodId: string, items: Array<{ reviewer_user_id: string; reviewer_email: string; reviewee_name: string; reviewee_role?: string | null }>) {
+	async addEntries(db: Db, periodId: string, items: Array<{ name: string; division?: string | null }>) {
 		const [period] = await db.select({ id: qprPeriods.id }).from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
+		const existing = await db.select({ name: qprEntries.name }).from(qprEntries).where(eq(qprEntries.periodId, periodId));
+		const taken = new Set(existing.map((e) => e.name.toLowerCase()));
+		const dup = items.find((a) => taken.has(a.name.trim().toLowerCase()));
+		if (dup) throw ApiError.conflict(`Nama "${dup.name}" sudah ada di daftar periode ini`);
 		const now = new Date().toISOString();
 		const rows = items.map((a) => ({
 			id: uuidv7(),
 			periodId,
-			reviewerUserId: a.reviewer_user_id,
-			reviewerEmail: a.reviewer_email,
-			revieweeName: a.reviewee_name,
-			revieweeRole: a.reviewee_role ?? null,
-			status: "pending" as const,
+			name: a.name,
+			division: a.division ?? null,
+			done: false,
 			createdAt: now,
-			updatedAt: now,
 		}));
-		// batch insert — atomik, sekali jalan.
-		await db.insert(qprAssignments).values(rows);
+		await db.insert(qprEntries).values(rows);
 		return rows;
 	},
 
-	async deleteAssignment(db: Db, periodId: string, assignmentId: string) {
+	async deleteEntry(db: Db, periodId: string, entryId: string) {
 		const [row] = await db
 			.select()
-			.from(qprAssignments)
-			.where(and(eq(qprAssignments.id, assignmentId), eq(qprAssignments.periodId, periodId)))
+			.from(qprEntries)
+			.where(and(eq(qprEntries.id, entryId), eq(qprEntries.periodId, periodId)))
 			.limit(1);
-		if (!row) throw ApiError.notFound("Penugasan tidak ditemukan");
-		await db.delete(qprAnswers).where(eq(qprAnswers.assignmentId, assignmentId));
-		await db.delete(qprAssignments).where(eq(qprAssignments.id, assignmentId));
+		if (!row) throw ApiError.notFound("Nama tidak ditemukan");
+		await db.delete(qprEntries).where(eq(qprEntries.id, entryId));
 		return row;
 	},
 
-	/** Penugasan milik reviewer (user login). */
-	async myAssignments(db: Db, userId: string) {
-		const rows = await db
-			.select({
-				id: qprAssignments.id,
-				status: qprAssignments.status,
-				revieweeName: qprAssignments.revieweeName,
-				revieweeRole: qprAssignments.revieweeRole,
-				periodId: qprPeriods.id,
-				periodTitle: qprPeriods.title,
-				periodStatus: qprPeriods.status,
-				questions: qprPeriods.questions,
-				opensAt: qprPeriods.opensAt,
-				closesAt: qprPeriods.closesAt,
-			})
-			.from(qprAssignments)
-			.innerJoin(qprPeriods, eq(qprAssignments.periodId, qprPeriods.id))
-			.where(eq(qprAssignments.reviewerUserId, userId))
-			.orderBy(asc(qprPeriods.title), asc(qprAssignments.revieweeName));
-		return rows.map((r) => ({ ...r, questions: parseFieldOptions(r.questions) }));
+	/** Daftar publik untuk dropdown: hanya periode terbuka + nama yang BELUM done. */
+	async publicRoster(db: Db, periodId: string) {
+		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
+		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		const entries = await db
+			.select({ id: qprEntries.id, name: qprEntries.name, division: qprEntries.division })
+			.from(qprEntries)
+			.where(and(eq(qprEntries.periodId, periodId), eq(qprEntries.done, false)))
+			.orderBy(asc(qprEntries.name));
+		return {
+			id: period.id,
+			title: period.title,
+			description: period.description,
+			status: period.status,
+			isOpen: true,
+			opens_at: period.opensAt,
+			closes_at: period.closesAt,
+			questions: parseFieldOptions(period.questions),
+			remaining: entries,
+		};
 	},
 
-	/** Simpan/revisi penilaian — hanya saat periode terbuka. */
-	async submitAnswers(db: Db, assignmentId: string, userId: string, input: SubmitAnswersInput) {
-		const [row] = await db
-			.select({ assignment: qprAssignments, period: qprPeriods })
-			.from(qprAssignments)
-			.innerJoin(qprPeriods, eq(qprAssignments.periodId, qprPeriods.id))
-			.where(eq(qprAssignments.id, assignmentId))
-			.limit(1);
-		if (!row) throw ApiError.notFound("Penugasan tidak ditemukan");
-		if (row.assignment.reviewerUserId !== userId) throw ApiError.forbidden("Ini bukan penugasan kamu");
-		if (!periodIsOpen(row.period)) throw ApiError.conflict("Periode penilaian tidak sedang terbuka");
+	/** Submit publik: nama harus ada di roster & belum done. Sekali submit → done. */
+	async submitPublic(db: Db, periodId: string, input: SubmitAnswersInput) {
+		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
+		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		const entries = await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId));
+		const entry = entries.find((e) => e.name.toLowerCase() === input.name.trim().toLowerCase());
+		if (!entry) throw ApiError.validation("Nama tidak terdaftar", { name: ["Pilih nama dari daftar."] });
+		if (entry.done) throw ApiError.conflict("Nama ini sudah mengisi penilaian.");
 		const now = new Date().toISOString();
-		const payload = JSON.stringify(input.answers);
-		const [existing] = await db.select({ id: qprAnswers.id }).from(qprAnswers).where(eq(qprAnswers.assignmentId, assignmentId)).limit(1);
-		if (existing) {
-			await db.update(qprAnswers).set({ answers: payload, updatedAt: now }).where(eq(qprAnswers.id, existing.id));
-		} else {
-			await db.insert(qprAnswers).values({ id: uuidv7(), assignmentId, answers: payload, submittedAt: now, updatedAt: now });
-		}
-		if (row.assignment.status !== "done") {
-			await db.update(qprAssignments).set({ status: "done", updatedAt: now }).where(eq(qprAssignments.id, assignmentId));
-		}
-		return { assignment_id: assignmentId, revised: Boolean(existing) };
+		await db.insert(qprAnswers).values({ id: uuidv7(), entryId: entry.id, answers: JSON.stringify(input.answers), submittedAt: now });
+		await db.update(qprEntries).set({ done: true, submittedAt: now }).where(eq(qprEntries.id, entry.id));
+		return { entry_id: entry.id, name: entry.name };
 	},
 
-	/** Rekap: rata-rata skor per reviewee per kategori (PRD §5 — rata-rata sederhana). */
+	/** Rekap: rata-rata skor per kategori + partisipasi (siapa sudah/belum). */
 	async recap(db: Db, periodId: string) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
-		const rows = await db
-			.select({ revieweeName: qprAssignments.revieweeName, revieweeRole: qprAssignments.revieweeRole, answers: qprAnswers.answers })
-			.from(qprAnswers)
-			.innerJoin(qprAssignments, eq(qprAnswers.assignmentId, qprAssignments.id))
-			.where(eq(qprAssignments.periodId, periodId));
-		const byReviewee = new Map<string, { reviewee_name: string; reviewee_role: string | null; scores: Array<{ category: string; score: number }>; notes: string[] }>();
-		for (const r of rows) {
-			let entry = byReviewee.get(r.revieweeName);
-			if (!entry) {
-				entry = { reviewee_name: r.revieweeName, reviewee_role: r.revieweeRole, scores: [], notes: [] };
-				byReviewee.set(r.revieweeName, entry);
-			}
-			const parsed = (parseFieldOptions(r.answers) as Array<{ category?: string; score?: number; note?: string }>) ?? [];
+		const entries = await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId));
+		const answerRows = entries.length
+			? await db
+					.select({ entryId: qprAnswers.entryId, answers: qprAnswers.answers })
+					.from(qprAnswers)
+					.where(inArray(qprAnswers.entryId, entries.map((e) => e.id)))
+			: [];
+		const byEntry = new Map(answerRows.map((r) => [r.entryId, r.answers]));
+		const doneEntries = entries.filter((e) => e.done);
+		const categories = new Map<string, number[]>();
+		const notes: string[] = [];
+		for (const e of doneEntries) {
+			const parsed = (parseFieldOptions(byEntry.get(e.id) ?? null) as Array<{ category?: string; score?: number; note?: string }>) ?? [];
 			for (const a of parsed) {
-				if (typeof a.score === "number" && typeof a.category === "string") entry.scores.push({ category: a.category, score: a.score });
-				if (a.note) entry.notes.push(a.note);
+				if (typeof a.score === "number" && typeof a.category === "string") {
+					const list = categories.get(a.category) ?? [];
+					list.push(a.score);
+					categories.set(a.category, list);
+				}
+				if (a.note) notes.push(a.note);
 			}
 		}
+		const categoryAverages: Record<string, number> = {};
+		for (const [cat, list] of categories) {
+			categoryAverages[cat] = Math.round((list.reduce((x, y) => x + y, 0) / list.length) * 100) / 100;
+		}
+		const allScores = Array.from(categories.values()).flat();
 		return {
-			period: { id: period.id, title: period.title, status: period.status },
-			total_responses: rows.length,
-			reviewees: Array.from(byReviewee.values()).map((e) => {
-				const byCategory = new Map<string, number[]>();
-				for (const s of e.scores) {
-					const list = byCategory.get(s.category) ?? [];
-					list.push(s.score);
-					byCategory.set(s.category, list);
-				}
-				const categories: Record<string, number> = {};
-				for (const [cat, list] of byCategory) {
-					categories[cat] = Math.round((list.reduce((x, y) => x + y, 0) / list.length) * 100) / 100;
-				}
-				const all = e.scores.map((s) => s.score);
-				return {
-					reviewee_name: e.reviewee_name,
-					reviewee_role: e.reviewee_role,
-					categories,
-					average: all.length ? Math.round((all.reduce((x, y) => x + y, 0) / all.length) * 100) / 100 : null,
-					total_responses: all.length ? new Set(rows.map((r) => r.revieweeName === e.reviewee_name)).size : 0,
-					notes: e.notes,
-				};
-			}),
+			period: { id: period.id, title: period.title, description: period.description, status: period.status },
+			total_entries: entries.length,
+			done_entries: doneEntries.length,
+			pending: entries.filter((e) => !e.done).map((e) => ({ name: e.name, division: e.division })),
+			category_averages: categoryAverages,
+			overall_average: allScores.length ? Math.round((allScores.reduce((x, y) => x + y, 0) / allScores.length) * 100) / 100 : null,
+			notes,
 		};
 	},
 };

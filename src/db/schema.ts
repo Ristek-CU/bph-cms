@@ -323,7 +323,9 @@ export const qprPeriods = sqliteTable(
 	{
 		id: text("id").primaryKey(),
 		title: text("title").notNull().unique(),
-		// JSON array [{ label, category }] — v1 QPR tanpa builder terpisah.
+		// Mis. "Menilai: Ketua Ristek" — konteks untuk pengisi.
+		description: text("description"),
+		// JSON array [{ label, category }] — tanpa builder terpisah.
 		questions: text("questions").notNull(),
 		status: text("status", { enum: ["draft", "open", "closed"] })
 			.notNull()
@@ -336,42 +338,39 @@ export const qprPeriods = sqliteTable(
 	},
 );
 
-export const qprAssignments = sqliteTable(
-	"qpr_assignments",
+// Roster pengisi per periode. done=1 artinya sudah submit — nama hilang
+// dari dropdown publik (pelacak kejujuran model no-login).
+export const qprEntries = sqliteTable(
+	"qpr_entries",
 	{
 		id: text("id").primaryKey(),
 		periodId: text("period_id")
 			.notNull()
 			.references(() => qprPeriods.id, { onDelete: "cascade" }),
-		reviewerUserId: text("reviewer_user_id").notNull(),
-		reviewerEmail: text("reviewer_email").notNull(),
-		revieweeName: text("reviewee_name").notNull(),
-		revieweeRole: text("reviewee_role"),
-		status: text("status", { enum: ["pending", "done"] })
-			.notNull()
-			.default("pending"),
+		name: text("name").notNull(),
+		division: text("division"),
+		done: integer("done", { mode: "boolean" }).notNull().default(false),
+		submittedAt: text("submitted_at"),
 		createdAt: text("created_at").notNull(),
-		updatedAt: text("updated_at").notNull(),
 	},
-	(table) => [index("qpr_assignments_period_idx").on(table.periodId)],
+	(table) => [index("qpr_entries_period_idx").on(table.periodId)],
 );
 
 export const qprAnswers = sqliteTable("qpr_answers", {
 	id: text("id").primaryKey(),
-	assignmentId: text("assignment_id")
+	entryId: text("entry_id")
 		.notNull()
-		.references(() => qprAssignments.id, { onDelete: "cascade" }),
+		.references(() => qprEntries.id, { onDelete: "cascade" }),
 	// JSON array [{ label, category, score (1-5), note? }]
 	answers: text("answers").notNull(),
 	submittedAt: text("submitted_at").notNull(),
-	updatedAt: text("updated_at").notNull(),
 });
 
 export const qprPeriodsRelations = relations(qprPeriods, ({ many }) => ({
-	assignments: many(qprAssignments),
+	entries: many(qprEntries),
 }));
 
-export const qprAssignmentsRelations = relations(qprAssignments, ({ one, many }) => ({
-	period: one(qprPeriods, { fields: [qprAssignments.periodId], references: [qprPeriods.id] }),
+export const qprEntriesRelations = relations(qprEntries, ({ one, many }) => ({
+	period: one(qprPeriods, { fields: [qprEntries.periodId], references: [qprPeriods.id] }),
 	answers: many(qprAnswers),
 }));

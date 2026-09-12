@@ -43,6 +43,13 @@
       "when": 1789280400000,
       "tag": "0005_qpr",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789366800000,
+      "tag": "0006_qpr_no_login",
+      "breakpoints": true
     }
   ]
 }

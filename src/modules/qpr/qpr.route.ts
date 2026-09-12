@@ -5,12 +5,14 @@ import type { AppContext } from "../../types";
 import { adminAuth } from "../../middlewares/admin-auth";
 import { requirePermission } from "../../middlewares/require-permission";
 import { ApiResponse } from "../../shared/api-response";
+import { ApiError } from "../../shared/api-error";
 import { recordAuditLog } from "../audit/audit.service";
 import { parseJson, parseParams } from "../../shared/parse-request";
 import { idParamSchema } from "../forms/form.schema";
 import { getDb } from "../../db/connection";
+import { publicRateLimiter, d1RateLimiter } from "../../middlewares/rate-limiter";
 import { qprService } from "./qpr.service";
-import { createAssignmentsSchema, createPeriodSchema, submitAnswersSchema, updatePeriodSchema } from "./qpr.schema";
+import { createEntriesSchema, createPeriodSchema, submitAnswersSchema, updatePeriodSchema } from "./qpr.schema";
 import { successWrapper, errorWrapper } from "../openapi/schemas";
 
 const describe = (
@@ -33,47 +35,67 @@ const describe = (
 	});
 
 /**
- * QPR v1 (docs/QPR-PRD.md §5): khusus BPH (qpr.manage).
- * Endpoint admin: kelola periode + penugasan + rekap.
- * Endpoint pengisi: /my (penugasan user login) dan submit penilaian.
+ * QPR v2 — tanpa login (model kejujuran):
+ * - BPH (qpr.manage): kelola periode + roster nama pengisi + rekap partisipasi.
+ * - Publik: GET /qpr/:periodId (roster belum-isi + pertanyaan), POST submit
+ *   by nama → nama terkunci done, hilang dari dropdown (tanda sudah isi).
  */
-export const adminQprRouter = new Hono<AppContext>();
+export const publicQprRouter = new Hono<AppContext>();
 
-adminQprRouter.use("*", adminAuth);
+// --- Endpoint publik (tanpa login) ---
 
-// --- Endpoint pengisi (bukan khusus BPH — sesuai PRD §2: ketua/anggota ikut menilai) ---
+publicQprRouter.use("*", publicRateLimiter);
 
-adminQprRouter.get(
-	"/my",
-	describe("Penugasan QPR saya", "Daftar orang yang harus dinilai user login, plus pertanyaan periodenya.", successWrapper(z.object({}))),
+publicQprRouter.get(
+	"/:periodId",
+	describeRoute({
+		summary: "Roster publik periode QPR",
+		description: "Tanpa login. Hanya periode berstatus open. Mengembalikan pertanyaan + nama yang belum mengisi (untuk dropdown).",
+		tags: ["Public QPR"],
+		responses: {
+			200: { description: "Success", content: { "application/json": { schema: resolver(successWrapper(z.object({}))) } } },
+			404: { description: "Periode tidak ditemukan/tutup", content: { "application/json": { schema: resolver(errorWrapper) } } },
+		},
+	}),
 	async (c) => {
-		return ApiResponse.ok(c, "OK", await qprService.myAssignments(getDb(c.env.DB), c.get("userId") ?? ""));
+		const { periodId } = c.req.param();
+		return ApiResponse.ok(c, "OK", await qprService.publicRoster(getDb(c.env.DB), periodId));
 	},
 );
 
-adminQprRouter.post(
-	"/assignments/:id/submit",
-	describe(
-		"Kirim/revisi penilaian",
-		"Body: { answers: [{ label, category, score 1-5, note? }] }. Boleh revisi selama periode terbuka.",
-		successWrapper(z.object({})),
-		{ 403: { description: "Bukan penugasan kamu" }, 409: { description: "Periode tidak terbuka" }, 422: { description: "Validation error" } },
-	),
+publicQprRouter.post(
+	"/:periodId/submit",
+	describeRoute({
+		summary: "Kirim penilaian (publik)",
+		description: "Body: { name, answers: [{ label, category, score 1-5, note? }] }. Nama harus terdaftar & belum mengisi. Sekali kirim, nama terkunci.",
+		tags: ["Public QPR"],
+		responses: {
+			200: { description: "Success", content: { "application/json": { schema: resolver(successWrapper(z.object({}))) } } },
+			404: { description: "Periode tidak ditemukan/tutup" },
+			409: { description: "Nama sudah mengisi" },
+			422: { description: "Nama tidak terdaftar / validasi gagal" },
+		},
+	}),
+	d1RateLimiter({ prefix: "public:qpr", limit: 10, windowMs: 60_000 }),
 	async (c) => {
-		const { id } = parseParams(c, idParamSchema);
+		const { periodId } = c.req.param();
 		const input = await parseJson(c, submitAnswersSchema);
-		const result = await qprService.submitAnswers(getDb(c.env.DB), id, c.get("userId") ?? "", input);
-		await recordAuditLog(c, { action: "qpr.submit", resourceType: "qpr_assignment", resourceId: id });
-		return ApiResponse.ok(c, "Penilaian tersimpan", result);
+		const result = await qprService.submitPublic(getDb(c.env.DB), periodId, input);
+		await recordAuditLog(c, { action: "qpr.public_submit", resourceType: "qpr_entry", resourceId: result.entry_id });
+		return ApiResponse.ok(c, "Penilaian terkirim. Terima kasih!", result);
 	},
 );
 
 // --- Endpoint admin (qpr.manage, khusus BPH) ---
 
+export const adminQprRouter = new Hono<AppContext>();
+
+adminQprRouter.use("*", adminAuth);
+
 adminQprRouter.get(
 	"/periods",
 	requirePermission("qpr.manage"),
-	describe("List periode QPR", "Termasuk hitungan penugasan selesai/total.", successWrapper(z.array(z.object({})))),
+	describe("List periode QPR", "Termasuk hitungan sudah/belum mengisi.", successWrapper(z.array(z.object({})))),
 	async (c) => ApiResponse.ok(c, "OK", await qprService.listPeriods(getDb(c.env.DB))),
 );
 
@@ -92,7 +114,7 @@ adminQprRouter.post(
 adminQprRouter.get(
 	"/periods/:id",
 	requirePermission("qpr.manage"),
-	describe("Detail periode", "Periode + semua penugasan.", successWrapper(z.object({})), { 404: { description: "Not found" } }),
+	describe("Detail periode", "Periode + roster nama (sudah/belum isi).", successWrapper(z.object({})), { 404: { description: "Not found" } }),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);
 		return ApiResponse.ok(c, "OK", await qprService.getPeriod(getDb(c.env.DB), id));
@@ -115,7 +137,7 @@ adminQprRouter.put(
 adminQprRouter.post(
 	"/periods/:id/open",
 	requirePermission("qpr.manage"),
-	describe("Buka periode", "Pengisi mulai bisa mengirim penilaian.", successWrapper(z.object({}))),
+	describe("Buka periode", "Link publik mulai aktif.", successWrapper(z.object({}))),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);
 		return ApiResponse.ok(c, "Periode dibuka", await qprService.setStatus(getDb(c.env.DB), id, "open"));
@@ -125,7 +147,7 @@ adminQprRouter.post(
 adminQprRouter.post(
 	"/periods/:id/close",
 	requirePermission("qpr.manage"),
-	describe("Tutup periode", "Menolak pengiriman/revision baru.", successWrapper(z.object({}))),
+	describe("Tutup periode", "Link publik 404, submit ditolak.", successWrapper(z.object({}))),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);
 		return ApiResponse.ok(c, "Periode ditutup", await qprService.setStatus(getDb(c.env.DB), id, "closed"));
@@ -145,45 +167,37 @@ adminQprRouter.delete(
 );
 
 adminQprRouter.post(
-	"/periods/:id/assignments",
+	"/periods/:id/entries",
 	requirePermission("qpr.manage"),
-	describe("Tambah penugasan", "Body: { assignments: [{ reviewer_user_id, reviewer_email, reviewee_name, reviewee_role? }] }.", successWrapper(z.array(z.object({}))), {
+	describe("Tambah nama pengisi", "Body: { entries: [{ name, division? }] }.", successWrapper(z.array(z.object({}))), {
 		404: { description: "Periode tidak ditemukan" },
 	}),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);
-		const input = await parseJson(c, createAssignmentsSchema);
-		const rows = await qprService.addAssignments(
-			getDb(c.env.DB),
-			id,
-			input.assignments.map((a) => ({
-				reviewer_user_id: a.reviewer_user_id,
-				reviewer_email: a.reviewer_email,
-				reviewee_name: a.reviewee_name,
-				reviewee_role: a.reviewee_role,
-			})),
-		);
-		await recordAuditLog(c, { action: "qpr.assignments_add", resourceType: "qpr_period", resourceId: id, metadata: { count: rows.length } });
-		return ApiResponse.created(c, "Penugasan ditambahkan", rows);
+		const input = await parseJson(c, createEntriesSchema);
+		const rows = await qprService.addEntries(getDb(c.env.DB), id, input.entries);
+		await recordAuditLog(c, { action: "qpr.entries_add", resourceType: "qpr_period", resourceId: id, metadata: { count: rows.length } });
+		return ApiResponse.created(c, "Nama ditambahkan", rows);
 	},
 );
 
 adminQprRouter.delete(
-	"/periods/:id/assignments/:assignmentId",
+	"/periods/:id/entries/:entryId",
 	requirePermission("qpr.manage"),
-	describe("Hapus penugasan", "Jawaban penugasan ikut terhapus.", successWrapper(z.object({})), { 404: { description: "Not found" } }),
+	describe("Hapus nama", "Jawaban nama itu ikut terhapus.", successWrapper(z.object({})), { 404: { description: "Not found" } }),
 	async (c) => {
-		const { id, assignmentId } = c.req.param();
-		await qprService.deleteAssignment(getDb(c.env.DB), id, assignmentId);
-		await recordAuditLog(c, { action: "qpr.assignment_delete", resourceType: "qpr_assignment", resourceId: assignmentId });
-		return ApiResponse.ok(c, "Penugasan dihapus");
+		const { id, entryId } = c.req.param();
+		if (!id || !entryId) throw ApiError.badRequest("Invalid parameters");
+		await qprService.deleteEntry(getDb(c.env.DB), id, entryId);
+		await recordAuditLog(c, { action: "qpr.entry_delete", resourceType: "qpr_entry", resourceId: entryId });
+		return ApiResponse.ok(c, "Nama dihapus");
 	},
 );
 
 adminQprRouter.get(
 	"/periods/:id/recap",
 	requirePermission("qpr.manage"),
-	describe("Rekap periode", "Rata-rata skor per orang per kategori + catatan (PRD §5: rata-rata sederhana).", successWrapper(z.object({})), {
+	describe("Rekap periode", "Partisipasi (sudah/belum isi, nama pending), rata-rata per kategori, catatan.", successWrapper(z.object({})), {
 		404: { description: "Not found" },
 	}),
 	async (c) => {
