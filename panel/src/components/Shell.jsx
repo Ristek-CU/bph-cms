@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { clearToken } from "../api.js";
 import { useEscape } from "./ui.jsx";
@@ -58,6 +58,10 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 	const [drawer, setDrawer] = useState(false);
 	const navigate = useNavigate();
 	useEscape(() => setDrawer(false));
+	// Drawer mobile harus menutup saat pindah halaman — dulu tetap terbuka
+	// menutupi konten (bug "sidebar tidak ikut pindah page").
+	const closeDrawer = () => setDrawer(false);
+	useEffect(closeDrawer, [title]);
 
 	const logout = () => {
 		clearToken();
@@ -78,19 +82,19 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 
 	const nav = (
 		<nav className="nav" aria-label="Modul">
-			<NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>
+			<NavLink to="/" end onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconGrid /></span> Ringkasan
 			</NavLink>
-			<NavLink to="/events" className={({ isActive }) => (isActive ? "active" : "")}>
+			<NavLink to="/events" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconCalendar /></span> Event
 			</NavLink>
 			{canSeeForms && (
-				<NavLink to="/forms" className={({ isActive }) => (isActive ? "active" : "")}>
+				<NavLink to="/forms" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 					<span className="icon" aria-hidden><IconClipboard /></span> Form
 				</NavLink>
 			)}
 			{/* QPR: semua user punya penugasan menilai; kelola periode khusus qpr.manage */}
-			<NavLink to="/qpr" className={({ isActive }) => (isActive ? "active" : "")}>
+			<NavLink to="/qpr" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconClipboard /></span> QPR {!canManageQpr && <span className="soon">Penilaian</span>}
 			</NavLink>
 			<div className="nav-sep" />
