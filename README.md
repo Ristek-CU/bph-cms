@@ -35,7 +35,7 @@ src/
   test/               # harness Miniflare (h.req path/method/token/json)
 panel/                # SPA admin (React + Vite)
 drizzle/              # migrasi SQL
-docs/                 # PRD, SDD, panduan — detail tiap modul di sana
+docs/                 # panduan teknis (API, running guide, panel UI)
 ```
 
 ## Perintah
@@ -70,11 +70,9 @@ Var penting: `CORS_ORIGIN` (allowlist), `DOCS_ALLOW_EMAILS` (akses Swagger),
 - Audit log untuk semua mutasi admin.
 - Security headers: nosniff, DENY iframe, CSP `default-src 'none'`.
 
-Detail lengkap: `docs/SECURITY-AUDIT-*.md` (lokal, tidak di-push).
-
 ## Dokumentasi
 
-- `docs/PRD.md`, `docs/SDD.md` — spesifikasi produk & desain
-- `docs/RUNNING-GUIDE.md` — cara menjalankan
 - `docs/API.md` + `/docs/` di production — API docs (Swagger, akun allowlist)
+- `docs/RUNNING-GUIDE.md` — cara menjalankan
 - `docs/PANEL-UI.md` — UI panel
+- `docs/FE-INTEGRATION.md`, `docs/ACCOUNTS-ACCESS.md`, `docs/DIVISION-ACCOUNTS.md` — integrasi & akses

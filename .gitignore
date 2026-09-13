@@ -9,3 +9,12 @@ backups/
 
 # Audit lokal — jangan push (berisi analisis celah + daftar akun)
 docs/SECURITY-AUDIT-*.md
+
+# Dokumen internal — di luar repo (../bph-cms-private-docs), jangan pernah push
+report.md
+PLAN.md
+docs/PRD*.md
+docs/SDD*.md
+docs/CONTEXT.md
+docs/QPR-PRD.md
+docs/PRODUCTION-READINESS-*.md
