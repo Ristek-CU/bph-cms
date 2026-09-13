@@ -13,6 +13,11 @@
 	--err: #dc2626;
 	--ok: #16a34a;
 	--radius: 14px;
+	/* Interaction tokens — konsisten seluruh module */
+	--ring: 0 0 0 3px rgba(0, 145, 128, 0.22);
+	--shadow-sm: 0 1px 2px rgba(6, 69, 91, 0.05);
+	--shadow-md: 0 6px 20px rgba(6, 69, 91, 0.1);
+	--ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -21,6 +26,9 @@ h1, h2, h3 { margin: 0; }
 a { color: var(--teal); }
 button { font: inherit; cursor: pointer; }
 input, textarea, select { font: inherit; }
+
+/* Fokus terlihat jelas untuk keyboard user di SEMUA kontrol. */
+:focus-visible { outline: none; box-shadow: var(--ring); border-radius: 8px; }
 
 /* ---- Layout shell ---- */
 .shell { display: flex; min-height: 100vh; }
@@ -52,9 +60,15 @@ input, textarea, select { font: inherit; }
 .nav a {
 	display: flex; align-items: center; gap: 10px; padding: 10px 12px;
 	border-radius: 10px; color: #cfdbe0; text-decoration: none; font-weight: 500; font-size: 14px;
+	position: relative; transition: background 0.15s ease, color 0.15s ease;
+}
+.nav a::before {
+	content: ""; position: absolute; left: -10px; top: 20%; bottom: 20%; width: 3px;
+	border-radius: 99px; background: var(--gold); opacity: 0; transition: opacity 0.15s ease;
 }
 .nav a:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
 .nav a.active { background: rgba(206, 174, 101, 0.18); color: #fff; }
+.nav a.active::before { opacity: 1; }
 /* Ikon SVG nav — flex centering, warna ikut teks link (currentColor). */
 .nav .icon { width: 20px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .nav .icon-svg { display: block; }
@@ -76,9 +90,11 @@ input, textarea, select { font: inherit; }
 .userbox .meta small { color: #9db4bd; font-size: 11px; }
 .userbox button {
 	background: none; border: 1px solid rgba(255, 255, 255, 0.25); color: #cfdbe0;
-	border-radius: 8px; padding: 6px 10px; font-size: 12px;
+	border-radius: 8px; padding: 6px 10px; font-size: 12px; transition: background 0.15s ease;
 }
 .userbox button:hover { background: rgba(255, 255, 255, 0.1); }
+.userbox { gap: 8px; }
+.userbox button + button { margin-left: 0; }
 
 .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
@@ -89,7 +105,9 @@ input, textarea, select { font: inherit; }
 .topbar h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
 .topbar .crumb { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .topbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-main.page { padding: 24px 28px 96px; max-width: 1160px; width: 100%; margin: 0 auto; }
+main.page { padding: 24px 28px 96px; max-width: 1160px; width: 100%; margin: 0 auto; animation: page-in 0.22s var(--ease); }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { main.page { animation: none; } }
 
 .menu-btn { display: none; background: none; border: 1px solid var(--border); border-radius: 8px; padding: 8px; color: var(--text); align-items: center; justify-content: center; }
 
@@ -108,11 +126,14 @@ main.page { padding: 24px 28px 96px; max-width: 1160px; width: 100%; margin: 0 a
 	display: inline-flex; align-items: center; gap: 8px; justify-content: center;
 	padding: 9px 16px; border: 0; border-radius: 10px; font-weight: 600; font-size: 14px;
 	background: var(--teal); color: #fff; text-decoration: none;
+	transition: filter 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
-.btn:hover { filter: brightness(1.06); }
+.btn:hover:not(:disabled) { filter: brightness(1.06); box-shadow: var(--shadow-sm); }
+.btn:active:not(:disabled) { transform: scale(0.98); }
 .btn.gold { background: var(--gold); color: var(--navy); }
 .btn.sec { background: #eef6f5; color: var(--teal); }
 .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.btn.ghost:hover:not(:disabled) { color: var(--navy); border-color: #cbd2d8; }
 .btn.danger { background: #fee2e2; color: #b91c1c; }
 .btn.danger:hover { background: #fecaca; }
 .btn.sm { padding: 6px 12px; font-size: 13px; border-radius: 8px; }
@@ -133,20 +154,27 @@ main.page { padding: 24px 28px 96px; max-width: 1160px; width: 100%; margin: 0 a
 .small { font-size: 13px; }
 
 /* ---- Form ---- */
-label.field-label { display: block; font-size: 13px; font-weight: 700; margin: 14px 0 5px; }
+label.field-label { display: block; font-size: 13px; font-weight: 700; margin: 14px 0 5px; transition: color 0.15s ease; }
 .field-label .req { color: var(--err); }
 .field-help { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
 input[type="text"], input[type="email"], input[type="password"], input[type="url"],
 input[type="datetime-local"], input[type="date"], input[type="time"], textarea, select {
 	width: 100%; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 10px;
 	background: #fff; color: var(--text);
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-input:focus, textarea:focus { outline: 2px solid rgba(0, 145, 128, 0.35); border-color: var(--teal); }
+input:hover:not(:disabled):not(:focus), textarea:hover:not(:focus), select:hover:not(:focus) { border-color: #b3bcc4; }
+input:focus, textarea:focus, select:focus {
+	outline: none; border-color: var(--teal); box-shadow: var(--ring);
+}
+input:disabled, textarea:disabled, select:disabled { background: #f3f4f6; cursor: not-allowed; color: var(--muted); }
 textarea { resize: vertical; }
+select { cursor: pointer; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .check-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
-.check-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--teal); }
+.check-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--teal); cursor: pointer; }
 .field-err { color: var(--err); font-size: 12px; margin-top: 4px; }
+input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--err); }
 
 /* Seksi editor bernomor */
 .section { margin-bottom: 24px; }
@@ -197,7 +225,9 @@ textarea { resize: vertical; }
 .chip {
 	padding: 6px 14px; border-radius: 99px; border: 1px solid var(--border); background: var(--card);
 	font-size: 13px; font-weight: 600; color: var(--muted);
+	transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
+.chip:hover { border-color: #cbd2d8; color: var(--navy); }
 .chip.active { background: var(--navy); border-color: var(--navy); color: #fff; }
 .event-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .event-card {
