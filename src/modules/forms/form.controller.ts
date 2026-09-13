@@ -18,8 +18,13 @@ type Ctx = Context<AppContext>;
 
 export const listForms = async (c: Ctx) => {
 	const isAll = (c.get("permissions") ?? []).includes("forms.read.all");
+	// page/per_page dari query string — clamping (1–200) dilakukan service.
+	const page = Number(c.req.query("page"));
+	const perPage = Number(c.req.query("per_page"));
 	const result = await formService.listAdmin(getDb(c.env.DB), {
 		divisionId: isAll ? undefined : c.get("activeDivisionId"),
+		page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : undefined,
+		perPage: Number.isFinite(perPage) && perPage >= 1 ? Math.floor(perPage) : undefined,
 	});
 	return ApiResponse.ok(c, "OK", result);
 };

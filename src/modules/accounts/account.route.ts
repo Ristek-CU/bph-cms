@@ -199,6 +199,13 @@ adminAccountRouter.get(
 	async (c) => {
 		const db = c.get("db");
 		const before = c.req.query("before_date");
+		// Validasi format ISO — string bebas masuk lt() tidak berbahaya (bound
+		// param), tapi membalas 200 + seluruh data untuk query sampah menyesatkan.
+		if (before !== undefined && (Number.isNaN(Date.parse(before)) || !/^\d{4}-\d{2}-\d{2}/.test(before))) {
+			throw ApiError.validation("Validation failed", {
+				before_date: ["Format wajib tanggal ISO, contoh: 2026-01-01T00:00:00Z"],
+			});
+		}
 		const rows = before
 			? await db
 					.select()
@@ -207,7 +214,21 @@ adminAccountRouter.get(
 					.orderBy(desc(auditLogs.createdAt))
 					.limit(50)
 			: await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(50);
-		return ApiResponse.ok(c, "OK", rows);
+		// snake_case — konsisten dengan kontrak API admin lainnya.
+		const items = rows.map((r) => ({
+			id: r.id,
+			action: r.action,
+			resource_type: r.resourceType,
+			resource_id: r.resourceId,
+			metadata: r.metadata,
+			actor_user_id: r.actorUserId,
+			actor_email: r.actorEmail,
+			actor_division_id: r.actorDivisionId,
+			ip_address: r.ipAddress,
+			user_agent: r.userAgent,
+			created_at: r.createdAt,
+		}));
+		return ApiResponse.ok(c, "OK", items);
 	},
 );
 

@@ -20,8 +20,13 @@ export const listEvents = async (c: Ctx) => {
 	const permissions = c.get("permissions") ?? [];
 	const activeDivisionId = c.get("activeDivisionId");
 	const isAll = permissions.includes("events.read.all");
+	// page/per_page dari query string — clamping (1–200) dilakukan service.
+	const page = Number(c.req.query("page"));
+	const perPage = Number(c.req.query("per_page"));
 	const result = await eventService.listAdmin(getDb(c.env.DB), {
 		divisionId: isAll ? undefined : activeDivisionId,
+		page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : undefined,
+		perPage: Number.isFinite(perPage) && perPage >= 1 ? Math.floor(perPage) : undefined,
 	});
 	return ApiResponse.ok(c, "OK", result);
 };

@@ -67,6 +67,22 @@ mediaRouter.post(
 		});
 	}
 
+	// Magic bytes — ekstensi bisa dibohongi (HTML di-rename .png). Content-Type
+	// diserve dari whitelist + nosniff sudah menutup eksekusi, ini lapis kedua
+	// supaya file nggak-gambar tidak pernah tersimpan.
+	const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+	const matchesMagic: Record<string, (b: Uint8Array) => boolean> = {
+		"image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+		"image/png": (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
+		"image/webp": (b) => b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x50,
+	};
+	const matchFn = matchesMagic[mime];
+	if (matchFn && !matchFn(head)) {
+		throw ApiError.validation("Validation failed", {
+			file: ["File bukan gambar yang valid (rusak atau menyamar)."],
+		});
+	}
+
 	// Key dari uuidv7 + ekstensi valid — tidak ada user input di path (sanitize gratis).
 	const key = `covers/${uuidv7()}.${ext === "jpeg" ? "jpg" : ext}`;
 	await c.env.BUCKET.put(key, file.stream(), {
