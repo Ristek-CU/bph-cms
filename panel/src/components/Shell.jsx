@@ -54,7 +54,7 @@ export function Login({ onLogin }) {
 	);
 }
 
-export function Shell({ user, children, title, crumb, actions }) {
+export function Shell({ user, children, title, crumb, actions, onSwitchDashboard }) {
 	const [drawer, setDrawer] = useState(false);
 	const navigate = useNavigate();
 	useEscape(() => setDrawer(false));
@@ -116,6 +116,9 @@ export function Shell({ user, children, title, crumb, actions }) {
 					<div>{user?.name || "Pengurus"}</div>
 					<small>{user?.email}</small>
 				</div>
+				{onSwitchDashboard && (
+					<button onClick={onSwitchDashboard} title="Pindah ke dashboard lain">Ganti</button>
+				)}
 				<button onClick={logout}>Keluar</button>
 			</div>
 		</aside>

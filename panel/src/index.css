@@ -310,14 +310,50 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .modal-backdrop {
 	position: fixed; inset: 0; background: rgba(6, 20, 27, 0.55); z-index: 90;
 	display: flex; align-items: center; justify-content: center; padding: 20px;
+	animation: fade-in 0.15s ease;
 }
 .modal {
 	background: var(--card); border-radius: 16px; padding: 24px; max-width: 420px; width: 100%;
 	box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+	animation: pop-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .modal h3 { font-size: 17px; margin-bottom: 8px; }
 .modal p { font-size: 14px; color: var(--muted); line-height: 1.5; }
 .modal .row-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+	.modal-backdrop, .modal, .toast { animation: none; }
+}
+
+/* ---- Workspace selection (overlay, gaya dashboard selection modern) ---- */
+.ws-backdrop { background: rgba(6, 20, 27, 0.62); backdrop-filter: blur(3px); }
+.ws-modal { max-width: 460px; padding: 28px; }
+.ws-head h3 { font-size: 19px; margin-bottom: 4px; letter-spacing: -0.01em; }
+.ws-head p { margin: 0 0 18px; font-size: 13.5px; }
+.ws-card {
+	display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+	background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+	padding: 14px 16px; transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.ws-card:hover:not(:disabled) {
+	border-color: var(--teal); box-shadow: 0 6px 20px rgba(6, 69, 91, 0.12); transform: translateY(-1px);
+}
+.ws-card:active:not(:disabled) { transform: translateY(0); }
+.ws-card:disabled { opacity: 0.6; cursor: wait; }
+.ws-icon {
+	width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+	display: flex; align-items: center; justify-content: center;
+	font-weight: 800; font-size: 13px; letter-spacing: 0.02em;
+}
+.ws-icon.hub { background: linear-gradient(135deg, var(--navy), #0a5c75); color: var(--gold-2); }
+.ws-icon.ext { background: #eef6f5; color: var(--teal); font-size: 18px; }
+.ws-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.ws-label { font-weight: 700; font-size: 14.5px; color: var(--text); }
+.ws-desc { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.ws-arrow { color: var(--muted); font-weight: 600; transition: transform 0.15s ease, color 0.15s ease; }
+.ws-card:hover:not(:disabled) .ws-arrow { transform: translateX(3px); color: var(--teal); }
+.ws-cancel { width: 100%; margin-top: 14px; }
 
 /* ---- Login ---- */
 .login-page {

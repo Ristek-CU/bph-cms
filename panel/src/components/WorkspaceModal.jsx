@@ -1,12 +1,21 @@
-export default function WorkspaceModal({ workspaces, onSelect, busy = false, error = "" }) {
+import { useEffect } from "react";
+import { useEscape } from "./ui.jsx";
+
+// Overlay pemilihan dashboard. Tampil HANYA saat login baru atau saat user
+// menekan "Ganti" — bukan tiap refresh (root-cause fix navigation reset).
+// onCancel ditutup user dapat membatalkan (bila tidak ada handoff berjalan).
+export default function WorkspaceModal({ workspaces, onSelect, busy = false, error = "", onCancel }) {
+	useEscape(() => !busy && onCancel?.());
+
+	// Escape / klik backdrop = kembali ke app yang sudah terbuka di belakang.
+	const cancellable = !busy && !!onCancel;
+
 	return (
-		<div className="login-page">
-			<div className="login-card" style={{ maxWidth: 440 }}>
-				<div style={{ marginBottom: 16 }}>
-					<h2 style={{ fontSize: 20, marginBottom: 4 }}>Pilih Dashboard</h2>
-					<p className="muted small">
-						Akun Anda memiliki beberapa akses dashboard. Silakan pilih ruang kerja yang ingin dibuka.
-					</p>
+		<div className="modal-backdrop ws-backdrop" onClick={cancellable ? onCancel : undefined}>
+			<div className="modal ws-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Pilih Dashboard">
+				<div className="ws-head">
+					<h3>Selamat datang 👋</h3>
+					<p>Pilih ruang kerja yang ingin dibuka. Kamu bisa berpindah kapan saja lewat tombol "Ganti".</p>
 				</div>
 				{error && (
 					<div className="card err-text" style={{ marginBottom: 12 }} role="alert">
@@ -18,31 +27,32 @@ export default function WorkspaceModal({ workspaces, onSelect, busy = false, err
 						<button
 							key={i}
 							type="button"
-							className="btn"
+							className="ws-card"
 							disabled={busy}
-							style={{
-								textAlign: "left",
-								justifyContent: "flex-start",
-								padding: "12px 14px",
-								background: ws.kind === "cms_hub" ? "var(--teal)" : "#0c2836",
-								color: "#fff",
-								opacity: busy ? 0.6 : 1,
-							}}
 							onClick={() => onSelect(ws)}
 						>
-							<div>
-								<div style={{ fontWeight: 600 }}>{ws.label}</div>
-								<div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>
+							<span className={`ws-icon ${ws.kind === "cms_hub" ? "hub" : "ext"}`} aria-hidden>
+								{ws.kind === "cms_hub" ? "SGA" : "↗"}
+							</span>
+							<span className="ws-body">
+								<span className="ws-label">{ws.label}</span>
+								<span className="ws-desc">
 									{busy
 										? "Menyiapkan handoff…"
 										: ws.kind === "cms_hub"
-											? "Kelola event lintas SGA dari CMS Hub."
+											? "Kelola event, form, dan QPR lintas divisi."
 											: "Buka dashboard eksternal khusus divisi."}
-								</div>
-							</div>
+								</span>
+							</span>
+							<span className="ws-arrow" aria-hidden>→</span>
 						</button>
 					))}
 				</div>
+				{cancellable && (
+					<button className="btn ghost ws-cancel" onClick={onCancel}>
+						Lanjut ke dashboard saat ini
+					</button>
+				)}
 			</div>
 		</div>
 	);

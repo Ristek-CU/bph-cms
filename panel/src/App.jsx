@@ -28,10 +28,15 @@ const canDeleteEvent = (permissions) => hasScopedPermission(permissions, "events
 const canSeeForms = (permissions) =>
 	hasScopedPermission(permissions, "forms.read") || hasScopedPermission(permissions, "forms.submissions");
 
+const WS_KEY = "bph_cms_workspace";
+
 function App() {
 	const [token, setToken] = useState(localStorage.getItem("bph_cms_token"));
 	const [user, setUser] = useState(null);
 	const [workspaces, setWorkspaces] = useState([]);
+	// Pilihan workspace dipersist: modal pilih dashboard HANYA muncul saat login
+	// baru (token berganti) atau saat user eksplisit menekan "Ganti Dashboard".
+	// Refresh / pindah module TIDAK boleh melempar user ke selection lagi.
 	const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
 	const [wsBusy, setWsBusy] = useState(false);
 	const [wsErr, setWsErr] = useState("");
@@ -51,7 +56,14 @@ function App() {
 			});
 			if (me.workspace_options && me.workspace_options.length > 1) {
 				setWorkspaces(me.workspace_options);
-				setShowWorkspaceModal(true);
+				// Root-cause fix: dulu modal selalu muncul tiap /me balas —
+				// refresh/pindah module meng-unmount seluruh app. Sekarang:
+				// tampilkan hanya jika token BARU login (belum ada pilihan
+				// tersimpan untuk token ini).
+				const seenFor = localStorage.getItem(WS_KEY);
+				if (!seenFor || seenFor !== String(localStorage.getItem("bph_cms_token"))) {
+					setShowWorkspaceModal(true);
+				}
 			}
 		} catch {
 			// ignore /me error if token is local dev fallback
@@ -90,13 +102,23 @@ function App() {
 	const handleLogin = async (email, password) => {
 		const data = await signIn(email, password);
 		persistToken(data.token);
+		localStorage.removeItem(WS_KEY); // login baru → tanya workspace lagi
 		setToken(data.token);
 		setUser(data.user || { email });
 		navigate("/", { replace: true });
 	};
 
+	// "Ganti Dashboard" eksplisit dari UI — satu-satunya jalan kembali ke selection
+	// selain login baru.
+	const openWorkspacePicker = () => {
+		localStorage.removeItem(WS_KEY);
+		setWsErr("");
+		setShowWorkspaceModal(true);
+	};
+
 	const handleSelectWorkspace = async (ws) => {
 		setWsErr("");
+		localStorage.setItem(WS_KEY, String(localStorage.getItem("bph_cms_token")));
 
 		// cms_hub (atau workspace tanpa URL): perilaku lama sudah benar —
 		// tutup modal dan jatuh ke <Routes>. Dibuat eksplisit.
@@ -131,17 +153,42 @@ function App() {
 		}),
 		[permissions],
 	);
-	const shellProps = useMemo(() => ({ user: user || { email: "pengurus@sga" } }), [user]);
+	const shellProps = useMemo(
+		() => ({ user: user || { email: "pengurus@sga" }, onSwitchDashboard: workspaces.length > 1 ? openWorkspacePicker : undefined }),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[user, workspaces.length],
+	);
 
-	if (!token) return <Login onLogin={handleLogin} />;
+	if (!token) {
+		// QPR isi tetap bisa dibuka tanpa akun (model no-login).
+		if (window.location.hash.startsWith("#/qpr/")) return <PublicQprRoute />;
+		return <Login onLogin={handleLogin} />;
+	}
+	// Workspace selection = OVERLAY di atas app, bukan pengganti app.
+	// Module tetap mounted di belakang — pindah workspace tidak reset state halaman.
 	if (showWorkspaceModal && workspaces.length > 1) {
 		return (
-			<WorkspaceModal
-				workspaces={workspaces}
-				onSelect={handleSelectWorkspace}
-				busy={wsBusy}
-				error={wsErr}
-			/>
+			<>
+				<Routes>
+					<Route path="/login" element={<Navigate to="/" replace />} />
+					<Route
+						path="/"
+						element={
+							<Shell {...shellProps} title="Ringkasan" crumb="Beranda">
+								<Overview events={events} onEdit={onEdit} capabilities={capabilities} />
+							</Shell>
+						}
+					/>
+					<Route path="*" element={<Navigate to="/" replace />} />
+				</Routes>
+				<WorkspaceModal
+					workspaces={workspaces}
+					onSelect={handleSelectWorkspace}
+					busy={wsBusy}
+					error={wsErr}
+					onCancel={wsBusy ? undefined : () => setShowWorkspaceModal(false)}
+				/>
+			</>
 		);
 	}
 
@@ -240,13 +287,11 @@ function App() {
 					</Shell>
 				}
 			/>
+			{/* QPR isi PUBLIK (no-login): di luar guard token. Kalau tidak, anggota
+			    tanpa akun dapat halaman Login padahal model QPR memang tanpa login. */}
 			<Route
 				path="/qpr/:periodId"
-				element={
-					<Shell {...shellProps} title="Isi Penilaian QPR" crumb="QPR · Isi">
-						<PublicQprRoute />
-					</Shell>
-				}
+				element={<PublicQprRoute />}
 			/>
 			<Route path="/docs" element={<NavigateDocs />} />
 			<Route path="*" element={<Navigate to="/" replace />} />
