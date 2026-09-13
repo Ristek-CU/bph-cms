@@ -6,3 +6,6 @@ worker-configuration.d.ts
 dist/
 backups/
 .qwen/
+
+# Audit lokal — jangan push (berisi analisis celah + daftar akun)
+docs/SECURITY-AUDIT-*.md

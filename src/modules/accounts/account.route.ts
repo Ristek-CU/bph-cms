@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 import { describeRoute } from "hono-openapi";
 import { adminAuth } from "../../middlewares/admin-auth";
@@ -197,7 +197,7 @@ adminAccountRouter.get(
 	}),
 	async (c) => {
 		const db = c.get("db");
-		const logs = await db.select().from(auditLogs).limit(50);
+		const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(50);
 		return ApiResponse.ok(c, "OK", logs);
 	},
 );

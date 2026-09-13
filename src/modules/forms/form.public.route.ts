@@ -42,6 +42,18 @@ const FIELD_HINTS: Record<string, string> = {
 };
 
 const ALLOWED_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "zip"];
+// Content-Type klien tidak dipercaya: file "x.jpg" bisa dikirim sebagai text/html
+// lalu diserve dari /storage sebagai HTML. Mime selalu diturunkan dari ekstensi.
+const EXT_MIME: Record<string, string> = {
+	jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif",
+	pdf: "application/pdf", doc: "application/msword",
+	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	xls: "application/vnd.ms-excel",
+	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	ppt: "application/vnd.ms-powerpoint",
+	pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	txt: "text/plain", csv: "text/csv", zip: "application/zip",
+};
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_TEXT_LENGTH = 10_000;
 
@@ -237,7 +249,7 @@ publicFormRouter.post(
 			for (const { fieldId, file } of uploads) {
 				const ext = fileExtension(file.name) || "bin";
 				const path = `forms/${form.id}/submissions/${submission.id}/${crypto.randomUUID()}.${ext}`;
-				const mimeType = file.type || "application/octet-stream";
+				const mimeType = EXT_MIME[ext] ?? "application/octet-stream";
 				await c.env.BUCKET.put(path, file.stream(), { httpMetadata: { contentType: mimeType } });
 				uploadedPaths.push(path);
 				await c.env.DB.prepare(
