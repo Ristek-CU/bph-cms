@@ -9,7 +9,7 @@ import Overview from "./pages/Overview.jsx";
 import EventList from "./pages/EventList.jsx";
 import EventCalendar from "./pages/EventCalendar.jsx";
 import EventEditor from "./pages/EventEditor.jsx";
-import Forms from "./pages/Forms.jsx";
+import Forms, { FormBuilderRoute, FormAnalyticsRoute } from "./pages/Forms.jsx";
 import Qpr, { PublicFill } from "./pages/Qpr.jsx";
 
 const hasScopedPermission = (permissions, base) =>
@@ -273,6 +273,30 @@ function App() {
 					<Shell {...shellProps} title="Form" crumb="Modul · Form">
 						{canSeeForms(permissions) ? (
 							<Forms user={user} />
+						) : (
+							<NoAccess />
+						)}
+					</Shell>
+				}
+			/>
+			<Route
+				path="/forms/:formId"
+				element={
+					<Shell {...shellProps} title="Form Builder" crumb="Modul · Form · Builder">
+						{canSeeForms(permissions) ? (
+							<FormBuilderRoute user={user} loadForms={load} />
+						) : (
+							<NoAccess />
+						)}
+					</Shell>
+				}
+			/>
+			<Route
+				path="/forms/:formId/analytics"
+				element={
+					<Shell {...shellProps} title="Analitik Form" crumb="Modul · Form · Analitik">
+						{canSeeForms(permissions) ? (
+							<FormAnalyticsRoute user={user} />
 						) : (
 							<NoAccess />
 						)}

@@ -109,7 +109,17 @@ export const formService = {
 		if (rows.length === 0) return [];
 		const ids = rows.map((r) => r.id);
 		const allFields = await db.select().from(formFields).where(inArray(formFields.formId, ids)).orderBy(asc(formFields.sortOrder));
-		return rows.map((r) => toAdminShape(r, allFields.filter((d) => d.formId === r.id)));
+		// Jumlah respons per form untuk kartu studio (grouped, 1 query).
+		const counts = await db
+			.select({ formId: formSubmissions.formId, n: sql<number>`count(*)` })
+			.from(formSubmissions)
+			.where(inArray(formSubmissions.formId, ids))
+			.groupBy(formSubmissions.formId);
+		const countMap = new Map(counts.map((c) => [c.formId, Number(c.n)]));
+		return rows.map((r) => ({
+			...toAdminShape(r, allFields.filter((d) => d.formId === r.id)),
+			submission_count: countMap.get(r.id) ?? 0,
+		}));
 	},
 
 	async get(db: Db, id: string) {
