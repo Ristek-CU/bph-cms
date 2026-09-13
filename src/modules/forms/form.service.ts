@@ -271,13 +271,28 @@ export const formService = {
 		}));
 
 		if (total > 0) {
+			// Satu query untuk semua field: count + avg per field_id sekaligus —
+			// dulu satu count + satu avg per field (N+1 saat field banyak).
+			const statRows = await db
+				.select({
+					fieldId: formAnswers.fieldId,
+					n: sql<number>`count(*)`,
+					avg: sql<number | null>`avg(cast(json_extract(${formAnswers.value}, '$') as real))`,
+				})
+				.from(formAnswers)
+				.where(
+					inArray(
+						formAnswers.fieldId,
+						found.fields.map((f) => f.id),
+					),
+				)
+				.groupBy(formAnswers.fieldId);
+			const statMap = new Map(statRows.map((r) => [r.fieldId, r]));
+
 			for (let i = 0; i < found.fields.length; i++) {
 				const field = found.fields[i];
-				const [countRow] = await db
-					.select({ n: sql<number>`count(*)` })
-					.from(formAnswers)
-					.where(eq(formAnswers.fieldId, field.id));
-				perField[i].response_rate = Math.round((Number(countRow?.n ?? 0) / total) * 100);
+				const stat = statMap.get(field.id);
+				perField[i].response_rate = Math.round((Number(stat?.n ?? 0) / total) * 100);
 
 				const options = parseFieldOptions(field.options);
 				if (Array.isArray(options)) {
@@ -299,11 +314,7 @@ export const formService = {
 					perField[i].distribution = distribution;
 				}
 				if (field.type === "linear_scale" || field.type === "number") {
-					const [avgRow] = await db
-						.select({ avg: sql<number | null>`avg(cast(json_extract(${formAnswers.value}, '$') as real))` })
-						.from(formAnswers)
-						.where(eq(formAnswers.fieldId, field.id));
-					perField[i].average = avgRow?.avg != null ? Number(avgRow.avg) : 0;
+					perField[i].average = stat?.avg != null ? Number(stat.avg) : 0;
 				}
 				const recentRows = await db
 					.select({ value: formAnswers.value })

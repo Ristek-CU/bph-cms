@@ -42,6 +42,7 @@ export type Variables = {
 	userId?: string;
 	userRole?: string;
 	userEmail?: string;
+	userName?: string;
 	memberships?: UserMembership[];
 	activeDivisionId?: string;
 	permissions?: string[];

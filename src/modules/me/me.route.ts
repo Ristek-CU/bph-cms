@@ -22,6 +22,7 @@ meRouter.get(
 	async (c) => {
 		const userId = c.get("userId") ?? "";
 		const userEmail = c.get("userEmail") ?? "";
+		const userName = c.get("userName") ?? "";
 		const userRole = c.get("userRole") ?? "user";
 		const memberships = c.get("memberships") ?? [];
 		const activeDivisionId = c.get("activeDivisionId");
@@ -60,7 +61,7 @@ meRouter.get(
 			user: {
 				id: userId,
 				email: userEmail,
-				name: userEmail.split("@")[0] || "User",
+				name: userName || userEmail.split("@")[0] || "User",
 				role: userRole,
 			},
 			active_division_id: activeDivisionId,

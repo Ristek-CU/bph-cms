@@ -23,6 +23,7 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 	let userId = "";
 	let userRole = "user";
 	let userEmail = "";
+	let userName = "";
 	// Dua syarat sekaligus: flag dev ON *dan* request benar-benar datang lewat
 	// localhost. Worker production hanya menerima trafik dari hostname publik, jadi
 	// ALLOW_DEV_AUTH yang keliru ter-set di dashboard tetap tidak membuka apa pun.
@@ -37,12 +38,13 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 
 		if (sessionResponse.ok) {
 			const body = (await sessionResponse.json()) as {
-				data: { user: { id: string; role: string; email?: string } } | null;
+				data: { user: { id: string; role: string; email?: string; name?: string } } | null;
 			};
 			if (body?.data?.user) {
 				userId = body.data.user.id;
 				userRole = body.data.user.role;
 				userEmail = body.data.user.email ?? "";
+				userName = body.data.user.name ?? "";
 			}
 		}
 	} catch {
@@ -66,6 +68,7 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 	c.set("userId", userId);
 	c.set("userRole", userRole);
 	c.set("userEmail", userEmail);
+	c.set("userName", userName);
 
 	// Load membership dari CMS Hub database
 	const db = c.get("db");

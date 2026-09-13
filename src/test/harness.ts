@@ -24,11 +24,11 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 // modul di luar root project — jadi cwd dikunci ke root repo.
 process.chdir(repoRoot);
 
-export type StubUser = { id: string; role: string; email: string };
+export type StubUser = { id: string; role: string; email: string; name?: string };
 
 /** Token → user. Token yang tidak terdaftar dianggap tidak sah (401). */
 export const USERS: Record<string, StubUser> = {
-	"tok-bph": { id: "u-bph", role: "admin", email: "bph@cakrawala.com" },
+	"tok-bph": { id: "u-bph", role: "admin", email: "bph@cakrawala.com", name: "Sekretariat BPH" },
 	"tok-ristek": { id: "u-ristek", role: "admin", email: "ristek@cakrawala.com" },
 	"tok-outsider": { id: "u-outsider", role: "user", email: "orang-luar@example.com" },
 	"tok-a-admin": { id: "u-a-admin", role: "user", email: "admin.a@example.com" },
