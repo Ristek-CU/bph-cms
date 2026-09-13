@@ -393,6 +393,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .login-card {
 	background: var(--card); border-radius: 20px; padding: 36px; width: 100%; max-width: 390px;
 	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+	animation: pop-in 0.25s var(--ease);
 }
 .login-card .brand { border: 0; padding: 0 0 6px; color: var(--text); display: flex; gap: 12px; align-items: center; }
 .login-card h1 { font-size: 20px; letter-spacing: -0.02em; }
