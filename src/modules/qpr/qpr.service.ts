@@ -170,10 +170,17 @@ export const qprService = {
 		const entries = await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId));
 		const entry = entries.find((e) => e.name.toLowerCase() === input.name.trim().toLowerCase());
 		if (!entry) throw ApiError.validation("Nama tidak terdaftar", { name: ["Pilih nama dari daftar."] });
-		if (entry.done) throw ApiError.conflict("Nama ini sudah mengisi penilaian.");
+		// Klaim atomik: update done hanya jika masih false. Dua submit paralel dengan
+		// nama sama — hanya satu yang dapat baris; yang lain 409. (Pola sama dengan
+		// handoff exchange.)
 		const now = new Date().toISOString();
+		const claimed = await db
+			.update(qprEntries)
+			.set({ done: true, submittedAt: now })
+			.where(and(eq(qprEntries.id, entry.id), eq(qprEntries.done, false)))
+			.returning({ id: qprEntries.id });
+		if (claimed.length === 0) throw ApiError.conflict("Nama ini sudah mengisi penilaian.");
 		await db.insert(qprAnswers).values({ id: uuidv7(), entryId: entry.id, answers: JSON.stringify(input.answers), submittedAt: now });
-		await db.update(qprEntries).set({ done: true, submittedAt: now }).where(eq(qprEntries.id, entry.id));
 		return { entry_id: entry.id, name: entry.name };
 	},
 

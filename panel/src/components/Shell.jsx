@@ -54,7 +54,7 @@ export function Login({ onLogin }) {
 	);
 }
 
-export function Shell({ user, children, title, crumb, actions, onSwitchDashboard }) {
+export function Shell({ user, children, title, crumb, actions, onSwitchDashboard, onLogout }) {
 	const [drawer, setDrawer] = useState(false);
 	const navigate = useNavigate();
 	useEscape(() => setDrawer(false));
@@ -65,6 +65,9 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 
 	const logout = () => {
 		clearToken();
+		// Reset state App (token/user/events) supaya /login tidak me-redirect balik
+		// ke app dengan user basi.
+		if (onLogout) onLogout();
 		navigate("/login", { replace: true });
 	};
 

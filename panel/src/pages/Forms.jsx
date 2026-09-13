@@ -296,7 +296,7 @@ function SubmissionsSection({ formId, toast }) {
 		<div className="card" style={{ marginTop: 16 }}>
 			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
 				<h3>Respons masuk ({subs.length})</h3>
-				<button className="btn ghost sm" disabled={busy || subs.length === 0} onClick={() => exportCsv(subs, formId, toast)}>Ekspor CSV</button>
+				<button className="btn ghost sm" disabled={busy || subs.length === 0} onClick={() => exportCsv(formId, toast)}>Ekspor CSV</button>
 			</div>
 			{subs.length === 0 ? (
 				<p className="muted">Belum ada respons.</p>
@@ -641,18 +641,16 @@ function FieldAnalytics({ field, total }) {
 }
 
 /* ── Ekspor CSV (halaman analitik) ────────────────────────────────────────── */
-async function exportCsv(subs, formId, toast) {
+async function exportCsv(formId, toast) {
 	try {
 		const csvEscape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-		let all = subs;
-		if (subs.length >= 100) {
-			// Banyak respons — ambil semua halaman sebelum menyusun CSV.
-			all = [];
-			for (let page = 1; ; page++) {
-				const d = await api(`/admin/forms/${formId}/submissions?page=${page}&per_page=100`);
-				all = all.concat(d.items || []);
-				if (!d.items || d.items.length < 100) break;
-			}
+		// Selalu paginate dari halaman 1 — fetch awal list hanya per_page=20,
+		// jadi tidak bisa dipakai menilai total respons.
+		let all = [];
+		for (let page = 1; ; page++) {
+			const d = await api(`/admin/forms/${formId}/submissions?page=${page}&per_page=100`);
+			all = all.concat(d.items || []);
+			if (!d.items || d.items.length < 100) break;
 		}
 		if (!all.length) { toast("Belum ada respons untuk diekspor.", "err"); return; }
 		const headerSet = [];

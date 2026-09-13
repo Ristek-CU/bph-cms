@@ -98,32 +98,32 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 
 	// Bootstrap awal: hanya akun BPH yang boleh jadi platform_admin bila membership
 	// belum dibuat. Akun divisi lain wajib punya cms_membership eksplisit.
-	// Daftar email dibaca dari var supaya bisa dicabut tanpa ubah kode. Default
-	// dipertahankan karena BPH dan Ristek belum punya baris membership — production
-	// sudah berisi 6 membership divisi lain (per 11 Sep 2026), jadi jalur ini sekarang
-	// hanya menopang dua akun itu, bukan seluruh platform.
+	// String kosong = bootstrap NONAKTIF (tidak ada default tersembunyi) — semua
+	// akses admin harus lewat baris cms_memberships eksplisit.
 	if (memberships.length === 0) {
 		const configured = (c.env.PLATFORM_BOOTSTRAP_EMAILS ?? "").trim();
-		const bootstrapEmails = (configured || "bph@cakrawala.com")
-			.split(",")
-			.map((e) => e.trim().toLowerCase())
-			.filter(Boolean);
-		const [bph] = await db.select().from(divisions).where(eq(divisions.slug, "bph")).limit(1);
-		if (bph && bootstrapEmails.includes(userEmail.toLowerCase())) {
-			memberships = [
-				{
-					division: {
-						id: bph.id,
-						slug: bph.slug,
-						name: bph.name,
-						email: bph.email,
-						dashboardUrl: bph.dashboardUrl,
+		if (configured) {
+			const bootstrapEmails = configured
+				.split(",")
+				.map((e) => e.trim().toLowerCase())
+				.filter(Boolean);
+			const [bph] = await db.select().from(divisions).where(eq(divisions.slug, "bph")).limit(1);
+			if (bph && bootstrapEmails.includes(userEmail.toLowerCase())) {
+				memberships = [
+					{
+						division: {
+							id: bph.id,
+							slug: bph.slug,
+							name: bph.name,
+							email: bph.email,
+							dashboardUrl: bph.dashboardUrl,
+						},
+						role: "platform_admin",
+						status: "active",
+						permissions: ROLE_PERMISSIONS.platform_admin,
 					},
-					role: "platform_admin",
-					status: "active",
-					permissions: ROLE_PERMISSIONS.platform_admin,
-				},
-			];
+				];
+			}
 		}
 	}
 

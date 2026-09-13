@@ -143,6 +143,18 @@ function App() {
 
 	const onEdit = useCallback((id) => navigate(`/events/${id}/edit`), [navigate]);
 
+	// Logout harus me-reset state App (token/user/events) — clearToken() saja tidak
+	// cukup: /login me-redirect ke "/" dan app tetap render dengan user basi.
+	const handleLogout = useCallback(() => {
+		clearToken();
+		localStorage.removeItem(WS_KEY);
+		setToken(null);
+		setUser(null);
+		setEvents([]);
+		setWorkspaces([]);
+		navigate("/login", { replace: true });
+	}, [navigate]);
+
 	const permissions = user?.permissions || [];
 	const capabilities = useMemo(
 		() => ({
@@ -154,9 +166,13 @@ function App() {
 		[permissions],
 	);
 	const shellProps = useMemo(
-		() => ({ user: user || { email: "pengurus@sga" }, onSwitchDashboard: workspaces.length > 1 ? openWorkspacePicker : undefined }),
+		() => ({
+			user: user || { email: "pengurus@sga" },
+			onSwitchDashboard: workspaces.length > 1 ? openWorkspacePicker : undefined,
+			onLogout: handleLogout,
+		}),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[user, workspaces.length],
+		[user, workspaces.length, handleLogout],
 	);
 
 	if (!token) {
@@ -358,12 +374,12 @@ function EditEventRoute({ events, onEdit, capabilities }) {
 	const ev = events.find((e) => e.id === id);
 	if (!ev) {
 		// Event belum ada di state (mis. baru dibuka via link langsung) — coba refresh.
-		return ev === null ? null : <Reloader id={id} onEdit={onEdit} />;
+		return <Reloader id={id} onEdit={onEdit} capabilities={capabilities} />;
 	}
 	return <EventEditor event={ev} />;
 }
 
-function Reloader({ id, onEdit }) {
+function Reloader({ id, onEdit, capabilities }) {
 	const [ev, setEv] = useState(undefined); // undefined = loading, null = 404
 	useEffect(() => {
 		api("/admin/events")
@@ -378,7 +394,6 @@ function Reloader({ id, onEdit }) {
 		return (
 			<div className="empty-state">
 				<p>Event tidak ditemukan — mungkin sudah dihapus.</p>
-				<button className="btn" onClick={onEdit ? () => onEdit("") : undefined} style={{ display: "none" }} />
 				<Link className="btn" to="/events">Kembali ke daftar event</Link>
 			</div>
 		);
