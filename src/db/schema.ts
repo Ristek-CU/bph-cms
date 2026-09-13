@@ -257,6 +257,9 @@ export const formSubmissions = sqliteTable(
 			.notNull()
 			.default("new"),
 		// SHA-256(secret:ip:ua) — untuk investigasi abuse, bukan pelacakan identitas.
+		// Sengaja TIDAK ada unique constraint (form_id, fingerprint): di kampus,
+		// banyak mahasiswa share IP NAT + browser sama → fingerprint identik;
+		// constraint akan menolak submit sah. Duplikat dibiarkan by design.
 		fingerprint: text("fingerprint"),
 		createdAt: text("created_at").notNull(),
 		updatedAt: text("updated_at").notNull(),

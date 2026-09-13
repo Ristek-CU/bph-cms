@@ -20,6 +20,12 @@ export async function api(path, { method = "GET", json } = {}) {
 	}
 	const res = await fetch(`/api/v1${path}`, opts);
 	const body = await res.json().catch(() => ({}));
+	if (res.status === 401) {
+		// Token kedaluarsa/dicabut — pusatkan penanganan: bersihkan token lalu
+		// beri tahu App (listener "bph:unauthorized") supaya reset state + ke login.
+		clearToken();
+		window.dispatchEvent(new Event("bph:unauthorized"));
+	}
 	if (!res.ok || body.success === false) throw new ApiFail(body, res.status);
 	return body.data;
 }

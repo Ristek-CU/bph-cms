@@ -8,9 +8,11 @@ import type { QprQuestion, SubmitAnswersInput } from "./qpr.schema";
 
 const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: string | null }) => {
 	if (p.status !== "open") return false;
-	const now = new Date().toISOString();
-	if (p.opensAt && p.opensAt > now) return false;
-	if (p.closesAt && p.closesAt < now) return false;
+	// Bandingkan sebagai Date (pola formIsOpen) — perbandingan string ISO gagal saat
+	// offset campur (+07:00 vs Z) karena urutan leksikografis.
+	const now = new Date();
+	if (p.opensAt && new Date(p.opensAt) > now) return false;
+	if (p.closesAt && new Date(p.closesAt) < now) return false;
 	return true;
 };
 

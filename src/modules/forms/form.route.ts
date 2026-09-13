@@ -113,7 +113,9 @@ adminFormRouter.post(
 
 adminFormRouter.get(
 	"/:id/analytics",
-	requirePermission("forms.read.own_division", { resourceType: "form" }),
+	// Submissions permission (bukan forms.read): analitik menampilkan jawaban
+	// mentah per pengisi — contributor (read-only) tidak boleh lihat.
+	requirePermission("forms.submissions.own_division", { resourceType: "form" }),
 	ok("Form analytics", "Total respons, tren 7 hari, distribusi per pilihan, rata-rata skala/angka.", successWrapper(z.object({})), {
 		404: { description: "Not found" },
 	}),

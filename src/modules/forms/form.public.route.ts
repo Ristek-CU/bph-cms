@@ -228,21 +228,21 @@ publicFormRouter.post(
 		const fingerprint = Array.from(new Uint8Array(fingerprintBytes)).map((b) => b.toString(16).padStart(2, "0")).join("");
 
 		const now = new Date().toISOString();
-		const [submission] = await db
-			.insert(formSubmissions)
-			.values({ id: uuidv7(), formId: form.id, fingerprint, createdAt: now, updatedAt: now })
-			.returning();
+		const submissionId = uuidv7();
 
-		// D1 batch: atomik — jawaban sekali jalan.
-		if (answers.length) {
-			await c.env.DB.batch(
-				answers.map((a) =>
-					c.env.DB.prepare(
-						"INSERT INTO form_answers (id, submission_id, field_id, field_label, field_type, value, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-					).bind(uuidv7(), submission.id, a.fieldId, a.fieldLabel, a.fieldType, a.value, now),
-				),
-			);
-		}
+		// Satu D1 batch: submission + semua jawaban atomik — kalau jawaban gagal,
+		// submission ikut ter-rollback (tidak ada submission tanpa jawaban).
+		await c.env.DB.batch([
+			c.env.DB.prepare(
+				"INSERT INTO form_submissions (id, form_id, fingerprint, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)",
+			).bind(submissionId, form.id, fingerprint, now),
+			...answers.map((a) =>
+				c.env.DB.prepare(
+					"INSERT INTO form_answers (id, submission_id, field_id, field_label, field_type, value, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+				).bind(uuidv7(), submissionId, a.fieldId, a.fieldLabel, a.fieldType, a.value, now),
+			),
+		]);
+		const submission = { id: submissionId };
 
 		const uploadedPaths: string[] = [];
 		try {

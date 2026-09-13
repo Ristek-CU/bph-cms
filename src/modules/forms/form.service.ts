@@ -224,65 +224,86 @@ export const formService = {
 		return existing;
 	},
 
-	// ---- Analytics ringkas per form (agregasi di JS — volume respons CMS kecil). ----
+	// ---- Analytics ringkas per form (agregasi di SQL — aman untuk ribuan respons). ----
 	async analytics(db: Db, formId: string) {
 		const found = await getWithFields(db, formId);
 		if (!found) throw ApiError.notFound("Form tidak ditemukan");
-		const submissions = await db
-			.select()
-			.from(formSubmissions)
-			.where(eq(formSubmissions.formId, formId))
-			.orderBy(desc(formSubmissions.createdAt));
-		const answers = submissions.length
-			? await db
-					.select()
-					.from(formAnswers)
-					.where(inArray(formAnswers.submissionId, submissions.map((s) => s.id)))
-			: [];
 
-		const total = submissions.length;
+		// Tren 7 hari + total via GROUP BY di SQL — tidak load semua baris submission.
+		const since = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
+		const dayRows = await db
+			.select({ day: sql<string>`substr(${formSubmissions.createdAt}, 1, 10)`, n: sql<number>`count(*)` })
+			.from(formSubmissions)
+			.where(and(eq(formSubmissions.formId, formId), sql`${formSubmissions.createdAt} >= ${since}`))
+			.groupBy(sql`substr(${formSubmissions.createdAt}, 1, 10)`);
+		const dayMap = new Map(dayRows.map((r) => [r.day, Number(r.n)]));
+
+		const [totalRow] = await db
+			.select({ n: sql<number>`count(*)` })
+			.from(formSubmissions)
+			.where(eq(formSubmissions.formId, formId));
+		const total = Number(totalRow?.n ?? 0);
+
 		const byDay = new Map<string, number>();
 		for (let i = 6; i >= 0; i--) {
 			const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
-			byDay.set(d, 0);
-		}
-		for (const s of submissions) {
-			const day = s.createdAt.slice(0, 10);
-			if (byDay.has(day)) byDay.set(day, (byDay.get(day) ?? 0) + 1);
+			byDay.set(d, dayMap.get(d) ?? 0);
 		}
 
-		const perField = found.fields.map((field) => {
-			const fieldAnswers = answers.filter((a) => a.fieldId === field.id);
-			const rate = total ? Math.round((fieldAnswers.length / total) * 100) : 0;
-			const options = parseFieldOptions(field.options);
-			let distribution: Record<string, number> | null = null;
-			if (Array.isArray(options)) {
-				distribution = Object.fromEntries(options.map((o: string) => [o, 0]));
-				for (const a of fieldAnswers) {
-					const values = JSON.parse(a.value) as string | string[];
-					for (const v of Array.isArray(values) ? values : [values]) {
-						if (distribution[v] !== undefined) distribution[v]++;
+		const perField = found.fields.map((field) => ({
+			id: field.id,
+			label: field.label,
+			type: field.type,
+			response_rate: 0,
+			distribution: null as Record<string, number> | null,
+			average: null as number | null,
+			recent: [] as unknown[],
+		}));
+
+		if (total > 0) {
+			for (let i = 0; i < found.fields.length; i++) {
+				const field = found.fields[i];
+				const [countRow] = await db
+					.select({ n: sql<number>`count(*)` })
+					.from(formAnswers)
+					.where(eq(formAnswers.fieldId, field.id));
+				perField[i].response_rate = Math.round((Number(countRow?.n ?? 0) / total) * 100);
+
+				const options = parseFieldOptions(field.options);
+				if (Array.isArray(options)) {
+					// Distribusi pilihan di SQL: GROUP BY value lalu pecah array (checkboxes) di JS.
+					const distRows = await db
+						.select({ value: formAnswers.value, n: sql<number>`count(*)` })
+						.from(formAnswers)
+						.where(eq(formAnswers.fieldId, field.id))
+						.groupBy(formAnswers.value);
+					const distribution: Record<string, number> = Object.fromEntries(
+						(options as string[]).map((o) => [o, 0]),
+					);
+					for (const r of distRows) {
+						const values = JSON.parse(r.value) as string | string[];
+						for (const v of Array.isArray(values) ? values : [values]) {
+							if (distribution[v] !== undefined) distribution[v] += Number(r.n);
+						}
 					}
+					perField[i].distribution = distribution;
 				}
+				if (field.type === "linear_scale" || field.type === "number") {
+					const [avgRow] = await db
+						.select({ avg: sql<number | null>`avg(cast(json_extract(${formAnswers.value}, '$') as real))` })
+						.from(formAnswers)
+						.where(eq(formAnswers.fieldId, field.id));
+					perField[i].average = avgRow?.avg != null ? Number(avgRow.avg) : 0;
+				}
+				const recentRows = await db
+					.select({ value: formAnswers.value })
+					.from(formAnswers)
+					.where(eq(formAnswers.fieldId, field.id))
+				.orderBy(desc(formAnswers.createdAt))
+				.limit(5);
+				perField[i].recent = recentRows.map((r) => JSON.parse(r.value));
 			}
-			let average: number | null = null;
-			if (field.type === "linear_scale" || field.type === "number") {
-				const nums = fieldAnswers
-					.map((a) => Number(JSON.parse(a.value)))
-					.filter((n) => Number.isFinite(n));
-				average = nums.length ? nums.reduce((s, n) => s + n, 0) / nums.length : 0;
-			}
-			const recent = fieldAnswers.slice(0, 5).map((a) => JSON.parse(a.value));
-			return {
-				id: field.id,
-				label: field.label,
-				type: field.type,
-				response_rate: rate,
-				distribution,
-				average,
-				recent,
-			};
-		});
+		}
 
 		return {
 			id: found.form.id,

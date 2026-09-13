@@ -73,9 +73,13 @@ const splitDT = (dt) => ({ _date: dt?.slice(0, 10) || "", _start: dt?.slice(11, 
 const joinDT = (date, time, nextDay) => {
 	if (!date || !time) return "";
 	if (!nextDay) return `${date}T${time}`;
-	const d = new Date(`${date}T${time}:00+07:00`);
-	d.setUTCDate(d.getUTCDate() + 1);
-	return `${d.toISOString().slice(0, 10)}T${time}`;
+	// Tanggal WIB di-increment langsung (Date lokal menangani rollover bulan/tahun).
+	// Jangan manipulasi getUTCDate — untuk jam 00:00-06:59 WIB, UTC date sudah
+	// mundur sehari, +1 menghasilkan tanggal yang salah (bug sesi lewat tengah malam).
+	const [y, m, d] = date.split("-").map(Number);
+	const next = new Date(y, m - 1, d + 1);
+	const p2 = (n) => String(n).padStart(2, "0");
+	return `${next.getFullYear()}-${p2(next.getMonth() + 1)}-${p2(next.getDate())}T${time}`;
 };
 
 function SessionCard({ s, i, err, onChange, onRemove }) {

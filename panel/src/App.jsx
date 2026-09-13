@@ -99,6 +99,19 @@ function App() {
 		return () => window.removeEventListener("bph:events-changed", refresh);
 	}, [token, load]);
 
+	// 401 dari modul mana pun (api() dispatch) → reset state + ke login.
+	useEffect(() => {
+		const onUnauthorized = () => {
+			localStorage.removeItem(WS_KEY);
+			setUser(null);
+			setEvents([]);
+			setToken(null);
+			navigate("/login", { replace: true });
+		};
+		window.addEventListener("bph:unauthorized", onUnauthorized);
+		return () => window.removeEventListener("bph:unauthorized", onUnauthorized);
+	}, [navigate]);
+
 	const handleLogin = async (email, password) => {
 		const data = await signIn(email, password);
 		persistToken(data.token);
