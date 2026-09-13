@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, lt } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 import { describeRoute } from "hono-openapi";
 import { adminAuth } from "../../middlewares/admin-auth";
@@ -192,13 +192,22 @@ adminAccountRouter.get(
 	requirePermission("audit.read"),
 	describeRoute({
 		summary: "List audit logs",
+		description: "Query opsional before_date (ISO) — hanya log sebelum tanggal itu. Default: 50 terbaru.",
 		tags: ["Admin Accounts"],
 		security: [{ bearerAuth: [] }],
 	}),
 	async (c) => {
 		const db = c.get("db");
-		const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(50);
-		return ApiResponse.ok(c, "OK", logs);
+		const before = c.req.query("before_date");
+		const rows = before
+			? await db
+					.select()
+					.from(auditLogs)
+					.where(lt(auditLogs.createdAt, before))
+					.orderBy(desc(auditLogs.createdAt))
+					.limit(50)
+			: await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(50);
+		return ApiResponse.ok(c, "OK", rows);
 	},
 );
 

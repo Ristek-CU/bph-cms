@@ -44,6 +44,7 @@ export const consumeRateLimit = async (
 
 /** Buang baris window yang sudah lewat supaya tabel tidak tumbuh tanpa batas. */
 export const purgeExpiredRateLimits = async (db: Db): Promise<void> => {
-	const cutoff = Date.now() - 3_600_000;
+	// Window terpanjang 15 menit (proxy auth) — 30 menit retention aman.
+	const cutoff = Date.now() - 1_800_000;
 	await db.delete(rateLimits).where(lt(rateLimits.windowStart, cutoff)).run();
 };

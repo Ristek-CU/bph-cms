@@ -131,7 +131,7 @@ eq("akun tanpa membership → create event 403", outsiderCreate.status, 403);
 section("Isolasi lintas divisi");
 
 const listA = await h.req("/api/v1/admin/events", { token: "tok-a-admin" });
-const idsA = (listA.body?.data ?? []).map((e: any) => e.id).sort();
+const idsA = (listA.body?.data?.items ?? []).map((e: any) => e.id).sort();
 eq(
 	"division_admin A hanya melihat event divisi A",
 	idsA,
@@ -139,7 +139,7 @@ eq(
 );
 
 const listB = await h.req("/api/v1/admin/events", { token: "tok-b-admin" });
-const idsB = (listB.body?.data ?? []).map((e: any) => e.id).sort();
+const idsB = (listB.body?.data?.items ?? []).map((e: any) => e.id).sort();
 eq("division_admin B hanya melihat event divisi B", idsB, ["ev-b-draft", "ev-b-pub"]);
 
 const crossUpdate = await h.req("/api/v1/admin/events/ev-b-pub", {
@@ -197,7 +197,7 @@ const hijack = await h.req("/api/v1/admin/events", {
 	token: "tok-a-admin",
 	headers: { "X-Division-Id": DIVISIONS.b.id },
 });
-const hijackIds = (hijack.body?.data ?? []).map((e: any) => e.id).sort();
+const hijackIds = (hijack.body?.data?.items ?? []).map((e: any) => e.id).sort();
 eq(
 	"X-Division-Id divisi lain diabaikan, fallback ke divisi sendiri",
 	hijackIds,
@@ -221,7 +221,7 @@ const bphUpdateB = await h.req("/api/v1/admin/events/ev-b-pub", {
 eq("platform_admin boleh update event divisi B → 200", bphUpdateB.status, 200);
 
 const bphListAll = await h.req("/api/v1/admin/events", { token: "tok-bph" });
-eq("platform_admin melihat semua divisi", (bphListAll.body?.data ?? []).length, 5);
+eq("platform_admin melihat semua divisi", (bphListAll.body?.data?.items ?? []).length, 5);
 
 // ── 5. Contributor draft-only ────────────────────────────────────────────────
 section("Contributor draft-only");
@@ -286,7 +286,7 @@ section("Viewer read-only");
 const viewerList = await h.req("/api/v1/admin/events", { token: "tok-a-viewer" });
 eq("viewer list → 200", viewerList.status, 200);
 // 2 event seed + 2 draft buatan contributor di bagian sebelumnya.
-eq("viewer hanya divisi sendiri", (viewerList.body?.data ?? []).length, 4);
+eq("viewer hanya divisi sendiri", (viewerList.body?.data?.items ?? []).length, 4);
 
 const viewerCreate = await h.req("/api/v1/admin/events", {
 	method: "POST",

@@ -76,7 +76,7 @@ eq("choice dengan 1 opsi → 422", badChoice.status, 422);
 section("Isolasi lintas divisi");
 
 const otherList = await h.req("/api/v1/admin/forms", { token: "tok-b-admin" });
-eq("admin divisi B tidak melihat form divisi A", otherList.body?.data?.length, 0);
+eq("admin divisi B tidak melihat form divisi A", otherList.body?.data?.items?.length ?? 0, 0);
 const otherGet = await h.req(`/api/v1/admin/forms/${form.id}`, { token: "tok-b-admin" });
 eq("admin divisi B get form A → 403", otherGet.status, 403);
 const otherUpdate = await h.req(`/api/v1/admin/forms/${form.id}`, { token: "tok-b-admin", method: "PUT", json: { title: "bajak" } });
@@ -85,7 +85,7 @@ const otherSubs = await h.req(`/api/v1/admin/forms/${form.id}/submissions`, { to
 eq("admin divisi B submissions form A → 403", otherSubs.status, 403);
 
 const bphList = await h.req("/api/v1/admin/forms", { token: "tok-bph" });
-eq("platform_admin melihat form semua divisi", bphList.body?.data?.length >= 1, true);
+eq("platform_admin melihat form semua divisi", (bphList.body?.data?.items ?? []).length >= 1, true);
 
 // ── Publik: draft → 404, publish → terlihat ────────────────────────────────
 section("Alur publik");

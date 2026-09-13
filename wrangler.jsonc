@@ -7,6 +7,9 @@
 	"workers_dev": false,
 	"preview_urls": false,
 	"keep_vars": true,
+	// Cron 15 menit: purge rate_limits kedaluwarsa + audit log > 90 hari
+	// (handler scheduled di src/index.ts).
+	"triggers": { "crons": ["*/15 * * * *"] },
 	"assets": {
 		"directory": "./panel/dist",
 		"not_found_handling": "single-page-application",

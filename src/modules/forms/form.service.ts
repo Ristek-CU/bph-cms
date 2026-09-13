@@ -102,11 +102,18 @@ const getWithFields = async (db: Db, id: string) => {
 };
 
 export const formService = {
-	async listAdmin(db: Db, opts: { divisionId?: string }) {
-		const rows = opts.divisionId
-			? await db.select().from(forms).where(eq(forms.divisionId, opts.divisionId)).orderBy(desc(forms.createdAt))
-			: await db.select().from(forms).orderBy(desc(forms.createdAt));
-		if (rows.length === 0) return [];
+	async listAdmin(db: Db, opts: { divisionId?: string; page?: number; perPage?: number }) {
+		// Pagination opsional — default 200 (jumlah form per divisi jauh di bawah itu).
+		const page = Math.max(1, opts.page ?? 1);
+		const perPage = Math.min(200, Math.max(1, opts.perPage ?? 200));
+		const scope = opts.divisionId ? eq(forms.divisionId, opts.divisionId) : undefined;
+		const base = db.select().from(forms).orderBy(desc(forms.createdAt)).limit(perPage).offset((page - 1) * perPage);
+		const rows = scope ? await base.where(scope) : await base;
+		const [totalRow] = await db
+			.select({ n: sql<number>`count(*)` })
+			.from(forms)
+			.where(scope ?? sql`1=1`);
+		if (rows.length === 0) return { items: [], meta: { page, per_page: perPage, total: Number(totalRow?.n ?? 0) } };
 		const ids = rows.map((r) => r.id);
 		const allFields = await db.select().from(formFields).where(inArray(formFields.formId, ids)).orderBy(asc(formFields.sortOrder));
 		// Jumlah respons per form untuk kartu studio (grouped, 1 query).
@@ -116,10 +123,13 @@ export const formService = {
 			.where(inArray(formSubmissions.formId, ids))
 			.groupBy(formSubmissions.formId);
 		const countMap = new Map(counts.map((c) => [c.formId, Number(c.n)]));
-		return rows.map((r) => ({
-			...toAdminShape(r, allFields.filter((d) => d.formId === r.id)),
-			submission_count: countMap.get(r.id) ?? 0,
-		}));
+		return {
+			items: rows.map((r) => ({
+				...toAdminShape(r, allFields.filter((d) => d.formId === r.id)),
+				submission_count: countMap.get(r.id) ?? 0,
+			})),
+			meta: { page, per_page: perPage, total: Number(totalRow?.n ?? 0) },
+		};
 	},
 
 	async get(db: Db, id: string) {

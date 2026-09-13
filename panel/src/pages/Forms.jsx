@@ -45,7 +45,8 @@ export default function Forms({ user }) {
 
 	const load = useCallback(async () => {
 		try {
-			setForms(await api("/admin/forms"));
+			const d = await api("/admin/forms");
+			setForms(d.items || d || []);
 			setErr("");
 		} catch (e) {
 			setErr(errText(e));

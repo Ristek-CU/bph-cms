@@ -357,19 +357,18 @@ export const eventService = {
 		return this.getWithSessions(db, eventId);
 	},
 
-	async listAdmin(db: Db, options?: { divisionId?: string }) {
-		// Tanpa pagination — panel admin mengambil semua baris. Tambahkan pagination
-		// kalau jumlah event sudah melewati ratusan.
-		const rows = options?.divisionId
-			? await db
-					.select()
-					.from(events)
-					.where(eq(events.divisionId, options.divisionId))
-					.orderBy(desc(events.startsAtMs))
-			: await db
-					.select()
-					.from(events)
-					.orderBy(desc(events.startsAtMs));
+	async listAdmin(db: Db, options?: { divisionId?: string; page?: number; perPage?: number }) {
+		// Pagination opsional — default 200 (panel memang butuh banyak baris untuk
+		// kalender + ringkasan; kalau data melewati itu, panel pakai page/per_page).
+		const page = Math.max(1, options?.page ?? 1);
+		const perPage = Math.min(200, Math.max(1, options?.perPage ?? 200));
+		const scope = options?.divisionId ? eq(events.divisionId, options.divisionId) : undefined;
+		const base = db.select().from(events).orderBy(desc(events.startsAtMs)).limit(perPage).offset((page - 1) * perPage);
+		const rows = scope ? await base.where(scope) : await base;
+		const [totalRow] = await db
+			.select({ n: sql<number>`count(*)` })
+			.from(events)
+			.where(scope ?? sql`1=1`);
 		// Sesi diambil hanya untuk event yang ada di scope. Sebelumnya semua sesi
 		// dari semua divisi ikut terbaca lalu dibuang di memori.
 		const all = rows.length
@@ -385,7 +384,10 @@ export const eventService = {
 			arr.push(s);
 			byEvent.set(s.eventId, arr);
 		}
-		return rows.map((e) => toAdminEventShape(e, byEvent.get(e.id) || []));
+		return {
+			items: rows.map((e) => toAdminEventShape(e, byEvent.get(e.id) || [])),
+			meta: { page, per_page: perPage, total: Number(totalRow?.n ?? 0) },
+		};
 	},
 
 	async setStatus(db: Db, id: string, status: "draft" | "published") {

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Handler, Next } from "hono";
+import { lt } from "drizzle-orm";
 import { requestId } from "hono/request-id";
 import { cors } from "hono/cors";
 import { openAPIRouteHandler, describeRoute, resolver } from "hono-openapi";
@@ -24,6 +25,8 @@ import { eventService } from "./modules/events/event.service";
 import { adminAuth } from "./middlewares/admin-auth";
 import { d1RateLimiter } from "./middlewares/rate-limiter";
 import { getDb } from "./db/connection";
+import { purgeExpiredRateLimits } from "./db/rate-limit";
+import { auditLogs } from "./db/schema";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -268,4 +271,19 @@ app.notFound((c) =>
 
 app.onError(errorHandler);
 
-export default app;
+// Cron (wrangler triggers, tiap 15 menit): bersihkan rate_limits kedaluwarsa
+// dan audit log yang lebih tua dari 90 hari. Tabel keduanya tumbuh tanpa batas
+// kalau tidak dipangkas.
+export default {
+	fetch: app.fetch,
+	scheduled: async (_event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) => {
+		ctx.waitUntil(
+			(async () => {
+				const db = getDb(env.DB);
+				await purgeExpiredRateLimits(db);
+				const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString();
+				await db.delete(auditLogs).where(lt(auditLogs.createdAt, cutoff));
+			})(),
+		);
+	},
+};
