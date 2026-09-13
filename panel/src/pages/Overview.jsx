@@ -76,7 +76,8 @@ export default function Overview({ events, onEdit, capabilities }) {
 							</p>
 						) : (
 							<div className="tbl-wrap">
-								<table className="tbl">
+								<div className="tbl-wrap">
+									<table className="tbl">
 									<thead>
 										<tr><th>Event</th><th>Waktu (WIB)</th><th>Status</th><th /></tr>
 									</thead>
@@ -95,7 +96,8 @@ export default function Overview({ events, onEdit, capabilities }) {
 											</tr>
 										))}
 									</tbody>
-								</table>
+									</table>
+								</div>
 							</div>
 						)}
 					</div>

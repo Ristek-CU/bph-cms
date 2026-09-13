@@ -192,7 +192,14 @@ export const qprService = {
 			.where(and(eq(qprEntries.id, entry.id), eq(qprEntries.done, false)))
 			.returning({ id: qprEntries.id });
 		if (claimed.length === 0) throw ApiError.conflict("Nama ini sudah mengisi penilaian.");
-		await db.insert(qprAnswers).values({ id: uuidv7(), entryId: entry.id, answers: JSON.stringify(input.answers), submittedAt: now });
+		try {
+			await db.insert(qprAnswers).values({ id: uuidv7(), entryId: entry.id, answers: JSON.stringify(input.answers), submittedAt: now });
+		} catch (e) {
+			// Insert gagal → batalkan klaim done supaya pengisi bisa retry.
+			// (Batch D1 tidak bisa kondisional antar-statement; rollback manual.)
+			await db.update(qprEntries).set({ done: false, submittedAt: null }).where(eq(qprEntries.id, entry.id));
+			throw e;
+		}
 		return { entry_id: entry.id, name: entry.name };
 	},
 

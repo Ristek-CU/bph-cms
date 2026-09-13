@@ -54,9 +54,11 @@ const safeEqual = (a: string, b: string): boolean => {
 	const enc = new TextEncoder();
 	const ua = enc.encode(a);
 	const ub = enc.encode(b);
-	if (ua.length !== ub.length) return false;
-	let diff = 0;
-	for (let i = 0; i < ua.length; i++) diff |= ua[i] ^ ub[i];
+	// Pad ke panjang maksimum — early-return saat panjang beda bocorkan info
+	// panjang secret lewat timing.
+	const maxLen = Math.max(ua.length, ub.length);
+	let diff = ua.length ^ ub.length;
+	for (let i = 0; i < maxLen; i++) diff |= (ua[i] ?? 0) ^ (ub[i] ?? 0);
 	return diff === 0;
 };
 

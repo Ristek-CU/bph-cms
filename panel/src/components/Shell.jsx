@@ -124,6 +124,8 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 					<strong>SGA CMS Hub</strong>
 					<small>{user?.division?.name ? `Divisi ${user.division.name}` : "SGA Cakrawala"}</small>
 				</div>
+				{/* Tombol tutup drawer — hanya muncul saat drawer mobile terbuka */}
+				<button className="sidebar-close" aria-label="Tutup menu" onClick={() => setDrawer(false)}>×</button>
 			</div>
 			{nav}
 			<div className="userbox">

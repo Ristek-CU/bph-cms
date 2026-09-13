@@ -149,11 +149,10 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 	};
 
 	const showRecap = async () => {
+		// Detail dan rekap saling eksklusif — dulu keduanya tampil bersamaan.
+		setDetail(null);
 		setRecap(null);
-		if (!open) {
-			onToggle();
-			setDetail(null);
-		}
+		if (!open) onToggle();
 		try { setRecap(await api(`/admin/qpr/periods/${period.id}/recap`)); } catch (e) { toast(errText(e), "err"); }
 	};
 
@@ -219,7 +218,8 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 						onAdded={async () => { setDetail(await api(`/admin/qpr/periods/${period.id}`)); await onDone(); }}
 						toast={toast}
 					/>
-					<table className="tbl" style={{ marginTop: 8 }}>
+					<div className="tbl-wrap">
+						<table className="tbl">
 						<thead><tr><th>Nama</th><th>Divisi</th><th>Status</th><th></th></tr></thead>
 						<tbody>
 							{detail.entries.map((e) => (
@@ -234,7 +234,8 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 							))}
 							{detail.entries.length === 0 && <tr><td colSpan={4} className="muted">Belum ada nama. Klik "+ Tambah nama".</td></tr>}
 						</tbody>
-					</table>
+						</table>
+					</div>
 				</div>
 			)}
 			{recap && (
@@ -248,7 +249,8 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 							<strong>Belum isi:</strong> {recap.pending.map((p) => p.name).join(", ")}
 						</div>
 					)}
-					<table className="tbl">
+					<div className="tbl-wrap">
+						<table className="tbl">
 						<thead><tr><th>Kategori</th><th>Rata-rata</th></tr></thead>
 						<tbody>
 							{Object.entries(recap.category_averages).map(([k, v]) => (
@@ -256,7 +258,8 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 							))}
 							{Object.keys(recap.category_averages).length === 0 && <tr><td colSpan={2} className="muted">Belum ada penilaian masuk.</td></tr>}
 						</tbody>
-					</table>
+						</table>
+					</div>
 					{recap.notes.length > 0 && (
 						<div className="small" style={{ marginTop: 8 }}>
 							<strong>Catatan:</strong>

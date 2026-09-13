@@ -4,10 +4,13 @@ import { cloneElement, createContext, useCallback, useContext, useEffect, useId,
 const ToastCtx = createContext(() => {});
 export const useToast = () => useContext(ToastCtx);
 
+// Counter monotonic — Math.random() bisa duplikat (key React bentrok).
+let toastSeq = 0;
+
 export function ToastProvider({ children }) {
 	const [toasts, setToasts] = useState([]);
 	const push = useCallback((msg, kind = "ok") => {
-		const id = Math.random();
+		const id = ++toastSeq;
 		setToasts((t) => [...t, { id, msg, kind }]);
 		setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3500);
 	}, []);

@@ -9,11 +9,14 @@ import { requirePermission } from "../../middlewares/require-permission";
 import { recordAuditLog } from "../audit/audit.service";
 import type { AppContext } from "../../types";
 
-// SDD §4.4: JPG/PNG/WebP ≤ 5MB.
-const ALLOWED_TYPES: Record<string, string> = {
-	"image/jpeg": "jpg",
-	"image/png": "png",
-	"image/webp": "webp",
+// SDD §4.4: JPG/PNG/WebP ≤ 5MB. Ekstensi diekstrak dari nama file — Content-Type
+// klien tidak dipercaya (pola form.public.route: "x.jpg" bisa dikirim sebagai
+// text/html). Mime R2 selalu diturunkan dari ekstensi.
+const EXT_MIME: Record<string, string> = {
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	png: "image/png",
+	webp: "image/webp",
 };
 const MAX_SIZE = 5 * 1024 * 1024;
 
@@ -51,8 +54,9 @@ mediaRouter.post(
 		});
 	}
 
-	const ext = ALLOWED_TYPES[file.type as keyof typeof ALLOWED_TYPES];
-	if (!ext) {
+	const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+	const mime = EXT_MIME[ext];
+	if (!mime) {
 		throw ApiError.validation("Validation failed", {
 			file: ["Must be JPG, PNG, or WebP"],
 		});
@@ -64,16 +68,16 @@ mediaRouter.post(
 	}
 
 	// Key dari uuidv7 + ekstensi valid — tidak ada user input di path (sanitize gratis).
-	const key = `covers/${uuidv7()}.${ext}`;
+	const key = `covers/${uuidv7()}.${ext === "jpeg" ? "jpg" : ext}`;
 	await c.env.BUCKET.put(key, file.stream(), {
-		httpMetadata: { contentType: file.type },
+		httpMetadata: { contentType: mime },
 	});
 
 	await recordAuditLog(c, {
 		action: "media.upload",
 		resourceType: "media",
 		resourceId: key,
-		metadata: { contentType: file.type, size: file.size },
+		metadata: { contentType: mime, size: file.size },
 	});
 
 	return ApiResponse.created(c, "Media uploaded", {

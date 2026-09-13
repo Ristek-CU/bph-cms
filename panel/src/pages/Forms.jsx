@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, errText } from "../api.js";
 import { useToast, Confirm, SkeletonCard } from "../components/ui.jsx";
+import { IconChevronRight } from "../components/Icons.jsx";
 
 // Student Voice Studio — terinspirasi Campaign & Polling di Dashboard Advokasi:
 // daftar form sebagai kartu (jumlah pertanyaan/respons terlihat), builder dan
@@ -336,7 +337,8 @@ function SubmissionsSection({ formId, toast }) {
 									<button className="btn danger sm" disabled={busy} onClick={() => setAskRemove(s.id)}>Hapus</button>
 								</span>
 							</div>
-							<table className="tbl">
+							<div className="tbl-wrap">
+								<table className="tbl">
 								<tbody>
 									{s.answers.map((a, i) => (
 										<tr key={i}>
@@ -345,7 +347,8 @@ function SubmissionsSection({ formId, toast }) {
 										</tr>
 									))}
 								</tbody>
-							</table>
+								</table>
+							</div>
 						</div>
 					))}
 				</div>
@@ -511,6 +514,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 								<span className="field-block-label">{f.label || "(pertanyaan kosong)"}</span>
 								{Boolean(f.required) && <span className="badge published">Wajib</span>}
 								<span className="badge draft">{FIELD_TYPES.find(([v]) => v === f.type)?.[1] ?? f.type}</span>
+								<span className="field-chev" aria-hidden><IconChevronRight size={16} /></span>
 							</button>
 							{openMap.has(f.id) && (
 								<div className="field-block-body">

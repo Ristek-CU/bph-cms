@@ -105,7 +105,8 @@ function AccountsTab() {
 				{rows.length === 0 ? (
 					<p className="muted">Belum ada membership.</p>
 				) : (
-					<table className="tbl">
+					<div className="tbl-wrap">
+						<table className="tbl">
 						<thead><tr><th>Email</th><th>Divisi</th><th>Role</th><th>Status</th><th>Dibuat</th></tr></thead>
 						<tbody>
 							{rows.map((r) => (
@@ -118,7 +119,8 @@ function AccountsTab() {
 								</tr>
 							))}
 						</tbody>
-					</table>
+						</table>
+					</div>
 				)}
 			</div>
 		</div>
@@ -186,7 +188,8 @@ function DivisionsTab() {
 			</div>
 			<div className="card">
 				<h3 style={{ marginBottom: 10 }}>Divisi ({rows.length})</h3>
-				<table className="tbl">
+				<div className="tbl-wrap">
+					<table className="tbl">
 					<thead><tr><th>Nama</th><th>Slug</th><th>Email</th><th>Aktif</th></tr></thead>
 					<tbody>
 						{rows.map((d) => (
@@ -198,7 +201,8 @@ function DivisionsTab() {
 							</tr>
 						))}
 					</tbody>
-				</table>
+					</table>
+				</div>
 			</div>
 		</div>
 	);
@@ -223,7 +227,8 @@ function AuditTab() {
 			{rows.length === 0 ? (
 				<p className="muted">Belum ada aktivitas.</p>
 			) : (
-				<table className="tbl">
+				<div className="tbl-wrap">
+					<table className="tbl">
 					<thead><tr><th>Waktu</th><th>Aktor</th><th>Aksi</th><th>Resource</th><th>IP</th></tr></thead>
 					<tbody>
 						{rows.map((l) => (
@@ -236,7 +241,8 @@ function AuditTab() {
 							</tr>
 						))}
 					</tbody>
-				</table>
+					</table>
+				</div>
 			)}
 		</div>
 	);
