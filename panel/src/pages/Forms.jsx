@@ -93,6 +93,7 @@ function FormRow({ form, onDone, canManage, canSeeSubmissions, toast }) {
 	const [busy, setBusy] = useState(false);
 	const [openEditor, setOpenEditor] = useState(false);
 	const [openSubs, setOpenSubs] = useState(false);
+	const [openAnalytics, setOpenAnalytics] = useState(false);
 
 	const act = async (fn) => {
 		setBusy(true);
@@ -104,6 +105,12 @@ function FormRow({ form, onDone, canManage, canSeeSubmissions, toast }) {
 		} finally {
 			setBusy(false);
 		}
+	};
+
+	// Tiga tampilan detail saling eksklusif — satu panel terbuka saja.
+	const toggle = (setter, others) => () => {
+		others.forEach((s) => s(false));
+		setter((v) => !v);
 	};
 
 	return (
@@ -127,10 +134,13 @@ function FormRow({ form, onDone, canManage, canSeeSubmissions, toast }) {
 						);
 					}}>Salin link</button>
 					{canSeeSubmissions && (
-						<button className="btn ghost" disabled={busy} onClick={() => setOpenSubs((v) => !v)}>Respons</button>
+						<button className="btn ghost" disabled={busy} onClick={toggle(setOpenSubs, [setOpenEditor, setOpenAnalytics])}>Respons</button>
+					)}
+					{canSeeSubmissions && (
+						<button className="btn ghost" disabled={busy} onClick={toggle(setOpenAnalytics, [setOpenEditor, setOpenSubs])}>Analitik</button>
 					)}
 					{canManage && (
-						<button className="btn ghost" disabled={busy} onClick={() => setOpenEditor((v) => !v)}>Edit</button>
+						<button className="btn ghost" disabled={busy} onClick={toggle(setOpenEditor, [setOpenSubs, setOpenAnalytics])}>Edit</button>
 					)}
 					{canManage && form.status === "draft" && (
 						<button className="btn" disabled={busy} onClick={() => act(() => api(`/admin/forms/${form.id}/publish`, { method: "POST" }))}>Terbitkan</button>
@@ -147,6 +157,7 @@ function FormRow({ form, onDone, canManage, canSeeSubmissions, toast }) {
 				<Editor form={form} onDone={async () => { await onDone(); }} toast={toast} />
 			)}
 			{openSubs && <Submissions form={form} toast={toast} />}
+			{openAnalytics && <Analytics form={form} toast={toast} />}
 		</div>
 	);
 }
@@ -318,6 +329,9 @@ function Submissions({ form, toast }) {
 
 	return (
 		<div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12, display: "grid", gap: 10 }}>
+			<div>
+				<button className="btn ghost" disabled={busy} onClick={() => exportCsv(form, toast)}>Ekspor CSV</button>
+			</div>
 			{subs.map((s) => (
 				<div key={s.id} className="card" style={{ padding: 12 }}>
 					<div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
@@ -345,4 +359,141 @@ function Submissions({ form, toast }) {
 			))}
 		</div>
 	);
+}
+
+// ── Analitik (gaya Google Forms) ─────────────────────────────────────────────
+function Analytics({ form, toast }) {
+	const [data, setData] = useState(null);
+
+	useEffect(() => {
+		api(`/admin/forms/${form.id}/analytics`)
+			.then(setData)
+			.catch((e) => toast(errText(e), "err"));
+	}, [form.id, toast]);
+
+	if (!data) return <div className="muted small" style={{ marginTop: 10 }}>Memuat analitik…</div>;
+
+	const maxDay = Math.max(1, ...data.last_7_days.map((d) => d.count));
+
+	return (
+		<div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12, display: "grid", gap: 16 }}>
+			<div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+				<StatBox label="Total respons" value={data.total_submissions} />
+				<StatBox label="7 hari terakhir" value={data.last_7_days.reduce((s, d) => s + d.count, 0)} />
+				<StatBox label="Status" value={STATUS_LABEL[data.status] ?? data.status} />
+			</div>
+
+			<div>
+				<div className="field-label">Tren 7 hari</div>
+				<div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 90 }}>
+					{data.last_7_days.map((d) => (
+						<div key={d.date} style={{ flex: 1, textAlign: "center" }} title={`${d.date}: ${d.count}`}>
+							<div className="muted small" style={{ marginBottom: 2 }}>{d.count || ""}</div>
+							<div style={{
+								background: "var(--gold)",
+								borderRadius: "4px 4px 0 0",
+								height: `${Math.max(4, (d.count / maxDay) * 64)}px`,
+								minHeight: 4,
+							}} />
+							<div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+								{new Date(d.date).toLocaleDateString("id-ID", { weekday: "short" })}
+							</div>
+						</div>
+					))}
+				</div>
+			</div>
+
+			{data.fields.map((f) => (
+				<FieldAnalytics key={f.id} field={f} total={data.total_submissions} />
+			))}
+		</div>
+	);
+}
+
+function StatBox({ label, value }) {
+	return (
+		<div className="card" style={{ padding: "10px 16px", minWidth: 140 }}>
+			<div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
+			<div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>{value}</div>
+		</div>
+	);
+}
+
+function FieldAnalytics({ field, total }) {
+	return (
+		<div className="card" style={{ padding: 12 }}>
+			<div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+				<strong className="small">{field.label}</strong>
+				<span className="muted small">{field.response_rate}% dijawab</span>
+			</div>
+			{field.distribution && (
+				<div style={{ marginTop: 8, display: "grid", gap: 4 }}>
+					{Object.entries(field.distribution).map(([opt, count]) => {
+						const max = Math.max(1, ...Object.values(field.distribution));
+						return (
+							<div key={opt} style={{ display: "grid", gridTemplateColumns: "minmax(80px, 200px) 1fr 40px", alignItems: "center", gap: 8 }}>
+								<span className="small" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{opt}</span>
+								<div style={{ background: "#eef2f5", borderRadius: 4, height: 10 }}>
+									<div style={{ background: "var(--navy)", width: `${(count / max) * 100}%`, height: "100%", borderRadius: 4 }} />
+								</div>
+								<span className="muted small" style={{ textAlign: "right" }}>{count}</span>
+							</div>
+						);
+					})}
+				</div>
+			)}
+			{field.average !== null && (
+				<div style={{ marginTop: 8 }}>
+					<span className="small"><strong>Rata-rata: {Math.round(field.average * 100) / 100}</strong></span>
+					<div style={{ background: "#eef2f5", borderRadius: 4, height: 10, marginTop: 4, maxWidth: 300 }}>
+						<div style={{ background: "var(--gold)", width: `${Math.min(100, (field.average / 5) * 100)}%`, height: "100%", borderRadius: 4 }} />
+					</div>
+				</div>
+			)}
+			{!field.distribution && field.average === null && field.recent.length > 0 && (
+				<div className="muted small" style={{ marginTop: 6 }}>
+					Jawaban terakhir: {field.recent.slice(0, 3).map((v) => (typeof v === "string" && v.length > 40 ? `${v.slice(0, 40)}…` : String(v))).join(" · ")}
+				</div>
+			)}
+			{total === 0 && <div className="muted small" style={{ marginTop: 6 }}>Belum ada respons.</div>}
+		</div>
+	);
+}
+
+// ── Ekspor CSV ───────────────────────────────────────────────────────────────
+async function exportCsv(form, toast) {
+	try {
+		const csvEscape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+		let all = [];
+		for (let page = 1; ; page++) {
+			const d = await api(`/admin/forms/${form.id}/submissions?page=${page}&per_page=100`);
+			all = all.concat(d.items || []);
+			if (!d.items || d.items.length < 100) break;
+		}
+		if (!all.length) { toast("Belum ada respons untuk diekspor.", "err"); return; }
+		const headerSet = [];
+		for (const s of all) for (const a of s.answers) if (!headerSet.includes(a.label)) headerSet.push(a.label);
+		const rows = [
+			["waktu", "status", ...headerSet].map(csvEscape).join(","),
+			...all.map((s) => [
+				new Date(s.created_at).toLocaleString("id-ID"),
+				s.status,
+				...headerSet.map((label) => {
+					const a = s.answers.find((x) => x.label === label);
+					if (!a) return "";
+					return Array.isArray(a.value) ? a.value.join("; ") : String(a.value);
+				}).map(csvEscape),
+			].join(",")),
+		];
+		const blob = new Blob(["﻿" + rows.join("\r\n")], { type: "text/csv;charset=utf-8" });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = `${form.slug}-respons.csv`;
+		link.click();
+		URL.revokeObjectURL(url);
+		toast(`${all.length} respons diekspor.`);
+	} catch (e) {
+		toast(errText(e), "err");
+	}
 }
