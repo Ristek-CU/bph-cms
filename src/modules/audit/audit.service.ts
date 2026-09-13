@@ -23,7 +23,8 @@ export const recordAuditLog = async (c: Context<AppContext>, params: AuditParams
 			resourceType: params.resourceType,
 			resourceId: params.resourceId ?? null,
 			metadata: params.metadata ? JSON.stringify(params.metadata) : null,
-			ipAddress: c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || null,
+			// cf-connecting-ip hanya — x-forwarded-for bisa dipalsukan klien.
+			ipAddress: c.req.header("cf-connecting-ip") || null,
 			userAgent: c.req.header("user-agent") || null,
 			createdAt: new Date().toISOString(),
 		});

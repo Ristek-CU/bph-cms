@@ -137,7 +137,7 @@ export const events = sqliteTable(
 		status: text("status", { enum: ["draft", "published"] })
 			.notNull()
 			.default("draft"),
-		divisionId: text("division_id").references(() => divisions.id),
+		divisionId: text("division_id").references(() => divisions.id, { onDelete: "set null" }),
 		createdByUserId: text("created_by_user_id"),
 		updatedByUserId: text("updated_by_user_id"),
 		createdAt: text("created_at").notNull(),
@@ -356,18 +356,25 @@ export const qprEntries = sqliteTable(
 		submittedAt: text("submitted_at"),
 		createdAt: text("created_at").notNull(),
 	},
-	(table) => [index("qpr_entries_period_idx").on(table.periodId)],
+	(table) => [
+			index("qpr_entries_period_idx").on(table.periodId),
+			uniqueIndex("qpr_entries_period_name_unique").on(table.periodId, table.name),
+		],
 );
 
-export const qprAnswers = sqliteTable("qpr_answers", {
-	id: text("id").primaryKey(),
-	entryId: text("entry_id")
-		.notNull()
-		.references(() => qprEntries.id, { onDelete: "cascade" }),
-	// JSON array [{ label, category, score (1-5), note? }]
-	answers: text("answers").notNull(),
-	submittedAt: text("submitted_at").notNull(),
-});
+export const qprAnswers = sqliteTable(
+	"qpr_answers",
+	{
+		id: text("id").primaryKey(),
+		entryId: text("entry_id")
+			.notNull()
+			.references(() => qprEntries.id, { onDelete: "cascade" }),
+		// JSON array [{ label, category, score (1-5), note? }]
+		answers: text("answers").notNull(),
+		submittedAt: text("submitted_at").notNull(),
+	},
+	(table) => [uniqueIndex("qpr_answers_entry_unique").on(table.entryId)],
+);
 
 export const qprPeriodsRelations = relations(qprPeriods, ({ many }) => ({
 	entries: many(qprEntries),

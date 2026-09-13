@@ -329,6 +329,10 @@ export const formService = {
 		const answers = rows.length
 			? await db.select().from(formAnswers).where(inArray(formAnswers.submissionId, rows.map((r) => r.id)))
 			: [];
+		const [totalRow] = await db
+			.select({ n: sql<number>`count(*)` })
+			.from(formSubmissions)
+			.where(eq(formSubmissions.formId, formId));
 		return {
 			items: rows.map((r) => ({
 				id: r.id,
@@ -338,7 +342,7 @@ export const formService = {
 					.filter((a) => a.submissionId === r.id)
 					.map((a) => ({ field_id: a.fieldId, label: a.fieldLabel, type: a.fieldType, value: JSON.parse(a.value) })),
 			})),
-			meta: { page, per_page: perPage },
+			meta: { page, per_page: perPage, total: Number(totalRow?.n ?? 0) },
 		};
 	},
 

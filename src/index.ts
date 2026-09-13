@@ -65,9 +65,11 @@ v1.get("/", (c) => ApiResponse.ok(c, "BPH CMS is running", { service: "bph-cms" 
 // D1 rate limit: dilayani sebelum publicEventRouter, jadi tidak kena limiter manapun.
 // Browser yang me-render cover dari cache tetap lolos — cache-control immutable
 // membuat fetch kedua tidak pernah sampai ke worker.
+// HANYA prefix covers/ — file submit form (forms/…) berisi data pribadi dan
+// tidak boleh dilayani tanpa autentikasi.
 v1.get("/storage/*", d1RateLimiter({ prefix: "public:storage", limit: 120, windowMs: 60_000 }), async (c) => {
 	const key = c.req.path.replace("/api/v1/storage/", "");
-	if (!key || key.includes("..")) return c.notFound();
+	if (!key || key.includes("..") || !key.startsWith("covers/")) return c.notFound();
 
 	const object = await c.env.BUCKET.get(key);
 	if (!object) return c.notFound();

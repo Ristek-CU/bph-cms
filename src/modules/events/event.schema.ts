@@ -9,7 +9,11 @@ const isoDatetime = z
 		"Must be ISO 8601 with offset (e.g. 2026-09-10T08:00:00+07:00)",
 	);
 
-const urlField = z.url("Must be a valid URL").max(2048);
+// Hanya http(s): URL lain (javascript:, data:) jadi vektor XSS di landing page.
+const urlField = z
+	.url("Must be a valid URL")
+	.refine((v) => v.startsWith("http://") || v.startsWith("https://"), "URL harus diawali http:// atau https://")
+	.max(2048);
 
 export const sessionInputSchema = z
 	.object({

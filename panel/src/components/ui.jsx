@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { cloneElement, createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 
 // ---- Toast ----
 const ToastCtx = createContext(() => {});
@@ -14,9 +14,9 @@ export function ToastProvider({ children }) {
 	return (
 		<ToastCtx.Provider value={push}>
 			{children}
-			<div className="toast-wrap">
+			<div className="toast-wrap" role="status" aria-live="polite">
 				{toasts.map((t) => (
-					<div key={t.id} className={`toast ${t.kind === "err" ? "err" : ""}`}>{t.msg}</div>
+					<div key={t.id} className={`toast ${t.kind === "err" ? "err" : ""}`} role={t.kind === "err" ? "alert" : undefined}>{t.msg}</div>
 				))}
 			</div>
 		</ToastCtx.Provider>
@@ -25,10 +25,11 @@ export function ToastProvider({ children }) {
 
 // ---- Modal konfirmasi (pengganti confirm()) ----
 export function Confirm({ open, title, children, confirmLabel = "Ya, lanjutkan", danger, onConfirm, onCancel }) {
+	const ref = useFocusTrap(open);
 	if (!open) return null;
 	return (
 		<div className="modal-backdrop" onClick={onCancel}>
-			<div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+			<div ref={ref} className="modal" tabIndex={-1} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
 				<h3>{title}</h3>
 				<p>{children}</p>
 				<div className="row-actions">
@@ -47,4 +48,74 @@ export function useEscape(onEscape) {
 		window.addEventListener("keydown", h);
 		return () => window.removeEventListener("keydown", h);
 	}, [onEscape]);
+}
+
+// ---- Focus trap: fokus tetap di dalam dialog (Tab di-cycle), balik ke elemen
+// sebelumnya saat tutup. Dipakai modal + drawer mobile. ----
+export function useFocusTrap(active) {
+	const ref = useRef(null);
+	useEffect(() => {
+		if (!active) return;
+		const node = ref.current;
+		if (!node) return;
+		const prev = document.activeElement;
+		const focusables = () =>
+			Array.from(node.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+				.filter((el) => !el.disabled);
+		// Fokus awal ke elemen interaktif pertama (atau container).
+		(focusables()[0] ?? node).focus?.();
+		const onKey = (e) => {
+			if (e.key !== "Tab") return;
+			const items = focusables();
+			if (!items.length) return;
+			const first = items[0];
+			const last = items[items.length - 1];
+			if (e.shiftKey && document.activeElement === first) {
+				e.preventDefault();
+				last.focus();
+			} else if (!e.shiftKey && document.activeElement === last) {
+				e.preventDefault();
+				first.focus();
+			}
+		};
+		node.addEventListener("keydown", onKey);
+		return () => {
+			node.removeEventListener("keydown", onKey);
+			prev?.focus?.();
+		};
+	}, [active]);
+	return ref;
+}
+
+// ---- Field: label terasosiasi + help + error (pola Field di EventEditor). ----
+export function Field({ label, required, help, error, children }) {
+	const id = useId();
+	// Anak tunggal elemen form otomatis dapat id + aria-invalid.
+	const cloned =
+		children && !Array.isArray(children) && children.props
+			? cloneElement(children, { id: children.props.id || id, "aria-invalid": error ? true : undefined })
+			: children;
+	return (
+		<div>
+			<label className="field-label" htmlFor={cloned?.props?.id}>
+				{label} {required && <span className="req">*</span>}
+			</label>
+			{cloned}
+			{help && <p className="field-help">{help}</p>}
+			{error && <div className="field-err">{error}</div>}
+		</div>
+	);
+}
+
+// ---- Skeleton loading (ganti teks "Memuat…") ----
+export function SkeletonCard({ lines = 3 }) {
+	return (
+		<div className="card skeleton-card" aria-hidden>
+			<SkeletonLine width="40%" />
+			{Array.from({ length: lines }, (_, i) => <SkeletonLine key={i} />)}
+		</div>
+	);
+}
+export function SkeletonLine({ width }) {
+	return <div className="skeleton-line" style={width ? { width } : undefined} />;
 }

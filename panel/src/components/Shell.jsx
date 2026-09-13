@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { clearToken } from "../api.js";
-import { useEscape } from "./ui.jsx";
+import { useEscape, useFocusTrap } from "./ui.jsx";
 
 const hasScoped = (permissions, base) =>
 	permissions?.includes(`${base}.all`) || permissions?.includes(`${base}.own_division`);
-import { IconCalendar, IconClipboard, IconGrid, IconLink, IconMenu } from "./Icons.jsx";
+import { IconCalendar, IconClipboard, IconGrid, IconLink, IconMenu, IconUsers } from "./Icons.jsx";
 
 // Logomark SGA Cakrawala — outline putih transparan (dari landing page).
 import logoSga from "/logo-sga.webp";
@@ -58,6 +58,8 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 	const [drawer, setDrawer] = useState(false);
 	const navigate = useNavigate();
 	useEscape(() => setDrawer(false));
+	// Focus trap hanya saat drawer mobile terbuka — desktop sidebar statis.
+	const drawerRef = useFocusTrap(drawer);
 	// Drawer mobile harus menutup saat pindah halaman — dulu tetap terbuka
 	// menutupi konten (bug "sidebar tidak ikut pindah page").
 	const closeDrawer = () => setDrawer(false);
@@ -82,6 +84,8 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 	const canManageQpr = permissions.includes("qpr.manage");
 	const canSeeForms =
 		hasScoped(permissions, "forms.read") || hasScoped(permissions, "forms.submissions");
+	const canManageAccounts = permissions.includes("accounts.manage");
+	const canReadAudit = permissions.includes("audit.read");
 
 	const nav = (
 		<nav className="nav" aria-label="Modul">
@@ -100,6 +104,11 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 			<NavLink to="/qpr" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconClipboard /></span> QPR {!canManageQpr && <span className="soon">Penilaian</span>}
 			</NavLink>
+			{(canManageAccounts || canReadAudit) && (
+				<NavLink to="/accounts" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
+					<span className="icon" aria-hidden><IconUsers size={18} /></span> Akun &amp; Audit
+				</NavLink>
+			)}
 			<div className="nav-sep" />
 			<a href="/docs/" target="_blank" rel="noreferrer" title="Dokumentasi API untuk developer">
 				<span className="icon" aria-hidden><IconLink /></span> Dokumentasi API
@@ -108,7 +117,7 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 	);
 
 	const sidebar = (
-		<aside className={`sidebar ${drawer ? "open" : ""}`}>
+		<aside ref={drawer ? drawerRef : undefined} className={`sidebar ${drawer ? "open" : ""}`} aria-hidden={!drawer ? undefined : false}>
 			<div className="brand">
 				<img className="brand-logo-img" src={logoSga} alt="Logo SGA Cakrawala" />
 				<div>

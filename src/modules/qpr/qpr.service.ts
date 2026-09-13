@@ -6,6 +6,7 @@ import { parseFieldOptions } from "../forms/form.service";
 import type { Db } from "../../db/connection";
 import type { QprQuestion, SubmitAnswersInput } from "./qpr.schema";
 
+
 const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: string | null }) => {
 	if (p.status !== "open") return false;
 	// Bandingkan sebagai Date (pola formIsOpen) — perbandingan string ISO gagal saat
@@ -172,6 +173,15 @@ export const qprService = {
 		const entries = await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId));
 		const entry = entries.find((e) => e.name.toLowerCase() === input.name.trim().toLowerCase());
 		if (!entry) throw ApiError.validation("Nama tidak terdaftar", { name: ["Pilih nama dari daftar."] });
+		// Jawaban harus cocok dengan pertanyaan periode — klien liar tidak bisa
+		// menyuntik kategori/skor palsu ke rekap.
+		const questions = (parseFieldOptions(period.questions) as QprQuestion[]) ?? [];
+		const valid = new Set(questions.map((q) => `${q.label} ${q.category}`));
+		if (input.answers.some((a) => !valid.has(`${a.label} ${a.category}`))) {
+			throw ApiError.validation("Jawaban tidak sesuai pertanyaan periode ini", {
+				answers: ["Label/kategori jawaban tidak dikenal."],
+			});
+		}
 		// Klaim atomik: update done hanya jika masih false. Dua submit paralel dengan
 		// nama sama — hanya satu yang dapat baris; yang lain 409. (Pola sama dengan
 		// handoff exchange.)

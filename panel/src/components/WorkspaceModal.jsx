@@ -1,18 +1,19 @@
 import { useEffect } from "react";
-import { useEscape } from "./ui.jsx";
+import { useEscape, useFocusTrap } from "./ui.jsx";
 
 // Overlay pemilihan dashboard. Tampil HANYA saat login baru atau saat user
 // menekan "Ganti" — bukan tiap refresh (root-cause fix navigation reset).
 // onCancel ditutup user dapat membatalkan (bila tidak ada handoff berjalan).
 export default function WorkspaceModal({ workspaces, onSelect, busy = false, error = "", onCancel }) {
 	useEscape(() => !busy && onCancel?.());
+	const modalRef = useFocusTrap(true);
 
 	// Escape / klik backdrop = kembali ke app yang sudah terbuka di belakang.
 	const cancellable = !busy && !!onCancel;
 
 	return (
 		<div className="modal-backdrop ws-backdrop" onClick={cancellable ? onCancel : undefined}>
-			<div className="modal ws-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Pilih Dashboard">
+			<div ref={modalRef} className="modal ws-modal" tabIndex={-1} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Pilih Dashboard">
 				<div className="ws-head">
 					<h3>Selamat datang 👋</h3>
 					<p>Pilih ruang kerja yang ingin dibuka. Kamu bisa berpindah kapan saja lewat tombol "Ganti".</p>

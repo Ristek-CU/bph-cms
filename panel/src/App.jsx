@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { HashRouter, Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { api, errText, setToken as persistToken, clearToken, signIn, requestWorkspaceHandoff } from "./api.js";
-import { ToastProvider } from "./components/ui.jsx";
+import { ToastProvider, SkeletonCard } from "./components/ui.jsx";
 import { Login, Shell } from "./components/Shell.jsx";
 import { IconCalendar, IconPlus } from "./components/Icons.jsx";
 import WorkspaceModal from "./components/WorkspaceModal.jsx";
@@ -11,6 +11,7 @@ import EventCalendar from "./pages/EventCalendar.jsx";
 import EventEditor from "./pages/EventEditor.jsx";
 import Forms, { FormBuilderRoute, FormAnalyticsRoute } from "./pages/Forms.jsx";
 import Qpr, { PublicFill } from "./pages/Qpr.jsx";
+import Accounts from "./pages/Accounts.jsx";
 
 const hasScopedPermission = (permissions, base) =>
 	permissions.includes(`${base}.all`) || permissions.includes(`${base}.own_division`);
@@ -65,8 +66,10 @@ function App() {
 					setShowWorkspaceModal(true);
 				}
 			}
-		} catch {
-			// ignore /me error if token is local dev fallback
+		} catch (e) {
+			// 401 sudah ditangani api() (dispatch bph:unauthorized → reset + login).
+			// Error lain (5xx, network): tampilkan, jangan telan diam-diam.
+			if (e?.statusCode !== 401) setLoadErr(errText(e));
 		}
 	}, []);
 
@@ -313,7 +316,7 @@ function App() {
 				element={
 					<Shell {...shellProps} title="Form Builder" crumb="Modul · Form · Builder">
 						{canSeeForms(permissions) ? (
-							<FormBuilderRoute user={user} loadForms={load} />
+							<FormBuilderRoute user={user} />
 						) : (
 							<NoAccess />
 						)}
@@ -337,6 +340,18 @@ function App() {
 				element={
 					<Shell {...shellProps} title="QPR" crumb="Modul · QPR">
 						<Qpr user={user} />
+					</Shell>
+				}
+			/>
+			<Route
+				path="/accounts"
+				element={
+					<Shell {...shellProps} title="Akun & Audit" crumb="Admin · Akun">
+						{permissions.includes("accounts.manage") || permissions.includes("audit.read") ? (
+							<Accounts />
+						) : (
+							<NoAccess />
+						)}
 					</Shell>
 				}
 			/>
@@ -402,7 +417,7 @@ function Reloader({ id, onEdit, capabilities }) {
 			})
 			.catch(() => setEv(null));
 	}, [id]);
-	if (ev === undefined) return <div className="card muted">Memuat event…</div>;
+	if (ev === undefined) return <SkeletonCard lines={5} />;
 	if (ev === null) {
 		return (
 			<div className="empty-state">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, errText } from "../api.js";
-import { useToast } from "../components/ui.jsx";
+import { useToast, Confirm, SkeletonCard } from "../components/ui.jsx";
 
 // Student Voice Studio — terinspirasi Campaign & Polling di Dashboard Advokasi:
 // daftar form sebagai kartu (jumlah pertanyaan/respons terlihat), builder dan
@@ -21,7 +21,10 @@ const FIELD_TYPES = [
 const CHOICE_TYPES = ["multiple_choice", "checkboxes", "dropdown"];
 const STATUS_LABEL = { draft: "Draft", published: "Terbit", closed: "Ditutup" };
 
-const emptyField = () => ({ label: "", description: "", type: "short_text", required: false, options: "", sort_order: 0 });
+// ID sementara (temp-N) untuk field baru — tanpa ini semua field baru share
+// undefined, openMap (Set of id) toggle semua sekaligus.
+let tempFieldSeq = 0;
+const emptyField = () => ({ id: `temp-${++tempFieldSeq}`, label: "", description: "", type: "short_text", required: false, options: "", sort_order: 0 });
 
 const publicFormLink = (slug) => `https://sga-cakrawala.org/student-voice/${slug}`;
 
@@ -84,7 +87,7 @@ export default function Forms({ user }) {
 			<div className="studio-grid">
 				<div className="studio-cards">
 					{forms === null ? (
-						<div className="card muted">Memuat form…</div>
+						<SkeletonCard />
 					) : forms.length === 0 ? (
 						<div className="empty-state studio-empty">
 							<p>Belum ada form. Buat form pertama dari panel di samping.</p>
@@ -164,7 +167,7 @@ function FormCard({ form, canManage, canSeeSubmissions, toast }) {
 }
 
 /* ── Builder: halaman tersendiri #/forms/:formId ─────────────────────────── */
-export function FormBuilderRoute({ user, loadForms }) {
+export function FormBuilderRoute({ user }) {
 	const { formId } = useParams();
 	const navigate = useNavigate();
 	const toast = useToast();
@@ -186,7 +189,7 @@ export function FormBuilderRoute({ user, loadForms }) {
 		[user],
 	);
 
-	if (form === undefined) return <div className="card muted">Memuat form…</div>;
+	if (form === undefined) return <SkeletonCard lines={5} />;
 	if (form === null)
 		return (
 			<div className="empty-state">
@@ -201,7 +204,9 @@ export function FormBuilderRoute({ user, loadForms }) {
 				<Link className="btn ghost sm" to="/forms">← Semua form</Link>
 				<span className={`badge ${form.status}`}>{STATUS_LABEL[form.status] ?? form.status}</span>
 			</div>
-			<Editor form={form} canManage={canManage} toast={toast} onSaved={async () => { await load(); await loadForms?.(); }} onDelete={() => navigate("/forms")} />
+			{/* onSaved: refresh detail saja — daftar form di /forms me-load sendiri saat mount,
+			    dulu prop loadForms malah memanggil loader events (salah ketik). */}
+			<Editor form={form} canManage={canManage} toast={toast} onSaved={load} onDelete={() => navigate("/forms")} />
 		</>
 	);
 }
@@ -253,16 +258,29 @@ export function FormAnalyticsRoute({ user }) {
 
 function SubmissionsSection({ formId, toast }) {
 	const [subs, setSubs] = useState(undefined);
+	const [total, setTotal] = useState(0);
+	const [page, setPage] = useState(1);
 	const [busy, setBusy] = useState(false);
+	const [askRemove, setAskRemove] = useState(null);
+	const perPage = 25;
 
+	const loadPage = useCallback(
+		(p) => {
+			api(`/admin/forms/${formId}/submissions?page=${p}&per_page=${perPage}`)
+				.then((d) => {
+					setSubs(d.items || []);
+					setTotal(d.meta?.total ?? (d.items || []).length);
+				})
+				.catch((e) => {
+					toast(errText(e), "err");
+					setSubs([]);
+				});
+		},
+		[formId, toast],
+	);
 	useEffect(() => {
-		api(`/admin/forms/${formId}/submissions`)
-			.then((d) => setSubs(d.items || []))
-			.catch((e) => {
-				toast(errText(e), "err");
-				setSubs([]);
-			});
-	}, [formId, toast]);
+		loadPage(page);
+	}, [page, loadPage]);
 
 	const setStatus = async (id, status) => {
 		setBusy(true);
@@ -277,11 +295,12 @@ function SubmissionsSection({ formId, toast }) {
 	};
 
 	const remove = async (id) => {
-		if (!window.confirm("Hapus respons ini permanen?")) return;
+		setAskRemove(null);
 		setBusy(true);
 		try {
 			await api(`/admin/forms/submissions/${id}`, { method: "DELETE" });
 			setSubs((ss) => ss.filter((s) => s.id !== id));
+			setTotal((t) => Math.max(0, t - 1));
 			toast("Respons dihapus.");
 		} catch (e) {
 			toast(errText(e), "err");
@@ -290,13 +309,15 @@ function SubmissionsSection({ formId, toast }) {
 		}
 	};
 
-	if (subs === undefined) return <div className="card muted">Memuat respons…</div>;
+	if (subs === undefined) return <SkeletonCard lines={4} />;
+
+	const pages = Math.max(1, Math.ceil(total / perPage));
 
 	return (
 		<div className="card" style={{ marginTop: 16 }}>
 			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-				<h3>Respons masuk ({subs.length})</h3>
-				<button className="btn ghost sm" disabled={busy || subs.length === 0} onClick={() => exportCsv(formId, toast)}>Ekspor CSV</button>
+				<h3>Respons masuk ({total})</h3>
+				<button className="btn ghost sm" disabled={busy || total === 0} onClick={() => exportCsv(formId, toast)}>Ekspor CSV</button>
 			</div>
 			{subs.length === 0 ? (
 				<p className="muted">Belum ada respons.</p>
@@ -312,7 +333,7 @@ function SubmissionsSection({ formId, toast }) {
 										<option value="reviewed">reviewed</option>
 										<option value="archived">archived</option>
 									</select>
-									<button className="btn danger sm" disabled={busy} onClick={() => remove(s.id)}>Hapus</button>
+									<button className="btn danger sm" disabled={busy} onClick={() => setAskRemove(s.id)}>Hapus</button>
 								</span>
 							</div>
 							<table className="tbl">
@@ -329,6 +350,23 @@ function SubmissionsSection({ formId, toast }) {
 					))}
 				</div>
 			)}
+			{pages > 1 && (
+				<div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
+					<button className="btn ghost sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Sebelumnya</button>
+					<span className="muted small">Halaman {page} / {pages}</span>
+					<button className="btn ghost sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>Berikutnya →</button>
+				</div>
+			)}
+			<Confirm
+				open={Boolean(askRemove)}
+				title="Hapus respons ini?"
+				confirmLabel="Ya, hapus"
+				danger
+				onConfirm={() => remove(askRemove)}
+				onCancel={() => setAskRemove(null)}
+			>
+				Respons dihapus permanen beserta jawabannya.
+			</Confirm>
 		</div>
 	);
 }
@@ -402,6 +440,20 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 		}
 	};
 
+	// Tutup / batal terbit / buka kembali — satu helper, busy di-handle rapi.
+	const setStatus = async (path, okMsg) => {
+		setBusy(true);
+		try {
+			await api(`/admin/forms/${form.id}/${path}`, { method: "POST" });
+			toast(okMsg);
+			await onSaved();
+		} catch (e) {
+			toast(errText(e), "err");
+		} finally {
+			setBusy(false);
+		}
+	};
+
 	const doDelete = async () => {
 		setBusy(true);
 		try {
@@ -426,22 +478,22 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 							<p>Identitas yang dilihat pengisi di halaman publik.</p>
 						</div>
 					</div>
-					<label className="field-label">Judul</label>
-					<input value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canManage} />
-					<label className="field-label">Deskripsi</label>
-					<textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canManage} />
+					<label className="field-label" htmlFor="fd-title">Judul</label>
+					<input id="fd-title" value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canManage} />
+					<label className="field-label" htmlFor="fd-desc">Deskripsi</label>
+					<textarea id="fd-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canManage} />
 					<div className="grid-2">
 						<div>
-							<label className="field-label">Buka (WIB)</label>
-							<input type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} disabled={!canManage} />
+							<label className="field-label" htmlFor="fd-opens">Buka (WIB)</label>
+							<input id="fd-opens" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} disabled={!canManage} />
 						</div>
 						<div>
-							<label className="field-label">Tutup (WIB)</label>
-							<input type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} disabled={!canManage} />
+							<label className="field-label" htmlFor="fd-closes">Tutup (WIB)</label>
+							<input id="fd-closes" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} disabled={!canManage} />
 						</div>
 					</div>
-					<label className="field-label">Pesan terima kasih</label>
-					<input value={thankYou} onChange={(e) => setThankYou(e.target.value)} disabled={!canManage} />
+					<label className="field-label" htmlFor="fd-thanks">Pesan terima kasih</label>
+					<input id="fd-thanks" value={thankYou} onChange={(e) => setThankYou(e.target.value)} disabled={!canManage} />
 				</div>
 
 				<div className="section">
@@ -462,26 +514,27 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 							</button>
 							{openMap.has(f.id) && (
 								<div className="field-block-body">
-									<label className="field-label">Pertanyaan</label>
-									<input value={f.label} onChange={(e) => setField(i, { label: e.target.value })} placeholder="Pertanyaan…" disabled={!canManage} />
-									<label className="field-label">Deskripsi/caption</label>
-									<input value={f.description || ""} onChange={(e) => setField(i, { description: e.target.value })} placeholder="Opsional" disabled={!canManage} />
+									<label className="field-label" htmlFor={`fl-${f.id}`}>Pertanyaan</label>
+									<input id={`fl-${f.id}`} value={f.label} onChange={(e) => setField(i, { label: e.target.value })} placeholder="Pertanyaan…" disabled={!canManage} />
+									<label className="field-label" htmlFor={`fdesc-${f.id}`}>Deskripsi/caption</label>
+									<input id={`fdesc-${f.id}`} value={f.description || ""} onChange={(e) => setField(i, { description: e.target.value })} placeholder="Opsional" disabled={!canManage} />
 									<div className="grid-2">
 										<div>
-											<label className="field-label">Tipe</label>
-											<select value={f.type} onChange={(e) => setField(i, { type: e.target.value })} disabled={!canManage}>
+											<label className="field-label" htmlFor={`ftype-${f.id}`}>Tipe</label>
+											<select id={`ftype-${f.id}`} value={f.type} onChange={(e) => setField(i, { type: e.target.value })} disabled={!canManage}>
 												{FIELD_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
 											</select>
 										</div>
 										<div className="check-row" style={{ marginTop: 26 }}>
-											<input id={`req-${f.id ?? i}`} type="checkbox" checked={Boolean(f.required)} onChange={(e) => setField(i, { required: e.target.checked })} disabled={!canManage} />
-											<label htmlFor={`req-${f.id ?? i}`} className="field-label" style={{ margin: 0 }}>Wajib diisi</label>
+											<input id={`req-${f.id}`} type="checkbox" checked={Boolean(f.required)} onChange={(e) => setField(i, { required: e.target.checked })} disabled={!canManage} />
+											<label htmlFor={`req-${f.id}`} className="field-label" style={{ margin: 0 }}>Wajib diisi</label>
 										</div>
 									</div>
 									{(CHOICE_TYPES.includes(f.type) || f.type === "linear_scale") && (
 										<>
-											<label className="field-label">{f.type === "linear_scale" ? "Skala" : "Opsi"}</label>
+											<label className="field-label" htmlFor={`fopt-${f.id}`}>{f.type === "linear_scale" ? "Skala" : "Opsi"}</label>
 											<input
+												id={`fopt-${f.id}`}
 												placeholder={f.type === "linear_scale" ? "1-5" : "Pisahkan dengan ; (mis. Ya;Tidak)"}
 												value={f.options || ""}
 												onChange={(e) => setField(i, { options: e.target.value })}
@@ -511,7 +564,13 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 						<button className="btn gold" disabled={busy} onClick={publish}>Terbitkan</button>
 					)}
 					{canManage && form.status === "published" && (
-						<button className="btn sec" disabled={busy} onClick={() => api(`/admin/forms/${form.id}/close`, { method: "POST" }).then(onSaved).catch((e) => toast(errText(e), "err"))}>Tutup</button>
+						<button className="btn sec" disabled={busy} onClick={() => setStatus("close", "Form ditutup — tidak menerima respons baru.")}>Tutup</button>
+					)}
+					{canManage && form.status === "published" && (
+						<button className="btn ghost" disabled={busy} onClick={() => setStatus("unpublish", "Form kembali ke draft — link publik mati.")}>Batalkan terbit</button>
+					)}
+					{canManage && form.status === "closed" && (
+						<button className="btn gold" disabled={busy} onClick={() => setStatus("publish", "Form dibuka kembali.")}>Buka kembali</button>
 					)}
 					<Link className="btn ghost" to={`/forms/${form.id}/analytics`}>Analitik &amp; respons</Link>
 					{canManage && (
@@ -520,18 +579,16 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 				</div>
 			</div>
 
-			{askDelete && (
-				<div className="modal-backdrop" onClick={() => setAskDelete(false)}>
-					<div className="modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-						<h3>Hapus form "{form.title}"?</h3>
-						<p>Form yang masih punya respons tidak bisa dihapus — hapus responsnya dulu.</p>
-						<div className="row-actions">
-							<button className="btn ghost" onClick={() => setAskDelete(false)}>Batal</button>
-							<button className="btn danger" onClick={doDelete}>Ya, hapus</button>
-						</div>
-					</div>
-				</div>
-			)}
+			<Confirm
+				open={askDelete}
+				title={`Hapus form "${form.title}"?`}
+				confirmLabel="Ya, hapus"
+				danger
+				onConfirm={doDelete}
+				onCancel={() => setAskDelete(false)}
+			>
+				Form yang masih punya respons tidak bisa dihapus — hapus responsnya dulu.
+			</Confirm>
 		</>
 	);
 }

@@ -100,8 +100,10 @@ const roster2 = await h.req(`${PUB}/${pid}`);
 eq("setelah submit, nama hilang (2 tersisa)", roster2.body?.data?.remaining?.length, 2);
 ok("Raka tidak lagi di roster", !roster2.body?.data?.remaining?.some((r: any) => r.name === "Raka Pratama"));
 
-const resubmit = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Raka Pratama", answers: [{ label: "x", category: "y", score: 3 }] } });
+const resubmit = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Raka Pratama", answers: QUESTIONS.map((q) => ({ label: q.label, category: q.category, score: 3 })) } });
 eq("submit nama yang sudah isi → 409", resubmit.status, 409);
+const garbage = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Sinta Dewi", answers: [{ label: "x", category: "y", score: 3 }] } });
+eq("jawaban tak sesuai pertanyaan → 422", garbage.status, 422);
 
 const unknown = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Orang Luar", answers: [{ label: "x", category: "y", score: 3 }] } });
 eq("nama tak terdaftar → 422", unknown.status, 422);
