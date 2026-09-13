@@ -193,7 +193,7 @@ function App() {
 
 	if (!token) {
 		// QPR isi tetap bisa dibuka tanpa akun (model no-login).
-		if (window.location.hash.startsWith("#/qpr/")) return <PublicQprRoute />;
+		if (window.location.hash.startsWith("#/qpr/")) return <PublicQprRoute token={token} />;
 		return <Login onLogin={handleLogin} />;
 	}
 	// Workspace selection = OVERLAY di atas app, bukan pengganti app.
@@ -242,7 +242,7 @@ function App() {
 					<Shell
 						{...shellProps}
 						title="Event"
-						crumb="Modul · Event"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Event" }]}
 						actions={
 							<>
 								<Link className="btn ghost" to="/events/kalender">
@@ -266,7 +266,7 @@ function App() {
 					<Shell
 						{...shellProps}
 						title="Kalender Event"
-						crumb="Modul · Event · Kalender"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Event", to: "/events" }, { label: "Kalender" }]}
 						actions={
 							capabilities.canCreateEvent ? (
 								<Link className="btn gold" to="/events/baru">
@@ -282,7 +282,7 @@ function App() {
 			<Route
 				path="/events/baru"
 				element={
-					<Shell {...shellProps} title="Event Baru" crumb="Modul · Event · Baru">
+					<Shell {...shellProps} title="Event Baru" crumb={[{ label: "Modul", to: "/" }, { label: "Event", to: "/events" }, { label: "Baru" }]}>
 						{capabilities.canCreateEvent ? (
 							<NewEventRoute canPublish={capabilities.canPublishEvent} />
 						) : (
@@ -294,7 +294,7 @@ function App() {
 			<Route
 				path="/events/:id/edit"
 				element={
-					<Shell {...shellProps} title="Edit Event" crumb="Modul · Event · Edit">
+					<Shell {...shellProps} title="Edit Event" crumb={[{ label: "Modul", to: "/" }, { label: "Event", to: "/events" }, { label: "Edit" }]}>
 						<EditEventRoute events={events} onEdit={onEdit} capabilities={capabilities} />
 					</Shell>
 				}
@@ -302,7 +302,7 @@ function App() {
 			<Route
 				path="/forms"
 				element={
-					<Shell {...shellProps} title="Form" crumb="Modul · Form">
+					<Shell {...shellProps} title="Form" crumb={[{ label: "Modul", to: "/" }, { label: "Form" }]}>
 						{canSeeForms(permissions) ? (
 							<Forms user={user} />
 						) : (
@@ -314,7 +314,7 @@ function App() {
 			<Route
 				path="/forms/:formId"
 				element={
-					<Shell {...shellProps} title="Form Builder" crumb="Modul · Form · Builder">
+					<Shell {...shellProps} title="Form Builder" crumb={[{ label: "Modul", to: "/" }, { label: "Form", to: "/forms" }, { label: "Builder" }]}>
 						{canSeeForms(permissions) ? (
 							<FormBuilderRoute user={user} />
 						) : (
@@ -326,7 +326,7 @@ function App() {
 			<Route
 				path="/forms/:formId/analytics"
 				element={
-					<Shell {...shellProps} title="Analitik Form" crumb="Modul · Form · Analitik">
+					<Shell {...shellProps} title="Analitik Form" crumb={[{ label: "Modul", to: "/" }, { label: "Form", to: "/forms" }, { label: "Analitik" }]}>
 						{canSeeForms(permissions) ? (
 							<FormAnalyticsRoute user={user} />
 						) : (
@@ -338,7 +338,7 @@ function App() {
 			<Route
 				path="/qpr"
 				element={
-					<Shell {...shellProps} title="QPR" crumb="Modul · QPR">
+					<Shell {...shellProps} title="QPR" crumb={[{ label: "Modul", to: "/" }, { label: "QPR" }]}>
 						<Qpr user={user} />
 					</Shell>
 				}
@@ -346,7 +346,7 @@ function App() {
 			<Route
 				path="/accounts"
 				element={
-					<Shell {...shellProps} title="Akun & Audit" crumb="Admin · Akun">
+					<Shell {...shellProps} title="Akun & Audit" crumb={[{ label: "Admin", to: "/" }, { label: "Akun" }]}>
 						{permissions.includes("accounts.manage") || permissions.includes("audit.read") ? (
 							<Accounts />
 						) : (
@@ -359,7 +359,7 @@ function App() {
 			    tanpa akun dapat halaman Login padahal model QPR memang tanpa login. */}
 			<Route
 				path="/qpr/:periodId"
-				element={<PublicQprRoute />}
+				element={<PublicQprRoute token={token} shellProps={shellProps} />}
 			/>
 			<Route path="/docs" element={<NavigateDocs />} />
 			<Route path="*" element={<Navigate to="/" replace />} />
@@ -386,10 +386,18 @@ function NoAccess() {
 	);
 }
 
-// #/qpr/:periodId — halaman isi publik (tanpa login), di-render dalam Shell supaya branding sama.
-function PublicQprRoute() {
+// #/qpr/:periodId — halaman isi QPR. User login dapat Shell + sidebar (L2);
+// tamu tetap standalone (model QPR no-login).
+function PublicQprRoute({ token, shellProps }) {
 	const periodId = window.location.hash.match(/qpr\/([^/?#]+)/)?.[1];
-	return <PublicFill periodId={periodId} />;
+	const fill = <PublicFill periodId={periodId} />;
+	if (!token) return fill;
+	return (
+		<Shell {...shellProps} title="Isi QPR" crumb={[{ label: "Modul", to: "/" }, { label: "QPR", to: "/qpr" }, { label: "Isi" }]}
+			actions={<Link className="btn ghost" to="/qpr">Kembali ke panel</Link>}>
+			{fill}
+		</Shell>
+	);
 }
 
 function NewEventRoute({ canPublish }) {

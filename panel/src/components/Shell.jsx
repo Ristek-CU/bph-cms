@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { clearToken } from "../api.js";
 import { useEscape, useFocusTrap } from "./ui.jsx";
+import { IconChevronRight } from "./Icons.jsx";
 
 const hasScoped = (permissions, base) =>
 	permissions?.includes(`${base}.all`) || permissions?.includes(`${base}.own_division`);
@@ -154,7 +155,16 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 						</button>
 						<div style={{ minWidth: 0 }}>
 							<h1>{title}</h1>
-							{crumb && <div className="crumb">{crumb}</div>}
+							{crumb && (
+								<nav className="crumb" aria-label="Breadcrumb">
+									{(Array.isArray(crumb) ? crumb : [{ label: crumb }]).map((c, i, arr) => (
+										<span key={i} className="crumb-item">
+											{i > 0 && <IconChevronRight size={11} aria-hidden />}
+											{c.to && i < arr.length - 1 ? <Link to={c.to}>{c.label}</Link> : c.label}
+										</span>
+									))}
+								</nav>
+							)}
 						</div>
 					</div>
 					<div className="topbar-actions">{actions}</div>

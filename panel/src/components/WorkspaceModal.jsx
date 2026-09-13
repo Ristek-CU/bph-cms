@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Fragment, useEffect } from "react";
 import { useEscape, useFocusTrap } from "./ui.jsx";
 
 // Overlay pemilihan dashboard. Tampil HANYA saat login baru atau saat user
@@ -24,30 +24,40 @@ export default function WorkspaceModal({ workspaces, onSelect, busy = false, err
 					</div>
 				)}
 				<div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-					{workspaces.map((ws, i) => (
-						<button
-							key={i}
-							type="button"
-							className="ws-card"
-							disabled={busy}
-							onClick={() => onSelect(ws)}
-						>
-							<span className={`ws-icon ${ws.kind === "cms_hub" ? "hub" : "ext"}`} aria-hidden>
-								{ws.kind === "cms_hub" ? "SGA" : "↗"}
-							</span>
-							<span className="ws-body">
-								<span className="ws-label">{ws.label}</span>
-								<span className="ws-desc">
-									{busy
-										? "Menyiapkan handoff…"
-										: ws.kind === "cms_hub"
-											? "Kelola event, form, dan QPR lintas divisi."
-											: "Buka dashboard eksternal khusus divisi."}
-								</span>
-							</span>
-							<span className="ws-arrow" aria-hidden>→</span>
-						</button>
-					))}
+					{[...workspaces]
+						.sort((a, b) => (a.kind === "cms_hub" ? -1 : 0) - (b.kind === "cms_hub" ? -1 : 0))
+						.map((ws, i, arr) => {
+						const prevExt = arr[i - 1]?.kind === "cms_hub";
+						return (
+							<Fragment key={i}>
+								{ws.kind === "external_dashboard" && prevExt && (
+									<div className="ws-ext-label">Dashboard Eksternal</div>
+								)}
+								<button
+									type="button"
+									className={`ws-card ${ws.kind === "cms_hub" ? "hub-card" : ""}`}
+									disabled={busy}
+									onClick={() => onSelect(ws)}
+								>
+									<span className={`ws-icon ${ws.kind === "cms_hub" ? "hub" : "ext"}`} aria-hidden>
+										{ws.kind === "cms_hub" ? "SGA" : "↗"}
+									</span>
+									<span className="ws-body">
+										<span className="ws-label">{ws.label}</span>
+										<span className="ws-desc">
+											{busy
+												? "Menyiapkan handoff…"
+												: ws.kind === "cms_hub"
+													? "Kelola event, form, dan QPR lintas divisi."
+													: "Buka dashboard eksternal khusus divisi."}
+										</span>
+									</span>
+									{ws.kind === "cms_hub" && <span className="ws-badge">Utama</span>}
+									<span className="ws-arrow" aria-hidden>→</span>
+								</button>
+							</Fragment>
+						);
+					})}
 				</div>
 				{cancellable && (
 					<button className="btn ghost ws-cancel" onClick={onCancel}>

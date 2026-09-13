@@ -5,6 +5,24 @@ import { Confirm } from "./ui.jsx";
 import { IconCalendar, IconChevronLeft, IconChevronRight, IconClock, IconMapPin, IconPlus } from "./Icons.jsx";
 
 const DOW = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
+
+// Navigasi keyboard antar chip: panah pindah ke chip pertama di sel tetangga
+// (data-row/data-col di .cal-cell). Sel tanpa event dilewati — sel sendiri
+// bukan elemen interaktif (M17), hanya chip yang focusable.
+const onChipArrow = (e) => {
+	const map = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+	const d = map[e.key];
+	if (!d) return;
+	e.preventDefault();
+	const cell = e.currentTarget.closest(".cal-cell");
+	const grid = cell?.closest(".cal-grid");
+	if (!cell || !grid) return;
+	const r = Number(cell.dataset.row) + d[0];
+	const col = Number(cell.dataset.col) + d[1];
+	grid
+		.querySelector(`.cal-cell[data-row="${r}"][data-col="${col}"] .cal-chip`)
+		?.focus();
+};
 const MONTHS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
 export const ymd = (y, m, d) => {
@@ -156,24 +174,27 @@ export default function Calendar({ events, onEdit, compact = false, capabilities
 
 			<div className={`cal-grid ${compact ? "cal-grid-compact" : ""}`}>
 				{DOW.map((d) => <div key={d} className="cal-dow">{d}</div>)}
-				{cells.map((c) => {
+				{cells.map((c, i) => {
 					const dayEvents = eventsOnDay(events, c.key);
+					const pick = () => setPicked({ dayKey: c.key, events: dayEvents });
 					return (
 						<div
 							key={c.key}
+							// Sel bukan tombol (M17 — nested interactive dihapus); klik sel
+							// tetap memilih hari, fokus keyboard lewat chip.
+							data-row={Math.floor(i / 7)}
+							data-col={i % 7}
 							className={`cal-cell ${c.other ? "other" : ""} ${c.key === todayKey ? "today" : ""} ${picked?.dayKey === c.key ? "picked" : ""}`}
-							onClick={() => !c.other && setPicked({ dayKey: c.key, events: dayEvents })}
-							role="button"
-							tabIndex={c.other ? -1 : 0}
-							aria-label={`Lihat event ${c.key}`}
-							onKeyDown={(e) => e.key === "Enter" && !c.other && setPicked({ dayKey: c.key, events: dayEvents })}
+							onClick={() => !c.other && pick()}
 						>
 							<span className="d">{Number(c.key.slice(8))}</span>
 							{dayEvents.slice(0, compact ? 2 : 4).map((e) => (
 								<button
 									key={e.id}
 									className={`cal-chip ${displayStatus(e)}`}
-									onClick={(ev) => { ev.stopPropagation(); setPicked({ dayKey: c.key, events: dayEvents }); }}
+									onClick={(ev) => { ev.stopPropagation(); pick(); }}
+									onFocus={() => !c.other && pick()}
+									onKeyDown={onChipArrow}
 									title={e.title}
 								>
 									{e.title}

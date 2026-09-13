@@ -27,6 +27,16 @@ export function ToastProvider({ children }) {
 }
 
 // ---- Modal konfirmasi (pengganti confirm()) ----
+// Kartu dasar panel — satu tempat atur radius/padding card (M19). Saat ini
+// alias tipis atas div.card (CSS sudah var(--radius)); menerima props standar div.
+export function Card({ as: Tag = "div", className = "", style, children, ...rest }) {
+	return (
+		<Tag className={`card ${className}`.trim()} style={style} {...rest}>
+			{children}
+		</Tag>
+	);
+}
+
 export function Confirm({ open, title, children, confirmLabel = "Ya, lanjutkan", danger, onConfirm, onCancel }) {
 	const ref = useFocusTrap(open);
 	if (!open) return null;

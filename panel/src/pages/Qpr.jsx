@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errText } from "../api.js";
-import { useToast, Confirm, SkeletonCard } from "../components/ui.jsx";
+import { useToast, Confirm, SkeletonCard, Card } from "../components/ui.jsx";
 
 // QPR v2 — tanpa login (model kejujuran). BPH kelola periode + roster nama;
 // anggota buka link publik, pilih namanya dari dropdown, isi skala 1-5,
@@ -443,14 +443,14 @@ export function PublicFill({ periodId }) {
 		}
 	};
 
-	if (err) return <div className="card err-text">{err}</div>;
+	if (err) return <Card className="err-text">{err}</Card>;
 	if (doneMsg) return <div className="empty-state"><p>{doneMsg}</p></div>;
 	if (!roster) return <SkeletonCard lines={5} />;
 
 	const questions = roster.questions.filter((q) => !q.note_only);
 
 	return (
-		<div className="card" style={{ maxWidth: 560, margin: "0 auto" }}>
+		<Card style={{ maxWidth: 560, margin: "0 auto" }}>
 			<strong style={{ fontSize: 18 }}>{roster.title}</strong>
 			{roster.description && <div className="muted small" style={{ marginTop: 2 }}>{roster.description}</div>}
 			<div style={{ display: "grid", gap: 12, marginTop: 14 }}>
@@ -487,6 +487,6 @@ export function PublicFill({ periodId }) {
 					<button className="btn" disabled={busy || !name} onClick={submit}>{busy ? "Mengirim…" : "Kirim penilaian"}</button>
 				</div>
 			</div>
-		</div>
+		</Card>
 	);
 }
