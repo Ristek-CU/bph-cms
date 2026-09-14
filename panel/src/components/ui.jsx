@@ -42,12 +42,16 @@ export function Confirm({ open, title, children, confirmLabel = "Ya, lanjutkan",
 	if (!open) return null;
 	return (
 		<div className="modal-backdrop" onClick={onCancel}>
-			<div ref={ref} className="modal" tabIndex={-1} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
-				<h3>{title}</h3>
-				<p>{children}</p>
-				<div className="row-actions">
-					<button className="btn ghost" onClick={onCancel}>Batal</button>
-					<button className={`btn ${danger ? "danger" : ""}`} onClick={onConfirm} autoFocus>{confirmLabel}</button>
+			<div ref={ref} className="modal confirm-dialog" tabIndex={-1} onClick={(e) => e.stopPropagation()} role="alertdialog" aria-modal="true" aria-label={title}>
+				<div className="dlg-head">
+					<h3>{title}</h3>
+				</div>
+				<div className="dlg-body">
+					<p>{children}</p>
+					<div className="row-actions">
+						<button className="btn ghost" onClick={onCancel}>Batal</button>
+						<button className={`btn ${danger ? "danger" : ""}`} onClick={onConfirm} autoFocus>{confirmLabel}</button>
+					</div>
 				</div>
 			</div>
 		</div>

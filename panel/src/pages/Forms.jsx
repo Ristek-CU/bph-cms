@@ -107,12 +107,12 @@ export default function Forms({ user }) {
 						<div className="create-icon" aria-hidden>+</div>
 						<h3>Form baru</h3>
 						<p className="muted small">Mulai sebagai draft. Link publik aktif setelah diterbitkan.</p>
-						<form onSubmit={createForm} style={{ display: "grid", gap: 10, marginTop: 12 }}>
-							<div>
+						<form onSubmit={createForm} style={{ display: "grid", gap: 14, marginTop: 14 }}>
+							<div className="form-field">
 								<label className="field-label" htmlFor="nf-title">Nama form</label>
 								<input id="nf-title" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} maxLength={160} placeholder="Aspirasi Mahasiswa September" required />
 							</div>
-							<div>
+							<div className="form-field">
 								<label className="field-label" htmlFor="nf-desc">Deskripsi</label>
 								<textarea id="nf-desc" rows={3} value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Tujuan dan konteks form…" />
 							</div>
@@ -515,22 +515,28 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 							<p>Identitas yang dilihat pengisi di halaman publik.</p>
 						</div>
 					</div>
-					<label className="field-label" htmlFor="fd-title">Judul</label>
-					<input id="fd-title" value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canManage} />
-					<label className="field-label" htmlFor="fd-desc">Deskripsi</label>
-					<textarea id="fd-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canManage} />
-					<div className="grid-2">
-						<div>
+					<div className="form-field">
+						<label className="field-label" htmlFor="fd-title">Judul</label>
+						<input id="fd-title" value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canManage} />
+					</div>
+					<div className="form-field">
+						<label className="field-label" htmlFor="fd-desc">Deskripsi</label>
+						<textarea id="fd-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canManage} />
+					</div>
+					<div className="grid-2 form-field">
+						<div className="form-field" style={{ marginBottom: 0 }}>
 							<label className="field-label" htmlFor="fd-opens">Buka (WIB)</label>
 							<input id="fd-opens" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} disabled={!canManage} />
 						</div>
-						<div>
+						<div className="form-field" style={{ marginBottom: 0 }}>
 							<label className="field-label" htmlFor="fd-closes">Tutup (WIB)</label>
 							<input id="fd-closes" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} disabled={!canManage} />
 						</div>
 					</div>
-					<label className="field-label" htmlFor="fd-thanks">Pesan terima kasih</label>
-					<input id="fd-thanks" value={thankYou} onChange={(e) => setThankYou(e.target.value)} disabled={!canManage} />
+					<div className="form-field">
+						<label className="field-label" htmlFor="fd-thanks">Pesan terima kasih</label>
+						<input id="fd-thanks" value={thankYou} onChange={(e) => setThankYou(e.target.value)} disabled={!canManage} />
+					</div>
 				</div>
 			</div>
 
@@ -542,8 +548,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					</div>
 					{canManage && (
 						<button type="button" className="btn" onClick={() => setDialog("new")}>
-							<span style={{ display: "inline-flex", marginRight: 6 }}><IconPlus size={15} /></span>
-							Tambah Pertanyaan
+							<IconPlus size={16} /> Tambah Pertanyaan
 						</button>
 					)}
 				</div>
@@ -719,33 +724,44 @@ function FieldDialog({ field, onSubmit, onCancel }) {
 	return (
 		<div className="modal-backdrop" onClick={onCancel}>
 			<div ref={ref} className="modal field-dialog" tabIndex={-1} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={isEdit ? "Edit pertanyaan" : "Tambah pertanyaan"}>
-				<h3>{isEdit ? "Edit Pertanyaan" : "Tambah Pertanyaan"}</h3>
-				<p className="muted small">{isEdit ? `Field "${field.label}"` : "Pertanyaan baru tampil di form publik setelah disimpan."}</p>
-				<form onSubmit={submit} style={{ display: "grid", gap: 2 }}>
-					<label className="field-label" htmlFor="dlg-label">Pertanyaan *</label>
-					<input id="dlg-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={500} placeholder="Contoh: Jurusan/Prodi" required autoFocus />
-					<label className="field-label" htmlFor="dlg-desc">Deskripsi/caption</label>
-					<input id="dlg-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Opsional" />
-					<label className="field-label" htmlFor="dlg-type">Tipe *</label>
-					<select id="dlg-type" value={type} onChange={(e) => setType(e.target.value)} disabled={isEdit}>
-						{FIELD_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-					</select>
-					{isEdit && <p className="field-help">Tipe terkunci saat edit agar jawaban lama tetap konsisten.</p>}
+				<div className="dlg-head">
+					<h3>{isEdit ? "Edit Pertanyaan" : "Tambah Pertanyaan"}</h3>
+					<p>{isEdit ? `Field "${field.label}" — tipe terkunci agar jawaban lama konsisten.` : "Pertanyaan baru tampil di form publik setelah disimpan."}</p>
+				</div>
+				<form onSubmit={submit} className="dlg-body">
+					<div className="form-field">
+						<label className="field-label" htmlFor="dlg-label">Pertanyaan <span className="req">*</span></label>
+						<input id="dlg-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={500} placeholder="Contoh: Jurusan/Prodi" required autoFocus />
+					</div>
+					<div className="form-field">
+						<label className="field-label" htmlFor="dlg-desc">Deskripsi/caption</label>
+						<input id="dlg-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Opsional — teks bantu di bawah pertanyaan" />
+					</div>
+					<div className="form-field">
+						<label className="field-label" htmlFor="dlg-type">Tipe <span className="req">*</span></label>
+						<select id="dlg-type" value={type} onChange={(e) => setType(e.target.value)} disabled={isEdit}>
+							{FIELD_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+						</select>
+					</div>
 					{showOptions && (
-						<>
-							<label className="field-label" htmlFor="dlg-opts">{type === "linear_scale" ? "Skala (min-maks)" : "Opsi (satu per baris)"}</label>
+						<div className="form-field">
+							<label className="field-label" htmlFor="dlg-opts">{type === "linear_scale" ? "Skala (min-maks)" : "Opsi (satu per baris)"} <span className="req">*</span></label>
 							{type === "linear_scale" ? (
 								<input id="dlg-opts" value={options} onChange={(e) => setOptions(e.target.value)} placeholder="1-5" />
 							) : (
 								<textarea id="dlg-opts" rows={4} value={options} onChange={(e) => setOptions(e.target.value)} placeholder={"Opsi A\nOpsi B\nOpsi C"} />
 							)}
-						</>
+							{type !== "linear_scale" && <p className="field-help">Satu opsi per baris.</p>}
+						</div>
 					)}
-					<div className="check-row">
-						<input id="dlg-req" type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
-						<label htmlFor="dlg-req" className="field-label" style={{ margin: 0 }}>Wajib diisi</label>
-					</div>
-					<div className="row-actions" style={{ marginTop: 18 }}>
+					<label className="switch-row" htmlFor="dlg-req">
+						<span className="switch">
+							<input id="dlg-req" type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
+							<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
+						</span>
+						<span className="switch-label">Wajib diisi</span>
+					</label>
+					<div className="row-actions">
 						<button type="button" className="btn ghost" onClick={onCancel}>Batal</button>
 						<button type="submit" className="btn">{isEdit ? "Simpan" : "Tambah"}</button>
 					</div>
