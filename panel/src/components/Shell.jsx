@@ -96,6 +96,7 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 
 	const nav = (
 		<nav className="nav" aria-label="Modul">
+			<p className="nav-group-label">CMS Hub</p>
 			<NavLink to="/" end onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconGrid /></span> Ringkasan
 			</NavLink>
@@ -173,7 +174,10 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 							)}
 						</div>
 					</div>
-					<div className="topbar-actions">{actions}</div>
+					<div className="topbar-actions">
+						<span className="sys-pill" aria-hidden="true"><span className="dot" /> Sistem aktif</span>
+						{actions}
+					</div>
 				</header>
 				<main className="page">{children}</main>
 			</div>
