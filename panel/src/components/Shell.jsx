@@ -6,7 +6,7 @@ import { IconChevronRight } from "./Icons.jsx";
 
 const hasScoped = (permissions, base) =>
 	permissions?.includes(`${base}.all`) || permissions?.includes(`${base}.own_division`);
-import { IconCalendar, IconClipboard, IconGrid, IconLink, IconMenu, IconUsers } from "./Icons.jsx";
+import { IconCalendar, IconClipboard, IconEye, IconEyeOff, IconGrid, IconLink, IconMenu, IconUsers } from "./Icons.jsx";
 
 // Logomark SGA Cakrawala — outline putih transparan (dari landing page).
 import logoSga from "/logo-sga.webp";
@@ -17,6 +17,7 @@ export const href = (path) => `#${path}`;
 export function Login({ onLogin }) {
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
+	const [showPw, setShowPw] = useState(false);
 	const [err, setErr] = useState("");
 	const [busy, setBusy] = useState(false);
 
@@ -47,7 +48,12 @@ export function Login({ onLogin }) {
 				<label className="field-label" htmlFor="email">Email</label>
 				<input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
 				<label className="field-label" htmlFor="password">Password</label>
-				<input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+				<div className="pw-wrap">
+					<input id="password" type={showPw ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+					<button type="button" className="pw-toggle" aria-label={showPw ? "Sembunyikan password" : "Lihat password"} aria-pressed={showPw} onClick={() => setShowPw((v) => !v)}>
+						{showPw ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+					</button>
+				</div>
 				{err && <div className="err-text">{err}</div>}
 				<button className="btn" type="submit" disabled={busy}>{busy ? "Memeriksa…" : "Masuk"}</button>
 			</form>

@@ -169,6 +169,16 @@ main.page { padding: 24px 28px 96px; max-width: 1160px; width: 100%; margin: 0 a
 
 /* ---- Form ---- */
 label.field-label { display: block; font-size: 13px; font-weight: 700; margin: 14px 0 5px; transition: color 0.15s ease; }
+/* Toggle lihat password di form login */
+.pw-wrap { position: relative; }
+.pw-wrap input { width: 100%; padding-right: 40px; }
+.pw-toggle {
+	position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+	display: inline-flex; align-items: center; justify-content: center;
+	background: none; border: 0; padding: 6px; border-radius: 6px;
+	color: var(--muted); cursor: pointer;
+}
+.pw-toggle:hover { color: var(--text); background: var(--line, #e8eceb); }
 .field-label .req { color: var(--err); }
 .field-help { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
 input[type="text"], input[type="email"], input[type="password"], input[type="url"],
