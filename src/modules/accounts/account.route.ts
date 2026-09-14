@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { desc, eq, lt } from "drizzle-orm";
+import { count, desc, eq, lt } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 import { describeRoute } from "hono-openapi";
 import { adminAuth } from "../../middlewares/admin-auth";
@@ -192,13 +192,19 @@ adminAccountRouter.get(
 	requirePermission("audit.read"),
 	describeRoute({
 		summary: "List audit logs",
-		description: "Query opsional before_date (ISO) — hanya log sebelum tanggal itu. Default: 50 terbaru.",
+		description:
+			"Paginasi page/per_page (default 50, maks 200). Query opsional before_date (ISO) — hanya log sebelum tanggal itu.",
 		tags: ["Admin Accounts"],
 		security: [{ bearerAuth: [] }],
 	}),
 	async (c) => {
 		const db = c.get("db");
 		const before = c.req.query("before_date");
+		// page/per_page dari query string — clamping di sini, satu tempat.
+		const pageQ = Number(c.req.query("page"));
+		const perPageQ = Number(c.req.query("per_page"));
+		const page = Number.isFinite(pageQ) && pageQ >= 1 ? Math.floor(pageQ) : 1;
+		const perPage = Number.isFinite(perPageQ) ? Math.min(200, Math.max(1, Math.floor(perPageQ))) : 50;
 		// Validasi format ISO — string bebas masuk lt() tidak berbahaya (bound
 		// param), tapi membalas 200 + seluruh data untuk query sampah menyesatkan.
 		if (before !== undefined && (Number.isNaN(Date.parse(before)) || !/^\d{4}-\d{2}-\d{2}/.test(before))) {
@@ -212,8 +218,16 @@ adminAccountRouter.get(
 					.from(auditLogs)
 					.where(lt(auditLogs.createdAt, before))
 					.orderBy(desc(auditLogs.createdAt))
-					.limit(50)
-			: await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(50);
+					.limit(perPage)
+					.offset((page - 1) * perPage)
+			: await db
+					.select()
+					.from(auditLogs)
+					.orderBy(desc(auditLogs.createdAt))
+					.limit(perPage)
+					.offset((page - 1) * perPage);
+		const [totalRow] = await db.select({ n: count() }).from(auditLogs);
+		const total = Number(totalRow?.n ?? 0);
 		// snake_case — konsisten dengan kontrak API admin lainnya.
 		const items = rows.map((r) => ({
 			id: r.id,
@@ -228,7 +242,7 @@ adminAccountRouter.get(
 			user_agent: r.userAgent,
 			created_at: r.createdAt,
 		}));
-		return ApiResponse.ok(c, "OK", items);
+		return ApiResponse.ok(c, "OK", { items, meta: { page, per_page: perPage, total } });
 	},
 );
 
