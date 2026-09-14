@@ -455,24 +455,78 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .form-card-counts strong { color: var(--text); font-size: 15px; }
 .form-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
-/* Builder: blok pertanyaan collapsible ala advo <details> */
-.field-block { border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; overflow: hidden; background: #fff; }
-.field-block-head {
-	display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-	padding: 12px 14px; background: none; border: 0;
-	transition: background 0.15s ease;
+/* Builder: header halaman ala advo [id] */
+.builder-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.builder-title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.builder-head h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.03em; color: var(--navy); margin: 2px 0 0; }
+.builder-head-main .muted { margin: 4px 0 0; }
+.builder-head-main .muted .slug, .builder-head-main .muted code { font-family: ui-monospace, monospace; }
+.builder-head-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* Kartu bagikan link (ala advo CampaignQrCard tanpa QR) */
+.share-card {
+	position: relative; overflow: hidden; display: flex; gap: 18px; align-items: flex-start;
+	background: linear-gradient(120deg, rgba(6, 69, 91, 0.06), rgba(0, 145, 128, 0.04) 55%, rgba(206, 174, 101, 0.12));
+	border-color: rgba(206, 174, 101, 0.4); margin-bottom: 16px;
 }
-.field-block-head:hover { background: #fafbfb; }
+.share-card-deco {
+	position: absolute; right: -60px; top: -60px; width: 180px; height: 180px; border-radius: 50%;
+	background: radial-gradient(circle, rgba(206, 174, 101, 0.18), transparent 70%); pointer-events: none;
+}
+.share-card-icon {
+	width: 44px; height: 44px; border-radius: 14px; background: var(--navy); color: var(--gold-2);
+	display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative;
+}
+.share-card-main { min-width: 0; flex: 1; position: relative; }
+.share-card-tag { margin: 2px 0 10px; font-size: 14px; }
+.share-link-row {
+	display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--border);
+	border-radius: 10px; padding: 6px 6px 6px 12px;
+}
+.share-link-row code { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-card-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* Kartu konfigurasi dengan head bernuansa */
+.builder-card { padding: 0; overflow: hidden; margin-bottom: 18px; }
+.builder-card-head { border-bottom: 1px solid var(--border); background: rgba(6, 69, 91, 0.04); padding: 16px 20px; }
+.builder-card-head h2 { font-size: 15.5px; }
+.builder-card .section { padding: 16px 20px 20px; }
+
+/* Daftar pertanyaan ala advo form-builder */
+.builder-fields { display: flex; flex-direction: column; gap: 10px; }
+.builder-fields-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.builder-fields-head h2 { font-size: 17px; margin-bottom: 2px; }
+.builder-fields-head p { margin: 0; display: flex; align-items: center; gap: 4px; }
+.field-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.field-row {
+	display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 12px;
+	background: #fff; padding: 10px 12px; transition: opacity 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.field-row.dragging { opacity: 0.4; }
+.field-row.over { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); }
+.field-grip { cursor: grab; color: var(--muted); display: inline-flex; padding: 2px; }
+.field-grip:active { cursor: grabbing; }
 .field-num {
 	width: 26px; height: 26px; border-radius: 8px; background: var(--bg); flex-shrink: 0;
 	display: flex; align-items: center; justify-content: center; font-family: ui-monospace, monospace; font-size: 12px;
 }
-.field-block-label { flex: 1; min-width: 0; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Chevron indikator expand — rotate 90° saat terbuka */
-.field-chev { flex-shrink: 0; display: inline-flex; color: var(--muted); }
-.field-chev .icon-svg { transition: transform 0.18s ease; }
-.field-block-head[aria-expanded="true"] .field-chev .icon-svg { transform: rotate(90deg); }
-.field-block-body { border-top: 1px solid var(--border); padding: 4px 14px 14px; display: grid; gap: 4px; }
+.field-row-main { flex: 1; min-width: 0; }
+.field-row-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.field-row-label { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.req-star { color: var(--err); font-weight: 700; }
+.badge.outline { background: #fff; border: 1px solid #d1d5db; color: #4b5563; font-weight: 600; font-size: 11.5px; }
+.field-row-opts { margin: 3px 0 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.icon-btn {
+	display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+	border-radius: 8px; border: 0; background: none; color: var(--muted); cursor: pointer;
+	transition: background 0.15s ease, color 0.15s ease;
+}
+.icon-btn:hover { background: #eef2f5; color: var(--navy); }
+.icon-btn.danger:hover { background: #fee2e2; color: #b91c1c; }
+
+/* Dialog pertanyaan (modal dipakai ulang, lebih lebar) */
+.field-dialog { max-width: 480px; }
 
 /* Halaman analitik + builder */
 .studio-crumbrow { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, errText } from "../api.js";
-import { useToast, Confirm, SkeletonCard } from "../components/ui.jsx";
-import { IconChevronRight } from "../components/Icons.jsx";
+import { useToast, useEscape, useFocusTrap, Confirm, SkeletonCard } from "../components/ui.jsx";
+import { IconPlus, IconPencil, IconTrash, IconGrip, IconLink, IconCheck } from "../components/Icons.jsx";
 
 // Student Voice Studio — terinspirasi Campaign & Polling di Dashboard Advokasi:
 // daftar form sebagai kartu (jumlah pertanyaan/respons terlihat), builder dan
@@ -28,6 +28,7 @@ let tempFieldSeq = 0;
 const emptyField = () => ({ id: `temp-${++tempFieldSeq}`, label: "", description: "", type: "short_text", required: false, options: "", sort_order: 0 });
 
 const publicFormLink = (slug) => `https://sga-cakrawala.org/student-voice/${slug}`;
+const fieldTypeName = (t) => FIELD_TYPES.find(([v]) => v === t)?.[1] ?? t;
 
 export default function Forms({ user }) {
 	const [forms, setForms] = useState(null);
@@ -383,25 +384,14 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 	const [opensAt, setOpensAt] = useState(form.opens_at ? form.opens_at.slice(0, 16) : "");
 	const [closesAt, setClosesAt] = useState(form.closes_at ? form.closes_at.slice(0, 16) : "");
 	const [fields, setFields] = useState(form.fields.map((f) => ({ ...f, options: optionsToInput(f) })));
-	const [openMap, setOpenMap] = useState(() => new Set(form.fields.slice(0, 3).map((f) => f.id)));
 	const [busy, setBusy] = useState(false);
 	const [askDelete, setAskDelete] = useState(false);
 
-	const setField = (i, patch) => setFields((fs) => fs.map((f, j) => (j === i ? { ...f, ...patch } : f)));
-	const moveField = (i, dir) =>
-		setFields((fs) => {
-			const next = [...fs];
-			const [x] = next.splice(i, 1);
-			next.splice(i + dir, 0, x);
-			return next.map((f, j) => ({ ...f, sort_order: j }));
-		});
-	const toggleOpen = (id) =>
-		setOpenMap((m) => {
-			const next = new Set(m);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
+	// Dialog field ala advo: null = tutup, "new" = tambah, object = edit field itu.
+	const [dialog, setDialog] = useState(null);
+	const [askField, setAskField] = useState(null); // field yang mau dihapus
+	const [dragId, setDragId] = useState(null);
+	const [overId, setOverId] = useState(null);
 
 	const save = async () => {
 		setBusy(true);
@@ -471,10 +461,53 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 		}
 	};
 
+	// Drag-drop reorder ala advo form-builder (native HTML5, tanpa lib).
+	const dropOn = (targetId) => {
+		if (dragId !== null && dragId !== targetId) {
+			setFields((fs) => {
+				const from = fs.findIndex((f) => f.id === dragId);
+				const to = fs.findIndex((f) => f.id === targetId);
+				if (from < 0 || to < 0) return fs;
+				const next = [...fs];
+				const [x] = next.splice(from, 1);
+				next.splice(to, 0, x);
+				return next.map((f, j) => ({ ...f, sort_order: j }));
+			});
+		}
+		setDragId(null);
+		setOverId(null);
+	};
+
 	return (
 		<>
-			<div className="card">
-				<div className="section">
+			{/* Header ala advo [id]: back + kicker + judul + badge + meta */}
+			<div className="studio-crumbrow">
+				<Link className="btn ghost sm" to="/forms">← Semua form</Link>
+			</div>
+			<div className="builder-head">
+				<div className="builder-head-main">
+					<p className="studio-kicker">Form workspace</p>
+					<div className="builder-title-row">
+						<h1>{form.title}</h1>
+						<span className={`badge ${form.status}`}>{STATUS_LABEL[form.status] ?? form.status}</span>
+					</div>
+					<p className="muted small">
+						{fields.length} pertanyaan · /{form.slug}
+					</p>
+				</div>
+				<div className="builder-head-actions">
+					<a className="btn sec sm" href={form.status === "draft" ? undefined : publicFormLink(form.slug)} target="_blank" rel="noreferrer" aria-disabled={form.status === "draft"} onClick={(e) => e.preventDefault()}>Form publik</a>
+					<Link className="btn sm" to={`/forms/${form.id}/analytics`}>Analitik</Link>
+				</div>
+			</div>
+
+			<ShareCard form={form} toast={toast} />
+
+			<div className="card builder-card">
+				<div className="builder-card-head">
+					<h2>Konfigurasi &amp; publikasi</h2>
+				</div>
+				<div className="section" style={{ marginBottom: 0 }}>
 					<div className="section-head">
 						<div className="section-num">1</div>
 						<div>
@@ -499,69 +532,59 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					<label className="field-label" htmlFor="fd-thanks">Pesan terima kasih</label>
 					<input id="fd-thanks" value={thankYou} onChange={(e) => setThankYou(e.target.value)} disabled={!canManage} />
 				</div>
+			</div>
 
-				<div className="section">
-					<div className="section-head">
-						<div className="section-num">2</div>
-						<div>
-							<h2>Susunan pertanyaan</h2>
-							<p>Klik pertanyaan untuk membuka editornya. Jawaban lama menyimpan snapshot label.</p>
-						</div>
+			<section className="builder-fields">
+				<div className="builder-fields-head">
+					<div>
+						<h2>Susunan pertanyaan</h2>
+						<p className="muted small">Tarik <IconGrip size={13} /> untuk mengubah urutan. Jawaban lama menyimpan snapshot label, jadi histori tetap aman.</p>
 					</div>
-					{fields.map((f, i) => (
-						<div key={f.id ?? i} className="field-block">
-							<button type="button" className="field-block-head" onClick={() => toggleOpen(f.id)} aria-expanded={openMap.has(f.id)}>
-								<span className="field-num">{i + 1}</span>
-								<span className="field-block-label">{f.label || "(pertanyaan kosong)"}</span>
-								{Boolean(f.required) && <span className="badge published">Wajib</span>}
-								<span className="badge draft">{FIELD_TYPES.find(([v]) => v === f.type)?.[1] ?? f.type}</span>
-								<span className="field-chev" aria-hidden><IconChevronRight size={16} /></span>
-							</button>
-							{openMap.has(f.id) && (
-								<div className="field-block-body">
-									<label className="field-label" htmlFor={`fl-${f.id}`}>Pertanyaan</label>
-									<input id={`fl-${f.id}`} value={f.label} onChange={(e) => setField(i, { label: e.target.value })} placeholder="Pertanyaan…" disabled={!canManage} />
-									<label className="field-label" htmlFor={`fdesc-${f.id}`}>Deskripsi/caption</label>
-									<input id={`fdesc-${f.id}`} value={f.description || ""} onChange={(e) => setField(i, { description: e.target.value })} placeholder="Opsional" disabled={!canManage} />
-									<div className="grid-2">
-										<div>
-											<label className="field-label" htmlFor={`ftype-${f.id}`}>Tipe</label>
-											<select id={`ftype-${f.id}`} value={f.type} onChange={(e) => setField(i, { type: e.target.value })} disabled={!canManage}>
-												{FIELD_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-											</select>
-										</div>
-										<div className="check-row" style={{ marginTop: 26 }}>
-											<input id={`req-${f.id}`} type="checkbox" checked={Boolean(f.required)} onChange={(e) => setField(i, { required: e.target.checked })} disabled={!canManage} />
-											<label htmlFor={`req-${f.id}`} className="field-label" style={{ margin: 0 }}>Wajib diisi</label>
-										</div>
-									</div>
-									{(CHOICE_TYPES.includes(f.type) || f.type === "linear_scale") && (
-										<>
-											<label className="field-label" htmlFor={`fopt-${f.id}`}>{f.type === "linear_scale" ? "Skala" : "Opsi"}</label>
-											<input
-												id={`fopt-${f.id}`}
-												placeholder={f.type === "linear_scale" ? "1-5" : "Pisahkan dengan ; (mis. Ya;Tidak)"}
-												value={f.options || ""}
-												onChange={(e) => setField(i, { options: e.target.value })}
-												disabled={!canManage}
-											/>
-										</>
-									)}
-									<div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-										<button type="button" className="btn ghost sm" disabled={!canManage || i === 0} onClick={() => moveField(i, -1)}>↑ Naik</button>
-										<button type="button" className="btn ghost sm" disabled={!canManage || i === fields.length - 1} onClick={() => moveField(i, 1)}>↓ Turun</button>
-										<button type="button" className="btn danger sm" disabled={!canManage} onClick={() => setFields((fs) => fs.filter((_, j) => j !== i))}>Hapus</button>
-									</div>
-								</div>
-							)}
-						</div>
-					))}
 					{canManage && (
-						<button type="button" className="btn sec" onClick={() => setFields((fs) => [...fs, { ...emptyField(), sort_order: fs.length }])}>
-							+ Pertanyaan
+						<button type="button" className="btn" onClick={() => setDialog("new")}>
+							<span style={{ display: "inline-flex", marginRight: 6 }}><IconPlus size={15} /></span>
+							Tambah Pertanyaan
 						</button>
 					)}
 				</div>
+				<ol className="field-list">
+					{fields.map((f, i) => (
+						<li
+							key={f.id}
+							className={`field-row${dragId === f.id ? " dragging" : ""}${overId === f.id && dragId !== f.id ? " over" : ""}`}
+							draggable={canManage}
+							onDragStart={(e) => { setDragId(f.id); e.dataTransfer.effectAllowed = "move"; }}
+							onDragOver={(e) => { e.preventDefault(); if (f.id !== dragId) setOverId(f.id); }}
+							onDragLeave={() => { if (overId === f.id) setOverId(null); }}
+							onDrop={(e) => { e.preventDefault(); dropOn(f.id); }}
+							onDragEnd={() => { setDragId(null); setOverId(null); }}
+						>
+							{canManage && <span className="field-grip" aria-hidden><IconGrip size={15} /></span>}
+							<span className="field-num">{i + 1}</span>
+							<div className="field-row-main">
+								<div className="field-row-badges">
+									<span className="field-row-label">{f.label || "(pertanyaan kosong)"}</span>
+									{Boolean(f.required) && <span className="req-star">*</span>}
+									<span className="badge outline">{fieldTypeName(f.type)}</span>
+								</div>
+								{f.options && (
+									<p className="muted field-row-opts">
+										{f.type === "linear_scale" ? "Skala" : "Opsi"}: {f.type === "linear_scale" ? f.options : f.options.split(";").map((s) => s.trim()).filter(Boolean).join(" · ")}
+									</p>
+								)}
+							</div>
+							{canManage && (
+								<div className="field-row-actions">
+									<button type="button" className="icon-btn" onClick={() => setDialog(f)} aria-label={`Edit pertanyaan ${f.label || i + 1}`}><IconPencil size={15} /></button>
+									<button type="button" className="icon-btn danger" onClick={() => setAskField(f)} aria-label={`Hapus pertanyaan ${f.label || i + 1}`}><IconTrash size={15} /></button>
+								</div>
+							)}
+						</li>
+					))}
+				</ol>
+				{fields.length === 0 && (
+					<div className="empty-state"><p>Belum ada pertanyaan.</p></div>
+				)}
 
 				<div className="sticky-bar">
 					<button className="btn" disabled={busy || !canManage || !title.trim()} onClick={save}>{busy ? "Menyimpan…" : "Simpan"}</button>
@@ -577,12 +600,40 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					{canManage && form.status === "closed" && (
 						<button className="btn gold" disabled={busy} onClick={() => setStatus("publish", "Form dibuka kembali.")}>Buka kembali</button>
 					)}
-					<Link className="btn ghost" to={`/forms/${form.id}/analytics`}>Analitik &amp; respons</Link>
 					{canManage && (
-						<button className="btn danger" style={{ marginLeft: "auto" }} onClick={() => setAskDelete(true)}>Hapus</button>
+						<button className="btn danger" style={{ marginLeft: "auto" }} onClick={() => setAskDelete(true)}>Hapus form</button>
 					)}
 				</div>
-			</div>
+			</section>
+
+			{dialog !== null && (
+				<FieldDialog
+					key={dialog === "new" ? "create" : `edit-${dialog.id}`}
+					field={dialog === "new" ? null : dialog}
+					onSubmit={(draft) => {
+						setFields((fs) => {
+							if (dialog === "new") return [...fs, { ...emptyField(), ...draft, sort_order: fs.length }];
+							return fs.map((f) => (f.id === dialog.id ? { ...f, ...draft } : f));
+						});
+						setDialog(null);
+					}}
+					onCancel={() => setDialog(null)}
+				/>
+			)}
+
+			<Confirm
+				open={Boolean(askField)}
+				title="Hapus pertanyaan?"
+				confirmLabel="Ya, hapus"
+				danger
+				onConfirm={() => {
+					setFields((fs) => fs.filter((f) => f.id !== askField.id).map((f, j) => ({ ...f, sort_order: j })));
+					setAskField(null);
+				}}
+				onCancel={() => setAskField(null)}
+			>
+				Pertanyaan &quot;{askField?.label}&quot; dihapus dari susunan. Jawaban yang sudah masuk tetap tersimpan.
+			</Confirm>
 
 			<Confirm
 				open={askDelete}
@@ -598,11 +649,117 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 	);
 }
 
+/* ── Kartu bagikan link (ala advo CampaignQrCard, tanpa QR) ────────────────── */
+function ShareCard({ form, toast }) {
+	const [copied, setCopied] = useState(false);
+	const url = publicFormLink(form.slug);
+
+	const copy = () => {
+		if (form.status === "draft") {
+			toast("Link aktif setelah form diterbitkan.");
+			return;
+		}
+		navigator.clipboard?.writeText(url).then(() => {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1800);
+		}, () => toast("Tidak bisa menyalin link.", "err"));
+	};
+
+	return (
+		<div className="card share-card" id="share-link">
+			<div className="share-card-deco" aria-hidden />
+			<div className="share-card-icon" aria-hidden><IconLink size={20} /></div>
+			<div className="share-card-main">
+				<p className="studio-kicker">Bagikan form</p>
+				<p className="share-card-tag">Salin, sebar, kumpulkan respons.</p>
+				<div className="share-link-row">
+					<code>{url}</code>
+					<button type="button" className="btn ghost sm" onClick={copy}>
+						{copied ? <><IconCheck size={14} /> Tersalin</> : "Salin"}
+					</button>
+				</div>
+				{form.status === "draft" && <p className="muted small">Link baru aktif setelah form diterbitkan.</p>}
+				<div className="share-card-actions">
+					{form.status !== "draft" && (
+						<a className="btn sec sm" href={url} target="_blank" rel="noreferrer">Buka form publik</a>
+					)}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+/* ── Dialog tambah/edit pertanyaan (ala advo FieldDialog) ──────────────────── */
+function FieldDialog({ field, onSubmit, onCancel }) {
+	const isEdit = Boolean(field);
+	// Tipe terkunci saat edit — ganti tipe jawaban field berisi respons merusak data.
+	const [label, setLabel] = useState(field?.label || "");
+	const [description, setDescription] = useState(field?.description || "");
+	const [type, setType] = useState(field?.type || "short_text");
+	const [required, setRequired] = useState(Boolean(field?.required));
+	const [options, setOptions] = useState(
+		field?.type === "linear_scale" ? field.options : String(field?.options || "").split(";").map((s) => s.trim()).filter(Boolean).join("\n"),
+	);
+	const ref = useFocusTrap(true);
+	useEscape(onCancel);
+	const showOptions = CHOICE_TYPES.includes(type) || type === "linear_scale";
+
+	const submit = (e) => {
+		e.preventDefault();
+		if (!label.trim()) return;
+		onSubmit({
+			label: label.trim(),
+			description: description.trim() || "",
+			type,
+			required,
+			options: type === "linear_scale" ? options : options,
+		});
+	};
+
+	return (
+		<div className="modal-backdrop" onClick={onCancel}>
+			<div ref={ref} className="modal field-dialog" tabIndex={-1} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={isEdit ? "Edit pertanyaan" : "Tambah pertanyaan"}>
+				<h3>{isEdit ? "Edit Pertanyaan" : "Tambah Pertanyaan"}</h3>
+				<p className="muted small">{isEdit ? `Field "${field.label}"` : "Pertanyaan baru tampil di form publik setelah disimpan."}</p>
+				<form onSubmit={submit} style={{ display: "grid", gap: 2 }}>
+					<label className="field-label" htmlFor="dlg-label">Pertanyaan *</label>
+					<input id="dlg-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={500} placeholder="Contoh: Jurusan/Prodi" required autoFocus />
+					<label className="field-label" htmlFor="dlg-desc">Deskripsi/caption</label>
+					<input id="dlg-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Opsional" />
+					<label className="field-label" htmlFor="dlg-type">Tipe *</label>
+					<select id="dlg-type" value={type} onChange={(e) => setType(e.target.value)} disabled={isEdit}>
+						{FIELD_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+					</select>
+					{isEdit && <p className="field-help">Tipe terkunci saat edit agar jawaban lama tetap konsisten.</p>}
+					{showOptions && (
+						<>
+							<label className="field-label" htmlFor="dlg-opts">{type === "linear_scale" ? "Skala (min-maks)" : "Opsi (satu per baris)"}</label>
+							{type === "linear_scale" ? (
+								<input id="dlg-opts" value={options} onChange={(e) => setOptions(e.target.value)} placeholder="1-5" />
+							) : (
+								<textarea id="dlg-opts" rows={4} value={options} onChange={(e) => setOptions(e.target.value)} placeholder={"Opsi A\nOpsi B\nOpsi C"} />
+							)}
+						</>
+					)}
+					<div className="check-row">
+						<input id="dlg-req" type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
+						<label htmlFor="dlg-req" className="field-label" style={{ margin: 0 }}>Wajib diisi</label>
+					</div>
+					<div className="row-actions" style={{ marginTop: 18 }}>
+						<button type="button" className="btn ghost" onClick={onCancel}>Batal</button>
+						<button type="submit" className="btn">{isEdit ? "Simpan" : "Tambah"}</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	);
+}
+
 function optionsToInput(field) {
 	if (field.type === "linear_scale" && field.options && typeof field.options === "object") {
 		return `${field.options.min}-${field.options.max}`;
 	}
-	if (Array.isArray(field.options)) return field.options.join(";");
+	if (Array.isArray(field.options)) return field.options.join("\n");
 	return "";
 }
 
@@ -614,7 +771,7 @@ function parseOptionsInput(field) {
 		return m ? { min: Number(m[1]), max: Number(m[2]) } : null;
 	}
 	if (CHOICE_TYPES.includes(field.type)) {
-		return raw.split(";").map((s) => s.trim()).filter(Boolean);
+		return raw.split(/[;\n]/).map((s) => s.trim()).filter(Boolean);
 	}
 	return null;
 }
