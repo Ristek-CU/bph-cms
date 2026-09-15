@@ -98,6 +98,7 @@ publicFormRouter.get(
 			// camelCase supaya zod CampaignSchema landing page (opensAt/closesAt) cocok.
 			opensAt: form.opensAt,
 			closesAt: form.closesAt,
+			backgroundColor: form.backgroundColor,
 			thank_you_message: form.thankYouMessage,
 			fields: fields.map((f) => ({
 				id: f.id,

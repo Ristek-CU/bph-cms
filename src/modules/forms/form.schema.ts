@@ -55,10 +55,14 @@ export const fieldInputSchema = z.object({
 });
 export type FieldInput = z.infer<typeof fieldInputSchema>;
 
-// Default form pengaduan (slug student-voice) dikontrol permanent oleh backend
-// AdvocationDashboard — landing page fallback ke sana. CMS Hub tidak boleh
-// membuat form dengan slug itu (bentrok prioritas fallback).
-export const RESERVED_SLUGS = ["student-voice"];
+// Slug yang bentrok route landing page atau form pengaduan default:
+// - student-voice: form pengaduan default, permanent milik backend AdvocationDashboard
+//   (landing page fallback ke sana).
+// - student-societes: route static UKM di landing page.
+export const RESERVED_SLUGS = ["student-voice", "student-societes"];
+
+// Hex color utk background halaman publik form.
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be hex color, e.g. #F6F4EF");
 
 export const createFormSchema = z
 	.object({
@@ -72,6 +76,7 @@ export const createFormSchema = z
 			.optional(),
 		description: z.string().max(5000).nullish(),
 		thank_you_message: z.string().trim().max(500).optional(),
+		background_color: hexColor.optional(),
 		opens_at: isoDatetime.nullish(),
 		closes_at: isoDatetime.nullish(),
 		fields: z.array(fieldInputSchema).max(100).optional(),
@@ -87,6 +92,7 @@ export const updateFormSchema = z
 		title: z.string().trim().min(1).max(200).optional(),
 		description: z.string().max(5000).nullish(),
 		thank_you_message: z.string().trim().max(500).optional(),
+		background_color: hexColor.optional(),
 		opens_at: isoDatetime.nullish(),
 		closes_at: isoDatetime.nullish(),
 		// Jika fields dikirim → seluruh set pertanyaan diganti (pattern sessions di events).

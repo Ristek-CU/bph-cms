@@ -84,6 +84,20 @@ ok(
 	reservedSlug.body?.errors?.slug,
 );
 
+const reservedSlug2 = await h.req("/api/v1/admin/forms", {
+	method: "POST",
+	token: "tok-a-admin",
+	json: { title: "Tabrakan UKM", slug: "student-societes" },
+});
+eq("slug student-societes → 422 (route static landing page)", reservedSlug2.status, 422);
+
+const badBg = await h.req("/api/v1/admin/forms", {
+	method: "POST",
+	token: "tok-a-admin",
+	json: { title: "BG Salah", background_color: "red" },
+});
+eq("background_color non-hex → 422", badBg.status, 422);
+
 // ── Isolasi divisi ──────────────────────────────────────────────────────────
 section("Isolasi lintas divisi");
 

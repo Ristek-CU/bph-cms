@@ -214,6 +214,8 @@ export const forms = sqliteTable(
 		thankYouMessage: text("thank_you_message")
 			.notNull()
 			.default("Terima kasih. Respons kamu sudah kami terima."),
+		// Warna background halaman publik — dirender landing page.
+		backgroundColor: text("background_color").notNull().default("#F6F4EF"),
 		opensAt: text("opens_at"),
 		closesAt: text("closes_at"),
 		createdByUserId: text("created_by_user_id"),

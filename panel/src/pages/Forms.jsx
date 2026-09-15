@@ -31,7 +31,8 @@ const POLL_COLORS = ["#06455b", "#ceae65", "#009180", "#009fc4", "#e4a037", "#54
 let tempFieldSeq = 0;
 const emptyField = () => ({ id: `temp-${++tempFieldSeq}`, label: "", description: "", type: "short_text", required: false, options: "", sort_order: 0 });
 
-const publicFormLink = (slug) => `https://sga-cakrawala.org/student-voice/${slug}`;
+// Form reguler hidup di root domain; path /student-voice hanya form pengaduan default (advo).
+const publicFormLink = (slug) => `https://sga-cakrawala.org/${slug}`;
 const fieldTypeName = (t) => FIELD_TYPES.find(([v]) => v === t)?.[1] ?? t;
 const formatPercent = (v) => `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1 }).format(v)}%`;
 
@@ -386,6 +387,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 	const [title, setTitle] = useState(form.title);
 	const [description, setDescription] = useState(form.description || "");
 	const [thankYou, setThankYou] = useState(form.thank_you_message || "");
+	const [bgColor, setBgColor] = useState(form.background_color || "#F6F4EF");
 	const [opensAt, setOpensAt] = useState(form.opens_at ? form.opens_at.slice(0, 16) : "");
 	const [closesAt, setClosesAt] = useState(form.closes_at ? form.closes_at.slice(0, 16) : "");
 	const [fields, setFields] = useState(form.fields.map((f) => ({ ...f, options: optionsToInput(f) })));
@@ -405,6 +407,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 				title,
 				description: description || null,
 				thank_you_message: thankYou || undefined,
+				background_color: bgColor,
 				opens_at: opensAt ? `${opensAt}:00+07:00` : null,
 				closes_at: closesAt ? `${closesAt}:00+07:00` : null,
 				fields: fields.map((f, i) => ({
@@ -538,6 +541,20 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					<div className="form-field">
 						<label className="field-label" htmlFor="fd-thanks">Pesan setelah submit</label>
 						<input id="fd-thanks" value={thankYou} onChange={(e) => setThankYou(e.target.value)} disabled={!canManage} />
+					</div>
+					<div className="form-field">
+						<label className="field-label" htmlFor="fd-bg">Warna background halaman form</label>
+						<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+							<input
+								id="fd-bg"
+								type="color"
+								value={bgColor}
+								onChange={(e) => setBgColor(e.target.value.toUpperCase())}
+								disabled={!canManage}
+								style={{ width: 44, height: 36, padding: 2, borderRadius: 8, border: "1px solid var(--line)", cursor: "pointer" }}
+							/>
+							<input value={bgColor} onChange={(e) => setBgColor(e.target.value)} disabled={!canManage} style={{ width: 110, fontFamily: "monospace" }} aria-label="Kode warna hex" />
+						</div>
 					</div>
 				</div>
 			</div>
