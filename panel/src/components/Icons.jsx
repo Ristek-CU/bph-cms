@@ -162,6 +162,71 @@ export function IconCheck({ className = "icon-svg", size = 16 }) {
 	);
 }
 
+export function IconQrCode({ className = "icon-svg", size = 18 }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+			<rect width="5" height="5" x="3" y="3" />
+			<rect width="5" height="5" x="16" y="3" />
+			<rect width="5" height="5" x="3" y="16" />
+			<path d="M21 11h-3" />
+			<path d="M21 15h-3" />
+			<path d="M21 19h-3" />
+			<path d="M14 13v6" />
+			<path d="M14 11v-1" />
+			<path d="M11 14h1" />
+			<path d="M11 19h1" />
+		</svg>
+	);
+}
+
+export function IconDownload({ className = "icon-svg", size = 16 }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+			<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+			<polyline points="7 10 12 15 17 10" />
+			<line x1="12" x2="12" y1="15" y2="3" />
+		</svg>
+	);
+}
+
+export function IconExternalLink({ className = "icon-svg", size = 16 }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+			<path d="M15 3h6v6" />
+			<path d="M10 14 21 3" />
+			<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+		</svg>
+	);
+}
+
+export function IconBarChart({ className = "icon-svg", size = 16 }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+			<line x1="12" x2="12" y1="20" y2="10" />
+			<line x1="18" x2="18" y1="20" y2="4" />
+			<line x1="6" x2="6" y1="20" y2="16" />
+		</svg>
+	);
+}
+
+export function IconPieChart({ className = "icon-svg", size = 16 }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+			<path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+			<path d="M22 12A10 10 0 0 0 12 2v10z" />
+		</svg>
+	);
+}
+
+export function IconTrendingUp({ className = "icon-svg", size = 16 }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+			<polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+			<polyline points="16 7 22 7 22 13" />
+		</svg>
+	);
+}
+
 export function IconChevronLeft({ className = "icon-svg", size = 16 }) {
 	return (
 		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>

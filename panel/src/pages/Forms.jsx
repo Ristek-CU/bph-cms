@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, errText } from "../api.js";
 import { useToast, useEscape, useFocusTrap, Confirm, SkeletonCard } from "../components/ui.jsx";
-import { IconPlus, IconPencil, IconTrash, IconGrip, IconLink, IconCheck } from "../components/Icons.jsx";
+import {
+	IconPlus, IconPencil, IconTrash, IconGrip, IconLink, IconCheck,
+	IconQrCode, IconDownload, IconExternalLink, IconBarChart, IconPieChart, IconTrendingUp,
+} from "../components/Icons.jsx";
 
-// Student Voice Studio — terinspirasi Campaign & Polling di Dashboard Advokasi:
-// daftar form sebagai kartu (jumlah pertanyaan/respons terlihat), builder dan
-// analitik sebagai halaman URL sendiri supaya bisa di-bookmark & back tidak reset.
+// Student Voice Studio — mirror 1:1 Campaign & Polling di AdvocationDashboard:
+// daftar form sebagai kartu, builder + QR card + analitik sebagai halaman URL sendiri.
 const FIELD_TYPES = [
 	["short_text", "Jawaban singkat"],
 	["paragraph", "Paragraf"],
@@ -20,7 +22,9 @@ const FIELD_TYPES = [
 	["file", "Upload file"],
 ];
 const CHOICE_TYPES = ["multiple_choice", "checkboxes", "dropdown"];
-const STATUS_LABEL = { draft: "Draft", published: "Terbit", closed: "Ditutup" };
+const STATUS_LABEL = { draft: "Draft", published: "Tayang", closed: "Ditutup" };
+// Palet polling identik dengan advo analytics.
+const POLL_COLORS = ["#06455b", "#ceae65", "#009180", "#009fc4", "#e4a037", "#54bfaa", "#00718b", "#b27d2b"];
 
 // ID sementara (temp-N) untuk field baru — tanpa ini semua field baru share
 // undefined, openMap (Set of id) toggle semua sekaligus.
@@ -29,6 +33,7 @@ const emptyField = () => ({ id: `temp-${++tempFieldSeq}`, label: "", description
 
 const publicFormLink = (slug) => `https://sga-cakrawala.org/student-voice/${slug}`;
 const fieldTypeName = (t) => FIELD_TYPES.find(([v]) => v === t)?.[1] ?? t;
+const formatPercent = (v) => `${new Intl.NumberFormat("id-ID", { maximumFractionDigits: 1 }).format(v)}%`;
 
 export default function Forms({ user }) {
 	const [forms, setForms] = useState(null);
@@ -79,7 +84,7 @@ export default function Forms({ user }) {
 			{/* Hero ala advo Campaign & Polling */}
 			<div className="studio-hero">
 				<p className="studio-kicker">Student Voice Studio</p>
-				<h2>Form &amp; Polling</h2>
+				<h2>Campaign &amp; Polling</h2>
 				<p className="muted">
 					Setiap form punya pertanyaan, link publik, respons, dan ruang analitik sendiri.
 				</p>
@@ -97,7 +102,7 @@ export default function Forms({ user }) {
 						</div>
 					) : (
 						forms.map((f) => (
-							<FormCard key={f.id} form={f} canManage={canManage} canSeeSubmissions={canSeeSubmissions} toast={toast} />
+							<FormCard key={f.id} form={f} canSeeSubmissions={canSeeSubmissions} toast={toast} />
 						))
 					)}
 				</div>
@@ -127,7 +132,7 @@ export default function Forms({ user }) {
 	);
 }
 
-function FormCard({ form, canManage, canSeeSubmissions, toast }) {
+function FormCard({ form, canSeeSubmissions, toast }) {
 	const copyLink = () => {
 		if (form.status === "draft") {
 			toast("Link aktif setelah form diterbitkan.");
@@ -158,10 +163,10 @@ function FormCard({ form, canManage, canSeeSubmissions, toast }) {
 					<span><strong>{form.submission_count ?? 0}</strong> respons</span>
 				</div>
 				<div className="form-card-actions">
-					<button className="btn ghost sm" onClick={copyLink}>Salin link</button>
-					<Link className="btn sec sm" to={`/forms/${form.id}`}>Edit form</Link>
+					<button className="btn ghost sm" onClick={copyLink} title="Salin link publik"><IconLink size={14} /> Salin link</button>
+					<Link className="btn sec sm flex-1" to={`/forms/${form.id}`}>Detail</Link>
 					{canSeeSubmissions && (
-						<Link className="btn sm" to={`/forms/${form.id}/analytics`}>Analitik</Link>
+						<Link className="btn sm flex-1" to={`/forms/${form.id}/analytics`}><IconBarChart size={14} /> Analytics</Link>
 					)}
 				</div>
 			</div>
@@ -319,18 +324,22 @@ function SubmissionsSection({ formId, toast }) {
 	return (
 		<div className="card" style={{ marginTop: 16 }}>
 			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-				<h3>Respons masuk ({total})</h3>
+				<h3>Respons terbaru</h3>
 				<button className="btn ghost sm" disabled={busy || total === 0} onClick={() => exportCsv(formId, toast)}>Ekspor CSV</button>
 			</div>
 			{subs.length === 0 ? (
 				<p className="muted">Belum ada respons.</p>
 			) : (
-				<div style={{ display: "grid", gap: 10 }}>
-					{subs.map((s) => (
-						<div key={s.id} className="sess">
-							<div className="sess-head">
-								<strong>{new Date(s.created_at).toLocaleString("id-ID")}</strong>
-								<span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+				<div className="subs-list">
+					{/* Pola advo: baris expandable details/summary, grid kartu jawaban. */}
+					{subs.map((s, i) => (
+						<details key={s.id} className="sub-row">
+							<summary className="sub-summary">
+								<span className="sub-id">#{total - ((page - 1) * perPage + i)}</span>
+								<span>{new Date(s.created_at).toLocaleString("id-ID")}</span>
+								<span className="sub-count">{s.answers.length} jawaban</span>
+								<span className={`badge ${s.status === "new" ? "published" : "draft"}`}>{s.status}</span>
+								<span className="sub-actions" onClick={(e) => e.preventDefault()}>
 									<select disabled={busy} value={s.status} onChange={(e) => setStatus(s.id, e.target.value)} aria-label="Status respons">
 										<option value="new">new</option>
 										<option value="reviewed">reviewed</option>
@@ -338,20 +347,16 @@ function SubmissionsSection({ formId, toast }) {
 									</select>
 									<button className="btn danger sm" disabled={busy} onClick={() => setAskRemove(s.id)}>Hapus</button>
 								</span>
+							</summary>
+							<div className="sub-body">
+								{s.answers.map((a, j) => (
+									<div key={j} className="answer-card">
+										<p className="answer-label">{a.label}</p>
+										<p className="answer-value">{Array.isArray(a.value) ? a.value.join(", ") : String(a.value)}</p>
+									</div>
+								))}
 							</div>
-							<div className="tbl-wrap">
-								<table className="tbl">
-								<tbody>
-									{s.answers.map((a, i) => (
-										<tr key={i}>
-											<td style={{ width: "40%" }}>{a.label}</td>
-											<td>{Array.isArray(a.value) ? a.value.join(", ") : String(a.value)}</td>
-										</tr>
-									))}
-								</tbody>
-								</table>
-							</div>
-						</div>
+						</details>
 					))}
 				</div>
 			)}
@@ -480,10 +485,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 
 	return (
 		<>
-			{/* Header ala advo [id]: back + kicker + judul + badge + meta */}
-			<div className="studio-crumbrow">
-				<Link className="btn ghost sm" to="/forms">← Semua form</Link>
-			</div>
+			{/* Header ala advo [id]: kicker + judul + badge + meta + aksi */}
 			<div className="builder-head">
 				<div className="builder-head-main">
 					<p className="studio-kicker">Form workspace</p>
@@ -492,16 +494,16 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 						<span className={`badge ${form.status}`}>{STATUS_LABEL[form.status] ?? form.status}</span>
 					</div>
 					<p className="muted small">
-						{fields.length} pertanyaan · /{form.slug}
+						{fields.length} pertanyaan · {form.submission_count ?? 0} respons · /{form.slug}
 					</p>
 				</div>
 				<div className="builder-head-actions">
-					<a className="btn sec sm" href={form.status === "draft" ? undefined : publicFormLink(form.slug)} target="_blank" rel="noreferrer" aria-disabled={form.status === "draft"} onClick={(e) => e.preventDefault()}>Form publik</a>
-					<Link className="btn sm" to={`/forms/${form.id}/analytics`}>Analitik</Link>
+					<a className="btn sec sm" href={form.status === "draft" ? undefined : publicFormLink(form.slug)} target="_blank" rel="noreferrer" aria-disabled={form.status === "draft"} onClick={(e) => e.preventDefault()}><IconExternalLink size={14} /> Form publik</a>
+					<Link className="btn sm" to={`/forms/${form.id}/analytics`}><IconBarChart size={14} /> Buka analytics</Link>
 				</div>
 			</div>
 
-			<ShareCard form={form} toast={toast} />
+			<QrCard formTitle={form.title} slug={form.slug} status={form.status} toast={toast} />
 
 			<div className="card builder-card">
 				<div className="builder-card-head">
@@ -534,7 +536,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 						</div>
 					</div>
 					<div className="form-field">
-						<label className="field-label" htmlFor="fd-thanks">Pesan terima kasih</label>
+						<label className="field-label" htmlFor="fd-thanks">Pesan setelah submit</label>
 						<input id="fd-thanks" value={thankYou} onChange={(e) => setThankYou(e.target.value)} disabled={!canManage} />
 					</div>
 				</div>
@@ -654,13 +656,37 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 	);
 }
 
-/* ── Kartu bagikan link (ala advo CampaignQrCard, tanpa QR) ────────────────── */
-function ShareCard({ form, toast }) {
+/* ── Kartu QR (mirror advo CampaignQrCard) ────────────────────────────────── */
+function QrCard({ formTitle, slug, status, toast }) {
+	const [qrDataUrl, setQrDataUrl] = useState("");
 	const [copied, setCopied] = useState(false);
-	const url = publicFormLink(form.slug);
+	const url = publicFormLink(slug);
+
+	useEffect(() => {
+		let active = true;
+		// Dynamic import — bundle utama panel tetap tanpa qrcode.
+		import("qrcode")
+			.then(({ default: QRCode }) =>
+				QRCode.toDataURL(url, {
+					errorCorrectionLevel: "H",
+					margin: 4,
+					width: 1200,
+					color: { dark: "#06455B", light: "#FFFFFF" },
+				}),
+			)
+			.then((dataUrl) => {
+				if (active) setQrDataUrl(dataUrl);
+			})
+			.catch(() => {
+				if (active) toast("QR code gagal dibuat. Coba muat ulang halaman.", "err");
+			});
+		return () => {
+			active = false;
+		};
+	}, [url, toast]);
 
 	const copy = () => {
-		if (form.status === "draft") {
+		if (status === "draft") {
 			toast("Link aktif setelah form diterbitkan.");
 			return;
 		}
@@ -670,24 +696,55 @@ function ShareCard({ form, toast }) {
 		}, () => toast("Tidak bisa menyalin link.", "err"));
 	};
 
+	const downloadQr = () => {
+		if (!qrDataUrl) return;
+		const a = document.createElement("a");
+		a.href = qrDataUrl;
+		a.download = `qr-${slug}.png`;
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		toast("QR code PNG diunduh.");
+	};
+
 	return (
 		<div className="card share-card" id="share-link">
 			<div className="share-card-deco" aria-hidden />
-			<div className="share-card-icon" aria-hidden><IconLink size={20} /></div>
-			<div className="share-card-main">
-				<p className="studio-kicker">Bagikan form</p>
-				<p className="share-card-tag">Salin, sebar, kumpulkan respons.</p>
-				<div className="share-link-row">
-					<code>{url}</code>
-					<button type="button" className="btn ghost sm" onClick={copy}>
-						{copied ? <><IconCheck size={14} /> Tersalin</> : "Salin"}
-					</button>
-				</div>
-				{form.status === "draft" && <p className="muted small">Link baru aktif setelah form diterbitkan.</p>}
-				<div className="share-card-actions">
-					{form.status !== "draft" && (
-						<a className="btn sec sm" href={url} target="_blank" rel="noreferrer">Buka form publik</a>
+			<div className="share-card-grid">
+				<div className="share-card-main">
+					<div className="share-card-icon" aria-hidden><IconQrCode size={20} /></div>
+					<p className="studio-kicker">Bagikan form</p>
+					<p className="share-card-title">Scan, isi, selesai.</p>
+					<p className="muted small share-card-desc">
+						QR ini khusus untuk <strong>{formTitle}</strong>. Setiap scan membuka form yang benar, sehingga respons tetap masuk ke analitik form ini.
+					</p>
+					<div className="share-link-row">
+						<code>{url}</code>
+						<button type="button" className="btn ghost sm" onClick={copy}>
+							{copied ? <><IconCheck size={14} /> Tersalin</> : "Salin"}
+						</button>
+					</div>
+					{status !== "published" && (
+						<p className="share-card-warn">
+							QR sudah bisa dibagikan, tetapi form baru menerima respons setelah diterbitkan.
+						</p>
 					)}
+					<div className="share-card-actions">
+						<button type="button" className="btn" onClick={downloadQr} disabled={!qrDataUrl}><IconDownload size={14} /> Download PNG</button>
+						{status === "published" && (
+							<a className="btn sec" href={url} target="_blank" rel="noreferrer"><IconExternalLink size={14} /> Coba link</a>
+						)}
+					</div>
+				</div>
+				<div className="qr-frame">
+					<div className="qr-box">
+						{qrDataUrl ? (
+							<img src={qrDataUrl} alt={`QR code menuju form ${formTitle}`} />
+						) : (
+							<div className="qr-loading"><IconQrCode size={36} /></div>
+						)}
+					</div>
+					<p className="qr-slug">/{slug}</p>
 				</div>
 			</div>
 		</div>
@@ -717,7 +774,7 @@ function FieldDialog({ field, onSubmit, onCancel }) {
 			description: description.trim() || "",
 			type,
 			required,
-			options: type === "linear_scale" ? options : options,
+			options: options,
 		});
 	};
 
@@ -792,26 +849,29 @@ function parseOptionsInput(field) {
 	return null;
 }
 
-/* ── Analitik (gaya advo Campaign Analytics) ─────────────────────────────── */
+/* ── Analitik (mirror advo Campaign Analytics) ─────────────────────────────── */
 function Analytics({ data }) {
 	const maxDay = Math.max(1, ...data.last_7_days.map((d) => d.count));
 	const week = data.last_7_days.reduce((s, d) => s + d.count, 0);
+	// Rata-rata terjawab = total jawaban / respons (metrik ke-3 advo).
+	const answered = data.fields.reduce((s, f) => s + Math.round((f.response_rate / 100) * data.total_submissions), 0);
+	const average = data.total_submissions ? (answered / data.total_submissions).toFixed(1) : "0";
 
 	return (
 		<div className="studio-analytics">
 			<div className="stat-grid">
 				<div className="stat hero"><div className="num">{data.total_submissions}</div><div className="lbl">Total respons</div></div>
-				<div className="stat"><div className="num">{week}</div><div className="lbl">Respons 7 hari</div></div>
 				<div className="stat"><div className="num">{data.fields.length}</div><div className="lbl">Pertanyaan</div></div>
-				<div className="stat"><div className="num">{STATUS_LABEL[data.status] ?? data.status}</div><div className="lbl">Status</div></div>
+				<div className="stat"><div className="num">{average}</div><div className="lbl">Rata-rata terjawab</div></div>
+				<div className="stat"><div className="num">{week}</div><div className="lbl">Respons 7 hari</div></div>
 			</div>
 
 			<div className="card">
-				<h3 style={{ marginBottom: 12 }}>Tren respons 7 hari</h3>
+				<div className="trend-head"><IconTrendingUp size={16} /> <h3>Tren respons 7 hari</h3></div>
 				<div className="trend-row">
 					{data.last_7_days.map((d) => (
 						<div key={d.date} className="trend-col" title={`${d.date}: ${d.count}`}>
-							<span className="small" style={{ fontWeight: 600 }}>{d.count || ""}</span>
+							<span className="small" style={{ fontWeight: 600 }}>{d.count}</span>
 							<div className="trend-bar" style={{ height: `${Math.max(4, (d.count / maxDay) * 120)}px` }} />
 							<span className="muted" style={{ fontSize: 11 }}>
 								{new Date(d.date).toLocaleDateString("id-ID", { weekday: "short" })}
@@ -822,52 +882,107 @@ function Analytics({ data }) {
 			</div>
 
 			<h3 style={{ margin: "4px 0 2px" }}>Analytics per pertanyaan</h3>
-			<p className="muted small" style={{ marginBottom: 10 }}>Distribusi pilihan tampil sebagai bar; jawaban bebas menampilkan respons terbaru.</p>
+			<p className="muted small" style={{ marginBottom: 10 }}>Distribusi pilihan ditampilkan sebagai bar; jawaban bebas menampilkan respons terbaru.</p>
 			<div className="studio-analytics-grid">
-				{data.fields.map((f) => (
-					<FieldAnalytics key={f.id} field={f} total={data.total_submissions} />
+				{data.fields.map((f, i) => (
+					<FieldAnalytics key={f.id} index={i} field={f} total={data.total_submissions} />
 				))}
 			</div>
 		</div>
 	);
 }
 
-function FieldAnalytics({ field, total }) {
+function FieldAnalytics({ field, index, total }) {
+	const distribution = field.distribution;
+	const isChoice = Boolean(distribution);
+	const entries = distribution ? Object.entries(distribution) : [];
+	const totalSelections = entries.reduce((s, [, c]) => s + c, 0);
+	const singleChoice = field.type === "multiple_choice" || field.type === "dropdown";
+
+	// Segmen pie conic-gradient identik advo.
+	const segments = [];
+	let cursor = 0;
+	for (const [, count] of entries) {
+		const share = totalSelections ? (count / totalSelections) * 100 : 0;
+		const color = POLL_COLORS[segments.length % POLL_COLORS.length];
+		segments.push(`${color} ${cursor}% ${cursor + share}%`);
+		cursor += share;
+	}
+
 	return (
 		<div className="card" style={{ marginBottom: 0 }}>
-			<div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-				<strong className="small">{field.label}</strong>
-				<span className="badge upcoming">{field.response_rate}% dijawab</span>
+			<div className="fa-head">
+				<div>
+					<p className="fa-num">Pertanyaan {index + 1}</p>
+					<h4 className="fa-label">{field.label}</h4>
+				</div>
+				<span className="badge outline">{field.response_rate}% menjawab</span>
 			</div>
-			{field.distribution && (
-				<div style={{ marginTop: 10, display: "grid", gap: 5 }}>
-					{Object.entries(field.distribution).map(([opt, count]) => {
-						const max = Math.max(1, ...Object.values(field.distribution));
-						return (
-							<div key={opt} style={{ display: "grid", gridTemplateColumns: "minmax(80px, 200px) 1fr 40px", alignItems: "center", gap: 8 }}>
-								<span className="small" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{opt}</span>
-								<div style={{ background: "#eef2f5", borderRadius: 4, height: 10 }}>
-									<div style={{ background: "var(--teal)", width: `${(count / max) * 100}%`, height: "100%", borderRadius: 4 }} />
-								</div>
-								<span className="muted small" style={{ textAlign: "right" }}>{count}</span>
-							</div>
-						);
-					})}
-				</div>
-			)}
-			{field.average !== null && (
-				<div style={{ marginTop: 10 }}>
-					<span className="small"><strong>Rata-rata: {Math.round(field.average * 100) / 100}</strong></span>
-					<div style={{ background: "#eef2f5", borderRadius: 4, height: 10, marginTop: 4, maxWidth: 300 }}>
-						<div style={{ background: "var(--gold)", width: `${Math.min(100, (field.average / 5) * 100)}%`, height: "100%", borderRadius: 4 }} />
+			{isChoice ? (
+				<div style={{ marginTop: 14 }}>
+					<div className="poll-summary">
+						<span className="poll-summary-label"><IconPieChart size={14} /> Ringkasan polling</span>
+						<span className="muted small">{Math.round((field.response_rate / 100) * total)} responden · {totalSelections} pilihan</span>
 					</div>
+					<div className={singleChoice ? "poll-grid" : ""}>
+						{singleChoice && (
+							<div
+								className="poll-pie"
+								style={{ background: totalSelections ? `conic-gradient(${segments.join(",")})` : "var(--bg)" }}
+								role="img"
+								aria-label={`Distribusi jawaban ${field.label}`}
+							>
+								<div className="poll-pie-hole">
+									<strong>{Math.round((field.response_rate / 100) * total)}</strong>
+									<span>respons</span>
+								</div>
+							</div>
+						)}
+						<div className="poll-bars">
+							{entries.map(([opt, count], i) => {
+								const respondents = Math.round((field.response_rate / 100) * total);
+								const percent = respondents ? (count / respondents) * 100 : 0;
+								return (
+									<div key={opt} className="poll-bar-row">
+										<div className="poll-bar-top">
+											<span className="poll-bar-name">
+												<i className="poll-dot" style={{ backgroundColor: POLL_COLORS[i % POLL_COLORS.length] }} />
+												{opt}
+											</span>
+											<strong className="poll-bar-count">{count} <span className="muted">({formatPercent(percent)})</span></strong>
+										</div>
+										<div className="poll-bar-track">
+											<div
+												className="poll-bar-fill"
+												style={{ width: `${Math.min(100, percent)}%`, backgroundColor: POLL_COLORS[i % POLL_COLORS.length] }}
+											/>
+										</div>
+									</div>
+								);
+							})}
+							{totalSelections === 0 && <p className="muted small">Belum ada jawaban.</p>}
+						</div>
+					</div>
+					{field.type === "checkboxes" && (
+						<p className="poll-note">
+							Persentase dihitung dari jumlah responden. Total dapat melebihi 100% karena responden boleh memilih lebih dari satu opsi.
+						</p>
+					)}
 				</div>
-			)}
-			{!field.distribution && field.average === null && field.recent.length > 0 && (
-				<div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+			) : (
+				<div style={{ marginTop: 14, display: "grid", gap: 6 }}>
+					{field.average !== null && field.average !== undefined && (
+						<div style={{ marginBottom: 6 }}>
+							<span className="small"><strong>Rata-rata: {Math.round(field.average * 100) / 100}</strong></span>
+							<div style={{ background: "#eef2f5", borderRadius: 4, height: 10, marginTop: 4, maxWidth: 300 }}>
+								<div style={{ background: "var(--gold)", width: `${Math.min(100, (field.average / 5) * 100)}%`, height: "100%", borderRadius: 4 }} />
+							</div>
+						</div>
+					)}
 					{field.recent.slice(0, 5).map((v, i) => (
 						<blockquote key={i} className="answer-quote">{typeof v === "string" && v.length > 120 ? `${v.slice(0, 120)}…` : String(v)}</blockquote>
 					))}
+					{field.recent.length === 0 && total > 0 && <p className="muted small">Belum ada jawaban.</p>}
 				</div>
 			)}
 			{total === 0 && <div className="muted small" style={{ marginTop: 8 }}>Belum ada respons.</div>}

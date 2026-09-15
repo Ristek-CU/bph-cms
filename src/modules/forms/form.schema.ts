@@ -55,6 +55,11 @@ export const fieldInputSchema = z.object({
 });
 export type FieldInput = z.infer<typeof fieldInputSchema>;
 
+// Default form pengaduan (slug student-voice) dikontrol permanent oleh backend
+// AdvocationDashboard — landing page fallback ke sana. CMS Hub tidak boleh
+// membuat form dengan slug itu (bentrok prioritas fallback).
+export const RESERVED_SLUGS = ["student-voice"];
+
 export const createFormSchema = z
 	.object({
 		title: z.string().trim().min(1).max(200),
@@ -63,6 +68,7 @@ export const createFormSchema = z
 			.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug must be kebab-case")
 			.min(3)
 			.max(120)
+			.refine((v) => !RESERVED_SLUGS.includes(v), "Slug ini dipakai form pengaduan Advokasi")
 			.optional(),
 		description: z.string().max(5000).nullish(),
 		thank_you_message: z.string().trim().max(500).optional(),

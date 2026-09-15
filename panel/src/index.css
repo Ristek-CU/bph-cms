@@ -516,6 +516,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 	background: var(--bg); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--muted);
 }
 .form-card-counts strong { color: var(--text); font-size: 15px; }
+.form-card .slug { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.btn.flex-1 { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .form-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* Builder: header halaman ala advo [id] */
@@ -526,28 +528,52 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .builder-head-main .muted .slug, .builder-head-main .muted code { font-family: var(--font-mono); }
 .builder-head-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
-/* Kartu bagikan link (ala advo CampaignQrCard tanpa QR) */
+/* Kartu QR (mirror advo CampaignQrCard) */
 .share-card {
-	position: relative; overflow: hidden; display: flex; gap: 18px; align-items: flex-start;
+	position: relative; overflow: hidden; margin-bottom: 16px; padding: 0;
 	background: linear-gradient(120deg, rgba(6, 69, 91, 0.06), rgba(0, 145, 128, 0.04) 55%, rgba(206, 174, 101, 0.12));
-	border-color: rgba(206, 174, 101, 0.4); margin-bottom: 16px;
+	border-color: rgba(206, 174, 101, 0.4);
 }
 .share-card-deco {
-	position: absolute; right: -60px; top: -60px; width: 180px; height: 180px; border-radius: 50%;
-	background: radial-gradient(circle, rgba(206, 174, 101, 0.18), transparent 70%); pointer-events: none;
+	position: absolute; right: -64px; top: -80px; width: 224px; height: 224px; border-radius: 50%;
+	border: 34px solid rgba(206, 174, 101, 0.1); pointer-events: none;
 }
+.share-card-grid { position: relative; display: grid; gap: 22px; padding: 20px; align-items: center; }
+@media (min-width: 768px) { .share-card-grid { grid-template-columns: minmax(0, 1fr) 220px; padding: 26px; } }
+.share-card-main { min-width: 0; }
 .share-card-icon {
 	width: 44px; height: 44px; border-radius: 14px; background: var(--navy); color: var(--gold-2);
-	display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative;
+	display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+	box-shadow: 0 10px 30px -12px rgba(6, 69, 91, 0.8); margin-bottom: 14px;
 }
-.share-card-main { min-width: 0; flex: 1; position: relative; }
-.share-card-tag { margin: 2px 0 10px; font-size: 14px; }
+.share-card-main .studio-kicker { margin: 0 0 2px; }
+.share-card-title { font-size: 21px; font-weight: 800; letter-spacing: -0.02em; color: var(--navy); margin: 0; }
+.share-card-desc { margin: 8px 0 0; max-width: 60ch; }
+.share-card-desc strong { color: var(--text); }
 .share-link-row {
-	display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--border);
-	border-radius: 10px; padding: 6px 6px 6px 12px;
+	display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.85); border: 1px solid var(--border);
+	border-radius: 10px; padding: 6px 6px 6px 12px; margin-top: 14px; box-shadow: 0 1px 2px rgba(6, 40, 50, 0.06);
 }
 .share-link-row code { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.share-card-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.share-card-warn { margin: 10px 0 0; font-size: 12px; font-weight: 500; color: #b45309; }
+.share-card-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+/* Bingkai QR ala advo: kartu putih miring sedikit, hover kembali tegak */
+.qr-frame {
+	width: 100%; max-width: 220px; margin: 0 auto; transform: rotate(1deg);
+	border: 1px solid rgba(206, 174, 101, 0.4); background: #fff; border-radius: 24px; padding: 14px;
+	box-shadow: 0 22px 45px -24px rgba(6, 69, 91, 0.65); transition: transform 0.15s var(--ease);
+}
+.qr-frame:hover { transform: rotate(0deg); }
+.qr-box { aspect-ratio: 1; border-radius: 12px; overflow: hidden; background: #fff; }
+.qr-box img { width: 100%; height: 100%; display: block; }
+.qr-loading {
+	width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+	background: var(--bg); color: var(--muted); animation: shimmer 1.4s linear infinite;
+}
+.qr-slug {
+	margin: 8px 0 0; text-align: center; font-family: var(--font-mono); font-size: 10px;
+	font-weight: 600; color: var(--navy); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* Kartu konfigurasi dengan head bernuansa */
 .builder-card { padding: 0; overflow: hidden; margin-bottom: 18px; }
@@ -619,11 +645,67 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .studio-analytics-grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
 @media (min-width: 900px) { .studio-analytics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .studio-analytics-grid .card { margin-bottom: 0; }
+.trend-head { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; color: var(--teal); }
+.trend-head h3 { margin: 0; }
 .trend-row { display: flex; align-items: flex-end; gap: 12px; height: 170px; }
 .trend-col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; text-align: center; }
 .trend-bar { width: 100%; max-width: 44px; border-radius: 8px 8px 0 0; background: var(--teal); opacity: 0.85; transition: opacity 0.15s ease; }
 .trend-col:hover .trend-bar { opacity: 1; }
 .answer-quote { margin: 0; background: var(--bg); border-radius: 12px; padding: 10px 12px; font-size: 13.5px; }
+
+/* Kartu pertanyaan analitik — head ala advo (nomor + judul + % menjawab) */
+.fa-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.fa-num { margin: 0; font-size: 11.5px; font-weight: 500; color: var(--muted); }
+.fa-label { margin: 2px 0 0; font-size: 15px; font-weight: 600; }
+
+/* Ringkasan polling + pie conic-gradient + bar warna (mirror advo ChoiceAnalytics) */
+.poll-summary {
+	display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+	background: var(--bg); border-radius: 12px; padding: 8px 12px; margin-bottom: 14px;
+}
+.poll-summary-label { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; font-size: 12.5px; }
+.poll-summary-label svg { color: var(--teal); }
+.poll-grid { display: grid; gap: 18px; }
+@media (min-width: 640px) { .poll-grid { grid-template-columns: 128px 1fr; align-items: center; } }
+.poll-pie {
+	position: relative; width: 112px; height: 112px; margin: 0 auto; border-radius: 50%;
+}
+.poll-pie-hole {
+	position: absolute; inset: 22px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+	background: var(--card); border-radius: 50%; box-shadow: inset 0 1px 3px rgba(6, 40, 50, 0.12);
+}
+.poll-pie-hole strong { font-size: 20px; line-height: 1; }
+.poll-pie-hole span { margin-top: 3px; font-size: 10px; color: var(--muted); }
+.poll-bars { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.poll-bar-row { min-width: 0; }
+.poll-bar-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 5px; font-size: 12px; }
+.poll-bar-name { display: inline-flex; align-items: flex-start; gap: 7px; min-width: 0; word-break: break-word; }
+.poll-dot { width: 10px; height: 10px; border-radius: 99px; flex-shrink: 0; margin-top: 3px; display: inline-block; }
+.poll-bar-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.poll-bar-track { height: 8px; border-radius: 99px; background: var(--bg); overflow: hidden; }
+.poll-bar-fill { height: 100%; border-radius: 99px; transition: width 0.3s var(--ease); }
+.poll-note { margin: 12px 0 0; font-size: 11px; color: var(--muted); }
+
+/* Respons masuk: baris expandable details/summary (mirror advo analytics) */
+.subs-list { display: flex; flex-direction: column; }
+.sub-row { border-bottom: 1px solid var(--border); }
+.sub-row:first-child { border-top: 1px solid var(--border); }
+.sub-row:last-child { border-bottom: 0; }
+.sub-summary {
+	display: grid; grid-template-columns: 64px 1fr auto auto; align-items: center; gap: 10px;
+	padding: 12px 6px; font-size: 13.5px; cursor: pointer; list-style: none; user-select: none;
+	transition: background 0.15s ease;
+}
+.sub-summary::-webkit-details-marker { display: none; }
+.sub-summary:hover { background: rgba(237, 242, 239, 0.5); }
+.sub-id { font-family: var(--font-mono); font-weight: 600; color: var(--teal); }
+.sub-count { color: var(--muted); }
+.sub-actions { display: flex; gap: 6px; align-items: center; }
+.sub-body { display: grid; gap: 10px; background: var(--bg); padding: 14px 6px; }
+@media (min-width: 700px) { .sub-body { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.answer-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.answer-label { margin: 0; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.answer-value { margin: 6px 0 0; font-size: 13.5px; white-space: pre-wrap; word-break: break-word; }
 
 /* ---- Login ---- */
 .login-page {
