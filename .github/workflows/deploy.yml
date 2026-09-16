@@ -41,6 +41,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # Guard: ALLOW_DEV_AUTH tidak boleh pernah ter-set di config yang di-deploy.
+      # Dev-auth juga diguard runtime (localhost-only) di src/middlewares/admin-auth.ts.
+      - name: Guard ALLOW_DEV_AUTH off
+        run: |
+          if grep -qiE '"ALLOW_DEV_AUTH"' wrangler.jsonc wrangler.toml 2>/dev/null; then
+            echo "::error::ALLOW_DEV_AUTH found in wrangler config — must never be set for deploys"
+            exit 1
+          fi
+
       - name: Deploy Worker
         run: npx wrangler deploy
         env:
