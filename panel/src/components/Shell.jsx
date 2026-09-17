@@ -98,6 +98,9 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 		<nav className="nav" aria-label="Modul">
 			<p className="nav-group-label">CMS Hub</p>
 			<NavLink to="/" end onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
+				<span className="icon" aria-hidden><IconGrid /></span> Roro AI
+			</NavLink>
+			<NavLink to="/overview" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconGrid /></span> Ringkasan
 			</NavLink>
 			<NavLink to="/events" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>

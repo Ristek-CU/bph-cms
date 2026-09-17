@@ -6,6 +6,7 @@ import { Login, Shell } from "./components/Shell.jsx";
 import { IconCalendar, IconPlus } from "./components/Icons.jsx";
 import WorkspaceModal from "./components/WorkspaceModal.jsx";
 import Overview from "./pages/Overview.jsx";
+import Assistant from "./pages/Assistant.jsx";
 import EventList from "./pages/EventList.jsx";
 import EventCalendar from "./pages/EventCalendar.jsx";
 import EventEditor from "./pages/EventEditor.jsx";
@@ -227,10 +228,19 @@ function App() {
 	return (
 		<Routes>
 			<Route path="/login" element={<Navigate to="/" replace />} />
+			{/* Roro = landing; Ringkasan pindah ke /overview. */}
 			<Route
 				path="/"
 				element={
-					<Shell {...shellProps} title="Ringkasan" crumb="Beranda">
+					<Shell {...shellProps} title="Roro AI" crumb="Beranda">
+						<Assistant user={user} />
+					</Shell>
+				}
+			/>
+			<Route
+				path="/overview"
+				element={
+					<Shell {...shellProps} title="Ringkasan" crumb={[{ label: "Modul", to: "/" }, { label: "Ringkasan" }]}>
 						{loadErr && <div className="card err-text">{loadErr}</div>}
 						<Overview events={events} onEdit={onEdit} capabilities={capabilities} />
 					</Shell>

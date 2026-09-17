@@ -404,27 +404,29 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 	const [dragId, setDragId] = useState(null);
 	const [overId, setOverId] = useState(null);
 
+	// Body PUT dari daftar field — dipakai save() penuh dan persistFields() instan.
+	const buildBody = (fs) => ({
+		title,
+		description: description || null,
+		thank_you_message: thankYou || undefined,
+		background_color: bgColor,
+		opens_at: opensAt ? `${opensAt}:00+07:00` : null,
+		closes_at: closesAt ? `${closesAt}:00+07:00` : null,
+		fields: fs.map((f, i) => ({
+			label: f.label,
+			description: f.description || null,
+			type: f.type,
+			required: Boolean(f.required),
+			active: f.active !== false,
+			options: parseOptionsInput(f),
+			sort_order: i,
+		})),
+	});
+
 	const save = async () => {
 		setBusy(true);
 		try {
-			const body = {
-				title,
-				description: description || null,
-				thank_you_message: thankYou || undefined,
-				background_color: bgColor,
-				opens_at: opensAt ? `${opensAt}:00+07:00` : null,
-				closes_at: closesAt ? `${closesAt}:00+07:00` : null,
-				fields: fields.map((f, i) => ({
-					label: f.label,
-					description: f.description || null,
-					type: f.type,
-					required: Boolean(f.required),
-					active: f.active !== false,
-					options: parseOptionsInput(f),
-					sort_order: i,
-				})),
-			};
-			await api(`/admin/forms/${form.id}`, { method: "PUT", json: body });
+			await api(`/admin/forms/${form.id}`, { method: "PUT", json: buildBody(fields) });
 			toast("Form tersimpan.");
 			await onSaved();
 		} catch (e) {
@@ -477,7 +479,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 	// Drag-drop reorder ala advo form-builder (native HTML5, tanpa lib).
 	const dropOn = (targetId) => {
 		if (dragId !== null && dragId !== targetId) {
-			setFields((fs) => {
+			persistFields((fs) => {
 				const from = fs.findIndex((f) => f.id === dragId);
 				const to = fs.findIndex((f) => f.id === targetId);
 				if (from < 0 || to < 0) return fs;
@@ -489,6 +491,26 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 		}
 		setDragId(null);
 		setOverId(null);
+	};
+
+	// Instant persist ala advo server actions: tiap mutasi field (toggle/reorder/
+	// tambah/edit/hapus/duplikat) langsung PUT. Optimistic — kalau gagal, state
+	// dikembalikan ke snapshot sebelum mutasi.
+	const persistFields = async (updater, okMsg) => {
+		if (!canManage || busy) return;
+		const snapshot = fields;
+		const next = typeof updater === "function" ? updater(fields) : updater;
+		setFields(next);
+		setBusy(true);
+		try {
+			await api(`/admin/forms/${form.id}`, { method: "PUT", json: buildBody(next) });
+			if (okMsg) toast(okMsg);
+		} catch (e) {
+			setFields(snapshot);
+			toast(errText(e), "err");
+		} finally {
+			setBusy(false);
+		}
 	};
 
 	return (
@@ -600,7 +622,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 								</div>
 								{f.options && (
 									<p className="muted field-row-opts">
-										{f.type === "linear_scale" ? "Skala" : "Opsi"}: {f.type === "linear_scale" ? f.options : f.options.split(";").map((s) => s.trim()).filter(Boolean).join(" · ")}
+										{f.type === "linear_scale" ? "Skala" : "Opsi"}: {f.type === "linear_scale" ? f.options : f.options.split(/[;\n]/).map((s) => s.trim()).filter(Boolean).join(", ")}
 									</p>
 								)}
 							</div>
@@ -608,21 +630,19 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 								<div className="field-row-actions">
 									<label className="switch-row" style={{ margin: 0 }} title={f.active === false ? "Nonaktif — tersembunyi di form publik" : "Aktif di form publik"}>
 										<span className="switch">
-											<input type="checkbox" checked={f.active !== false} onChange={(e) => setFields((fs) => fs.map((x) => (x.id === f.id ? { ...x, active: e.target.checked } : x)))} aria-label={`Aktifkan ${f.label || i + 1}`} />
+											<input type="checkbox" checked={f.active !== false} onChange={() => persistFields((fs) => fs.map((x) => (x.id === f.id ? { ...x, active: !(f.active !== false) } : x)))} aria-label={`Aktifkan ${f.label || i + 1}`} />
 											<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
 										</span>
 									</label>
 									<button type="button" className="icon-btn" onClick={() => setDialog(f)} aria-label={`Edit pertanyaan ${f.label || i + 1}`}><IconPencil size={15} /></button>
-									{canManage && (
-										<button type="button" className="icon-btn" title="Duplikat pertanyaan" aria-label={`Duplikat pertanyaan ${f.label || i + 1}`}
-											onClick={() => setFields((fs) => {
-												const at = fs.findIndex((x) => x.id === f.id) + 1;
-												const copy = { ...f, id: `temp-${++tempFieldSeq}`, label: `${f.label || "Pertanyaan"} (salinan)`, sort_order: at };
-												return [...fs.slice(0, at), copy, ...fs.slice(at)].map((x, j) => ({ ...x, sort_order: j }));
-											})}>
-											<IconDuplicate size={15} />
-										</button>
-									)}
+									<button type="button" className="icon-btn" title="Duplikat pertanyaan" aria-label={`Duplikat pertanyaan ${f.label || i + 1}`}
+										onClick={() => persistFields((fs) => {
+											const at = fs.findIndex((x) => x.id === f.id) + 1;
+											const copy = { ...f, id: `temp-${++tempFieldSeq}`, label: `${f.label || "Pertanyaan"} (salinan)`, sort_order: at };
+											return [...fs.slice(0, at), copy, ...fs.slice(at)].map((x, j) => ({ ...x, sort_order: j }));
+										})}>
+										<IconDuplicate size={15} />
+									</button>
 									<button type="button" className="icon-btn danger" onClick={() => setAskField(f)} aria-label={`Hapus pertanyaan ${f.label || i + 1}`}><IconTrash size={15} /></button>
 								</div>
 							)}
@@ -658,10 +678,10 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					key={dialog === "new" ? "create" : `edit-${dialog.id}`}
 					field={dialog === "new" ? null : dialog}
 					onSubmit={(draft) => {
-						setFields((fs) => {
+						persistFields((fs) => {
 							if (dialog === "new") return [...fs, { ...emptyField(), ...draft, sort_order: fs.length }];
 							return fs.map((f) => (f.id === dialog.id ? { ...f, ...draft } : f));
-						});
+						}, dialog === "new" ? "Pertanyaan ditambahkan." : "Pertanyaan diperbarui.");
 						setDialog(null);
 					}}
 					onCancel={() => setDialog(null)}
@@ -674,8 +694,9 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 				confirmLabel="Ya, hapus"
 				danger
 				onConfirm={() => {
-					setFields((fs) => fs.filter((f) => f.id !== askField.id).map((f, j) => ({ ...f, sort_order: j })));
+					const target = askField;
 					setAskField(null);
+					persistFields((fs) => fs.filter((f) => f.id !== target.id).map((f, j) => ({ ...f, sort_order: j })), "Pertanyaan dihapus.");
 				}}
 				onCancel={() => setAskField(null)}
 			>
