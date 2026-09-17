@@ -239,6 +239,8 @@ export const formFields = sqliteTable(
 		// dropdown | linear_scale | date | file — sama dengan kontrak advo.
 		type: text("type").notNull(),
 		required: integer("required", { mode: "boolean" }).notNull().default(false),
+		// Toggle tampil/sembunyi di form publik — paritas Form Builder advo.
+		active: integer("active", { mode: "boolean" }).notNull().default(true),
 		// JSON array pilihan (choice types) atau {min,max} (linear_scale).
 		options: text("options"),
 		sortOrder: integer("sort_order").notNull().default(0),

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { displayStatus, fmtRange, gcalUrl, publicLink } from "../api.js";
-import { useToast } from "../components/ui.jsx";
+import { useToast, copyText } from "../components/ui.jsx";
 import { IconCalendar, IconClock, IconMapPin, IconPlus, IconUsers } from "../components/Icons.jsx";
 
 const LABEL = { draft: "Draft", ongoing: "Terbit — Berlangsung", upcoming: "Terbit — Akan Datang", past: "Terbit — Selesai" };
@@ -36,7 +36,7 @@ export default function EventList({ events, onEdit, capabilities }) {
 			toast("Link aktif setelah event diterbitkan.");
 			return;
 		}
-		navigator.clipboard?.writeText(publicLink(e)).then(
+		copyText(publicLink(e)).then(
 			() => toast("Link publik disalin."),
 			() => toast("Tidak bisa menyalin link.", "err"),
 		);

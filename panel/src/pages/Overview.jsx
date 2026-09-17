@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { displayStatus, fmtRange, publicLink } from "../api.js";
-import { useToast } from "../components/ui.jsx";
+import { useToast, copyText } from "../components/ui.jsx";
 import { href } from "../components/Shell.jsx";
 import Calendar from "../components/Calendar.jsx";
 import { IconChevronRight } from "../components/Icons.jsx";
@@ -30,7 +30,7 @@ export default function Overview({ events, onEdit, capabilities }) {
 			toast("Link aktif setelah event diterbitkan.");
 			return;
 		}
-		navigator.clipboard?.writeText(publicLink(e)).then(
+		copyText(publicLink(e)).then(
 			() => toast("Link publik disalin."),
 			() => toast("Tidak bisa menyalin — salin manual dari halaman event.", "err"),
 		);

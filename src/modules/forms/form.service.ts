@@ -86,6 +86,7 @@ const toAdminShape = (f: FormRow, fields: FieldRow[] = []) => ({
 		description: d.description,
 		type: d.type,
 		required: d.required,
+		active: d.active,
 		options: parseFieldOptions(d.options),
 		sort_order: d.sortOrder,
 	})),
@@ -173,6 +174,7 @@ export const formService = {
 
 	// Ganti seluruh set pertanyaan (pattern sessions di events). Field lama yang
 	// hilang dihapus; jawaban historis tetap punya snapshot label/type.
+	// Panel selalu kirim active per field (switch dialog), jadi tidak perlu preserve.
 	async replaceFields(db: Db, formId: string, fields: FieldInput[]) {
 		for (const f of fields) validateField(f);
 		await db.delete(formFields).where(eq(formFields.formId, formId));
@@ -185,6 +187,7 @@ export const formService = {
 				description: f.description ?? null,
 				type: f.type,
 				required: f.required,
+				active: f.active,
 				options: serializeOptions(f.options),
 				sortOrder: f.sort_order ?? i,
 				createdAt: now,

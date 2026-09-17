@@ -89,6 +89,8 @@ publicFormRouter.get(
 		if (!form || form.status === "draft") throw ApiError.notFound("Form tidak ditemukan.");
 
 		const fields = await db.select().from(formFields).where(eq(formFields.formId, form.id)).orderBy(asc(formFields.sortOrder));
+		// Field nonaktif disembunyikan dari publik — paritas Form Builder advo.
+		const activeFields = fields.filter((f) => f.active);
 		return ApiResponse.ok(c, "OK", {
 			slug: form.slug,
 			title: form.title,
@@ -100,7 +102,7 @@ publicFormRouter.get(
 			closesAt: form.closesAt,
 			backgroundColor: form.backgroundColor,
 			thank_you_message: form.thankYouMessage,
-			fields: fields.map((f) => ({
+			fields: activeFields.map((f) => ({
 				id: f.id,
 				label: f.label,
 				description: f.description,
@@ -147,7 +149,7 @@ publicFormRouter.post(
 		const answers: Array<{ fieldId: string; fieldLabel: string; fieldType: string; value: string }> = [];
 		const uploads: Array<{ fieldId: string; file: File }> = [];
 
-		for (const field of fields) {
+		for (const field of fields.filter((f) => f.active)) {
 			const key = `field_${field.id}`;
 			const type = field.type;
 

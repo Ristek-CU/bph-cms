@@ -1,5 +1,30 @@
 import { cloneElement, createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 
+// ---- Salin ke clipboard, 100% browser. navigator.clipboard hanya ada di
+// secure context (https); di http/localhost ia undefined → fallback textarea +
+// execCommand. Return promise supaya call site tetap async. ----
+export function copyText(text) {
+	if (navigator.clipboard?.writeText) {
+		return navigator.clipboard.writeText(text).catch(() => copyTextFallback(text));
+	}
+	return Promise.resolve(copyTextFallback(text));
+}
+function copyTextFallback(text) {
+	const ta = document.createElement("textarea");
+	ta.value = text;
+	ta.setAttribute("readonly", "");
+	// Di luar viewport tapi tetap render, biar execCommand bekerja.
+	ta.style.position = "fixed";
+	ta.style.opacity = "0";
+	document.body.appendChild(ta);
+	ta.select();
+	try {
+		if (!document.execCommand("copy")) throw new Error("copy rejected");
+	} finally {
+		ta.remove();
+	}
+}
+
 // ---- Toast ----
 const ToastCtx = createContext(() => {});
 export const useToast = () => useContext(ToastCtx);

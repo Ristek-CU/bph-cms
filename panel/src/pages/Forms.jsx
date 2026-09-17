@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, errText } from "../api.js";
-import { useToast, useEscape, useFocusTrap, Confirm, SkeletonCard } from "../components/ui.jsx";
+import { useToast, useEscape, useFocusTrap, Confirm, SkeletonCard, copyText } from "../components/ui.jsx";
 import {
 	IconPlus, IconPencil, IconTrash, IconGrip, IconLink, IconCheck,
 	IconQrCode, IconDownload, IconExternalLink, IconBarChart, IconPieChart, IconTrendingUp,
@@ -139,7 +139,7 @@ function FormCard({ form, canSeeSubmissions, toast }) {
 			toast("Link aktif setelah form diterbitkan.");
 			return;
 		}
-		navigator.clipboard?.writeText(publicFormLink(form.slug)).then(
+		copyText(publicFormLink(form.slug)).then(
 			() => toast("Link publik disalin."),
 			() => toast("Tidak bisa menyalin link.", "err"),
 		);
@@ -415,6 +415,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					description: f.description || null,
 					type: f.type,
 					required: Boolean(f.required),
+					active: f.active !== false,
 					options: parseOptionsInput(f),
 					sort_order: i,
 				})),
@@ -590,6 +591,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 									<span className="field-row-label">{f.label || "(pertanyaan kosong)"}</span>
 									{Boolean(f.required) && <span className="req-star">*</span>}
 									<span className="badge outline">{fieldTypeName(f.type)}</span>
+									{f.active === false && <span className="badge draft">nonaktif</span>}
 								</div>
 								{f.options && (
 									<p className="muted field-row-opts">
@@ -599,6 +601,12 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 							</div>
 							{canManage && (
 								<div className="field-row-actions">
+									<label className="switch-row" style={{ margin: 0 }} title={f.active === false ? "Nonaktif — tersembunyi di form publik" : "Aktif di form publik"}>
+										<span className="switch">
+											<input type="checkbox" checked={f.active !== false} onChange={(e) => setFields((fs) => fs.map((x) => (x.id === f.id ? { ...x, active: e.target.checked } : x)))} aria-label={`Aktifkan ${f.label || i + 1}`} />
+											<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
+										</span>
+									</label>
 									<button type="button" className="icon-btn" onClick={() => setDialog(f)} aria-label={`Edit pertanyaan ${f.label || i + 1}`}><IconPencil size={15} /></button>
 									<button type="button" className="icon-btn danger" onClick={() => setAskField(f)} aria-label={`Hapus pertanyaan ${f.label || i + 1}`}><IconTrash size={15} /></button>
 								</div>
@@ -707,7 +715,7 @@ function QrCard({ formTitle, slug, status, toast }) {
 			toast("Link aktif setelah form diterbitkan.");
 			return;
 		}
-		navigator.clipboard?.writeText(url).then(() => {
+		copyText(url).then(() => {
 			setCopied(true);
 			setTimeout(() => setCopied(false), 1800);
 		}, () => toast("Tidak bisa menyalin link.", "err"));
@@ -773,9 +781,9 @@ function FieldDialog({ field, onSubmit, onCancel }) {
 	const isEdit = Boolean(field);
 	// Tipe terkunci saat edit — ganti tipe jawaban field berisi respons merusak data.
 	const [label, setLabel] = useState(field?.label || "");
-	const [description, setDescription] = useState(field?.description || "");
 	const [type, setType] = useState(field?.type || "short_text");
 	const [required, setRequired] = useState(Boolean(field?.required));
+	const [active, setActive] = useState(field?.active !== false);
 	const [options, setOptions] = useState(
 		field?.type === "linear_scale" ? field.options : String(field?.options || "").split(";").map((s) => s.trim()).filter(Boolean).join("\n"),
 	);
@@ -788,9 +796,10 @@ function FieldDialog({ field, onSubmit, onCancel }) {
 		if (!label.trim()) return;
 		onSubmit({
 			label: label.trim(),
-			description: description.trim() || "",
+			description: "",
 			type,
 			required,
+			active,
 			options: options,
 		});
 	};
@@ -804,12 +813,8 @@ function FieldDialog({ field, onSubmit, onCancel }) {
 				</div>
 				<form onSubmit={submit} className="dlg-body">
 					<div className="form-field">
-						<label className="field-label" htmlFor="dlg-label">Pertanyaan <span className="req">*</span></label>
-						<input id="dlg-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={500} placeholder="Contoh: Jurusan/Prodi" required autoFocus />
-					</div>
-					<div className="form-field">
-						<label className="field-label" htmlFor="dlg-desc">Deskripsi/caption</label>
-						<input id="dlg-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Opsional — teks bantu di bawah pertanyaan" />
+						<label className="field-label" htmlFor="dlg-label">Label Pertanyaan <span className="req">*</span></label>
+						<input id="dlg-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={255} placeholder="Contoh: Jurusan/Prodi" required autoFocus />
 					</div>
 					<div className="form-field">
 						<label className="field-label" htmlFor="dlg-type">Tipe <span className="req">*</span></label>
@@ -834,6 +839,13 @@ function FieldDialog({ field, onSubmit, onCancel }) {
 							<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
 						</span>
 						<span className="switch-label">Wajib diisi</span>
+					</label>
+					<label className="switch-row" htmlFor="dlg-active">
+						<span className="switch">
+							<input id="dlg-active" type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+							<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
+						</span>
+						<span className="switch-label">Aktif di form publik</span>
 					</label>
 					<div className="row-actions">
 						<button type="button" className="btn ghost" onClick={onCancel}>Batal</button>

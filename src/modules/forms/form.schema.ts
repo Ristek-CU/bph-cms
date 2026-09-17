@@ -48,6 +48,8 @@ export const fieldInputSchema = z.object({
 	description: z.string().max(1000).nullish(),
 	type: z.enum(FORM_FIELD_TYPES),
 	required: z.boolean().default(false),
+	// Toggle tampil di form publik — paritas switch "Aktif di form publik" advo.
+	active: z.boolean().default(true),
 	// Array pilihan utk choice types; {min,max} utk linear_scale. Diserialisasi
 	// JSON.stringify ke kolom options (kontrak advo: string JSON).
 	options: z.union([z.array(z.string().trim().min(1).max(300)).max(20), z.object({ min: z.number().int(), max: z.number().int() })]).nullish(),

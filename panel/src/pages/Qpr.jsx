@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errText } from "../api.js";
-import { useToast, Confirm, SkeletonCard, Card } from "../components/ui.jsx";
+import { useToast, Confirm, SkeletonCard, Card, copyText } from "../components/ui.jsx";
 
 // QPR v2 — tanpa login (model kejujuran). BPH kelola periode + roster nama;
 // anggota buka link publik, pilih namanya dari dropdown, isi skala 1-5,
@@ -158,7 +158,7 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 
 	const copyLink = () => {
 		const link = `${PUBLIC_BASE}/${period.id}`;
-		navigator.clipboard?.writeText(link).then(
+		copyText(link).then(
 			() => toast("Link publik disalin — bagikan ke anggota."),
 			() => toast("Tidak bisa menyalin link.", "err"),
 		);
