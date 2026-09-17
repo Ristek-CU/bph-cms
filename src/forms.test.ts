@@ -75,14 +75,17 @@ eq("choice dengan 1 opsi → 422", badChoice.status, 422);
 const reservedSlug = await h.req("/api/v1/admin/forms", {
 	method: "POST",
 	token: "tok-a-admin",
-	json: { title: "Tabrakan", slug: "student-voice" },
+	json: { title: "Tabrakan", slug: "student-societes" },
 });
-eq("slug student-voice → 422 (milik backend advo)", reservedSlug.status, 422);
-ok(
-	"pesan reserved slug",
-	Array.isArray(reservedSlug.body?.errors?.slug) && reservedSlug.body.errors.slug[0].includes("Advokasi"),
-	reservedSlug.body?.errors?.slug,
-);
+eq("slug student-societes → 422 (route static landing page)", reservedSlug.status, 422);
+
+// student-voice bukan reserved lagi — form pengaduan default dikelola CMS Hub.
+const defaultVoiceSlug = await h.req("/api/v1/admin/forms", {
+	method: "POST",
+	token: "tok-a-admin",
+	json: { title: "Form Pengaduan Mahasiswa", slug: "student-voice" },
+});
+eq("slug student-voice → 201 (dikelola CMS Hub)", defaultVoiceSlug.status, 201);
 
 const reservedSlug2 = await h.req("/api/v1/admin/forms", {
 	method: "POST",

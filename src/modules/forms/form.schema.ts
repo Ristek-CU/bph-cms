@@ -57,11 +57,11 @@ export const fieldInputSchema = z.object({
 });
 export type FieldInput = z.infer<typeof fieldInputSchema>;
 
-// Slug yang bentrok route landing page atau form pengaduan default:
-// - student-voice: form pengaduan default, permanent milik backend AdvocationDashboard
-//   (landing page fallback ke sana).
+// Slug yang bentrok route static landing page:
 // - student-societes: route static UKM di landing page.
-export const RESERVED_SLUGS = ["student-voice", "student-societes"];
+// Catatan: student-voice TIDAK reserved lagi — form pengaduan default kini
+// dikelola CMS Hub (Student Voice Studio), backend advo read-only.
+export const RESERVED_SLUGS = ["student-societes"];
 
 // Hex color utk background halaman publik form.
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be hex color, e.g. #F6F4EF");
