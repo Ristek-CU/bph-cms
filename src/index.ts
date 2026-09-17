@@ -15,12 +15,14 @@ import type { AppContext, Bindings, Variables } from "./types";
 import { adminEventRouter } from "./modules/events/event.route";
 import { publicEventRouter } from "./modules/events/event.public.route";
 import { adminFormRouter, adminFormSubmissionRouter } from "./modules/forms/form.route";
+import { internalFormRouter } from "./modules/forms/form.internal.route";
 import { publicFormRouter } from "./modules/forms/form.public.route";
 import { adminQprRouter, publicQprRouter } from "./modules/qpr/qpr.route";
 import { mediaRouter } from "./modules/media/media.route";
 import { meRouter } from "./modules/me/me.route";
 import { adminAccountRouter } from "./modules/accounts/account.route";
 import { adminHandoffRouter, internalHandoffRouter } from "./modules/handoff/handoff.route";
+import { adminAssistantRouter } from "./modules/assistant/assistant.route";
 import { eventService } from "./modules/events/event.service";
 import { adminAuth } from "./middlewares/admin-auth";
 import { d1RateLimiter } from "./middlewares/rate-limiter";
@@ -95,8 +97,10 @@ v1.route("/qpr", publicQprRouter);
 v1.route("/forms", publicFormRouter);
 v1.route("/admin/media", mediaRouter);
 v1.route("/admin", adminAccountRouter);
+v1.route("/admin/assistant", adminAssistantRouter);
 v1.route("/admin", adminHandoffRouter);
 v1.route("/internal", internalHandoffRouter);
+v1.route("/internal", internalFormRouter);
 v1.route("/me", meRouter);
 
 // Spec OpenAPI + halaman docs hanya untuk email di allowlist (var DOCS_ALLOW_EMAILS,
