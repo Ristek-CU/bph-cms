@@ -616,11 +616,87 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .icon-btn.danger:hover { background: #fee2e2; color: #b91c1c; }
 
 /* Dialog pertanyaan: struktur head/body/footer ala advo Dialog */
-.field-dialog { max-width: 480px; padding: 0; }
+.field-dialog { max-width: 560px; padding: 0; }
 .confirm-dialog { padding: 0; }
 .dlg-head { padding: 18px 18px 0; display: flex; flex-direction: column; gap: 4px; }
 .dlg-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
 .dlg-body .row-actions { margin: 2px -18px -18px; }
+
+/* Dialog pertanyaan ala Google Forms: kartu pertanyaan tanpa border + ikon tipe
+   + live preview yang menyesuaikan otomatis. */
+.gf-dialog .dlg-body { padding: 16px 18px 18px; }
+.gf-question-card {
+	display: flex; align-items: flex-start; gap: 10px; justify-content: space-between;
+	background: var(--bg); border-radius: 14px; padding: 12px 14px;
+	border-left: 4px solid var(--gold);
+}
+.gf-question-input {
+	flex: 1; min-width: 0; border: 0 !important; background: transparent !important;
+	font-size: 16px; font-weight: 600; padding: 4px 2px !important; height: auto !important;
+}
+.gf-question-input:focus { outline: none; box-shadow: none !important; }
+.gf-type-chip { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 10px; }
+.gf-switches { display: flex; flex-direction: column; gap: 10px; }
+
+.gf-typepicker { position: relative; flex-shrink: 0; }
+.gf-typepicker-btn {
+	display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 10px;
+	border-radius: 10px; border: 1px solid var(--border); background: #fff; color: var(--navy);
+	cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;
+}
+.gf-typepicker-btn:hover { background: var(--bg); border-color: var(--teal); }
+.gf-typepicker-caret { font-size: 10px; color: var(--muted); }
+.gf-typepicker-menu {
+	position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 240px; max-height: 320px; overflow: auto;
+	list-style: none; margin: 0; padding: 6px; background: #fff; border: 1px solid var(--border);
+	border-radius: 14px; box-shadow: var(--shadow-md, 0 12px 30px -14px rgba(6, 40, 50, 0.35));
+}
+.gf-typepicker-item {
+	display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; background: none;
+	border-radius: 9px; font-size: 13.5px; color: var(--text); cursor: pointer; text-align: left;
+}
+.gf-typepicker-item:hover { background: var(--bg); }
+.gf-typepicker-item.selected { background: rgba(0, 145, 128, 0.09); font-weight: 600; color: var(--navy); }
+.gf-typepicker-item svg:first-child { color: var(--teal); flex-shrink: 0; }
+.gf-typepicker-check { margin-left: auto; color: var(--teal); }
+.gf-typepicker-item span { flex: 1; min-width: 0; }
+
+/* Live preview */
+.gf-preview { background: #fff; border: 1.5px dashed var(--border); border-radius: 14px; padding: 12px 14px; }
+.gf-preview-head {
+	margin: 0 0 8px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+	font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--teal);
+}
+.gf-preview-hint { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.gf-preview-body { display: grid; gap: 10px; }
+.gf-preview-label { margin: 0; font-size: 14.5px; font-weight: 600; color: var(--text); }
+.gf-preview-warn { margin: 0; font-size: 12.5px; color: #b45309; }
+.gf-preview-opts { display: flex; flex-direction: column; gap: 8px; }
+.gf-preview-opts.row { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+.gf-preview-opt {
+	display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px;
+	border: 1px solid var(--border); border-radius: 10px; font-size: 13.5px; background: var(--bg);
+}
+.gf-preview-opt input { accent-color: var(--navy); margin: 0; }
+.gf-preview-opt.scale { min-width: 44px; justify-content: center; padding: 6px 8px; }
+.gf-preview-input {
+	height: 38px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 8px;
+	display: flex; align-items: center; padding: 0 12px; font-size: 13.5px; color: var(--muted); background: var(--bg);
+}
+.gf-preview-input.tall { height: 88px; align-items: flex-start; padding-top: 10px; }
+.gf-preview-input.date { color: var(--text); }
+.gf-preview-file {
+	display: flex; align-items: center; gap: 12px; padding: 14px; border: 2px dashed var(--border);
+	border-radius: 12px; background: var(--bg); color: var(--navy); font-size: 13.5px;
+}
+.gf-preview-file small { color: var(--muted); }
+
+/* Ikon tipe di baris susunan pertanyaan */
+.field-type-icon {
+	width: 32px; height: 32px; border-radius: 10px; flex-shrink: 0;
+	display: inline-flex; align-items: center; justify-content: center;
+	background: rgba(0, 145, 128, 0.09); color: var(--teal);
+}
 
 /* Switch toggle ala advo Switch: track 32×18, thumb 16, checked navy. */
 .switch-row { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
@@ -752,6 +828,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 	.topbar { padding: 12px 14px; }
 	.grid-2 { grid-template-columns: 1fr; }
 	.sticky-bar { margin: 16px calc(-1 * 14px) 0; padding: 10px 14px; }
+	/* Baris pertanyaan di layar kecil: sembunyikan grip + ikon tipe biar muat. */
+	.field-grip, .field-type-icon { display: none; }
 	.cal-grid { gap: 3px; }
 	.cal-cell { min-height: 56px; padding: 3px; }
 	.cal-chip, .cal-more { display: none; }

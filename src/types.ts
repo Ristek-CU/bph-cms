@@ -35,6 +35,19 @@ export type Bindings = {
 	/** Shared secret untuk endpoint internal handoff (wrangler secret, jangan di-commit). */
 	HANDOFF_SHARED_SECRET?: string;
 	ALLOW_DEV_AUTH?: string;
+	// ---- Roro AI (RORO-PLAN.md §2) ----
+	/** Key surplusintelligence — wrangler secret di production. */
+	RORO_API_KEY?: string;
+	/** Default: https://api.surplusintelligence.ai/anthropic (Anthropic-compatible). */
+	RORO_BASE_URL?: string;
+	/** Default: claude-sonnet-4-5. */
+	RORO_MODEL?: string;
+	/** Kuota chat per user per hari (jumlah request). Default 40. */
+	RORO_DAILY_LIMIT?: string;
+	/** Kuota chat per user per bulan. Default 400. */
+	RORO_MONTHLY_LIMIT?: string;
+	/** Hanya dev/test: JSON fixture untuk stub LLM tanpa network. */
+	RORO_MOCK?: string;
 };
 
 export type Variables = {

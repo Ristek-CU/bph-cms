@@ -1,5 +1,5 @@
 import { relations, sql } from "drizzle-orm";
-import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const divisions = sqliteTable(
 	"divisions",
@@ -388,3 +388,60 @@ export const qprEntriesRelations = relations(qprEntries, ({ one, many }) => ({
 	period: one(qprPeriods, { fields: [qprEntries.periodId], references: [qprPeriods.id] }),
 	answers: many(qprAnswers),
 }));
+
+// ---- Roro AI assistant — percakapan per akun, memori, kuota (RORO-PLAN.md). ----
+
+export const aiConversations = sqliteTable(
+	"ai_conversations",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id").notNull(),
+		title: text("title").notNull().default("Percakapan baru"),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(table) => [index("ai_conversations_user_idx").on(table.userId, table.updatedAt)],
+);
+
+export const aiMessages = sqliteTable(
+	"ai_messages",
+	{
+		id: text("id").primaryKey(),
+		conversationId: text("conversation_id")
+			.notNull()
+			.references(() => aiConversations.id, { onDelete: "cascade" }),
+		role: text("role", { enum: ["user", "assistant"] }).notNull(),
+		content: text("content").notNull(),
+		// Draf tool tulis (create_event/create_form) menunggu konfirmasi manusia.
+		proposalJson: text("proposal_json"),
+		proposalStatus: text("proposal_status", {
+			enum: ["pending", "executed", "rejected"],
+		}),
+		toolName: text("tool_name"),
+		resultResourceId: text("result_resource_id"),
+		inputTokens: integer("input_tokens").notNull().default(0),
+		outputTokens: integer("output_tokens").notNull().default(0),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [index("ai_messages_conv_idx").on(table.conversationId, table.createdAt)],
+);
+
+// Memori markdown per akun — preferensi & kebiasaan user, dibaca tiap giliran.
+export const aiMemories = sqliteTable("ai_memories", {
+	userId: text("user_id").primaryKey(),
+	memoryMd: text("memory_md").notNull().default(""),
+	updatedAt: text("updated_at").notNull(),
+});
+
+// Kuota harian per user — satu baris per (user, YYYY-MM-DD).
+export const aiUsage = sqliteTable(
+	"ai_usage",
+	{
+		userId: text("user_id").notNull(),
+		day: text("day").notNull(),
+		requests: integer("requests").notNull().default(0),
+		inputTokens: integer("input_tokens").notNull().default(0),
+		outputTokens: integer("output_tokens").notNull().default(0),
+	},
+	(table) => [primaryKey({ columns: [table.userId, table.day] })],
+);
