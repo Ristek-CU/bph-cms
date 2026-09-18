@@ -121,6 +121,18 @@ section("Confirm + RBAC + audit");
 const before = await h.sql("SELECT count(*) AS n FROM events");
 // (masih 0 — proposal belum dieksekusi)
 
+// Regresi: kegagalan setelah proposal diklaim tidak boleh membuat retry 409.
+await h.sql("CREATE TRIGGER fail_assistant_event BEFORE INSERT ON events BEGIN SELECT RAISE(FAIL, 'injected create failure'); END");
+const confFailed = await h.req(`${ASST}/confirm`, {
+	token: "tok-a-admin",
+	method: "POST",
+	json: { conversation_id: convA, message_id: msgA2 },
+});
+eq("confirm gagal di tengah → 500", confFailed.status, 500);
+const statusAfterFailure = await h.sql("SELECT proposal_status FROM ai_messages WHERE id = ?", msgA2);
+eq("proposal kembali pending supaya bisa dicoba ulang", statusAfterFailure[0]?.proposal_status, "pending");
+await h.sql("DROP TRIGGER fail_assistant_event");
+
 const confA = await h.req(`${ASST}/confirm`, {
 	token: "tok-a-admin",
 	method: "POST",
@@ -146,7 +158,8 @@ const confAgain = await h.req(`${ASST}/confirm`, {
 	method: "POST",
 	json: { conversation_id: convA, message_id: msgA2 },
 });
-eq("dobel confirm → 409", confAgain.status, 409);
+eq("retry confirm → 200 idempoten", confAgain.status, 200);
+eq("retry mengembalikan resource yang sama", confAgain.body?.data?.resource_id, evId);
 
 const after = await h.sql("SELECT count(*) AS n FROM events");
 eq("hanya 1 event dibuat", Number(after[0]?.n), Number(before[0]?.n) + 1);

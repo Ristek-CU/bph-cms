@@ -660,12 +660,17 @@ export const assistantService = {
 			.from(aiMessages)
 			.where(and(eq(aiMessages.id, input.message_id), eq(aiMessages.conversationId, input.conversation_id)));
 		if (!msg || !msg.proposalJson) throw ApiError.notFound("Proposal tidak ditemukan");
-		if (msg.proposalStatus === "executed") throw ApiError.conflict("Proposal ini sudah dieksekusi sebelumnya");
-		if (msg.proposalStatus !== "pending") throw ApiError.conflict("Proposal tidak lagi bisa dikonfirmasi");
 
 		const proposal = JSON.parse(msg.proposalJson) as Proposal;
 		const tool = toolByName(proposal.tool);
 		if (!tool || tool.kind !== "write") throw ApiError.badRequest("Proposal tidak dikenal");
+		// Retry setelah respons 5xx/network error harus idempotent. Kalau resource
+		// sudah tersimpan, kembalikan hasil yang sama alih-alih 409.
+		if (msg.proposalStatus === "executed" && msg.resultResourceId) {
+			return { tool: proposal.tool, resource_id: msg.resultResourceId };
+		}
+		if (msg.proposalStatus === "executed") throw ApiError.conflict("Proposal sedang atau gagal dieksekusi");
+		if (msg.proposalStatus !== "pending") throw ApiError.conflict("Proposal tidak lagi bisa dikonfirmasi");
 
 		// RBAC dicek SAAT confirm — permission bisa berubah sejak proposal dibuat.
 		if (!canUseTool(actor.permissions, tool, { isOwnDivision: true })) {
@@ -692,35 +697,55 @@ export const assistantService = {
 			.returning({ id: aiMessages.id });
 		if (claim.length === 0) throw ApiError.conflict("Proposal sudah dieksekusi");
 
-		let resourceId: string;
-		if (proposal.tool === "create_event") {
-			const created = await eventService.create(db, parsed.data as never, {
-				divisionId: actor.divisionId,
-				userId: actor.userId,
+		let resourceId: string | undefined;
+		try {
+			if (proposal.tool === "create_event") {
+				const created = await eventService.create(db, parsed.data as never, {
+					divisionId: actor.divisionId,
+					userId: actor.userId,
+				});
+				resourceId = created!.id;
+			} else {
+				const created = await formService.create(db, parsed.data as never, {
+					divisionId: actor.divisionId,
+					userId: actor.userId,
+				});
+				resourceId = created!.id;
+			}
+
+			await db
+				.update(aiMessages)
+				.set({ resultResourceId: resourceId })
+				.where(eq(aiMessages.id, msg.id));
+
+			await actor.recordAudit(`assistant.confirm_${proposal.tool}`, proposal.tool === "create_event" ? "event" : "form", resourceId, {
+				via: "roro",
+				conversation_id: input.conversation_id,
 			});
-			resourceId = created!.id;
-		} else {
-			const created = await formService.create(db, parsed.data as never, {
-				divisionId: actor.divisionId,
-				userId: actor.userId,
-			});
-			resourceId = created!.id;
+
+			return {
+				tool: proposal.tool,
+				resource_id: resourceId,
+			};
+		} catch (error) {
+			if (resourceId) {
+				// Resource sudah jadi: simpan ID agar retry bisa mengembalikan hasil
+				// yang sama tanpa membuat duplikat.
+				await db
+					.update(aiMessages)
+					.set({ resultResourceId: resourceId })
+					.where(eq(aiMessages.id, msg.id));
+			} else {
+				// Create gagal sebelum menghasilkan resource: lepaskan claim agar user
+				// dapat mencoba lagi. Kondisi status menjaga rollback tidak menimpa
+				// perubahan lain.
+				await db
+					.update(aiMessages)
+					.set({ proposalStatus: "pending" })
+					.where(and(eq(aiMessages.id, msg.id), eq(aiMessages.proposalStatus, "executed")));
+			}
+			throw error;
 		}
-
-		await db
-			.update(aiMessages)
-			.set({ resultResourceId: resourceId })
-			.where(eq(aiMessages.id, msg.id));
-
-		await actor.recordAudit(`assistant.confirm_${proposal.tool}`, proposal.tool === "create_event" ? "event" : "form", resourceId, {
-			via: "roro",
-			conversation_id: input.conversation_id,
-		});
-
-		return {
-			tool: proposal.tool,
-			resource_id: resourceId,
-		};
 	},
 
 	// ---- Memori ----------------------------------------------------------------
