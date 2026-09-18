@@ -63,6 +63,8 @@ export type Harness = {
 	) => Promise<{ status: number; body: any; headers: Headers }>;
 	/** Jalankan SQL langsung ke D1 (seed/inspeksi). */
 	sql: (statement: string, ...params: unknown[]) => Promise<any[]>;
+	/** Raw D1Database binding — untuk memanggil service dengan Db asli. */
+	d1: unknown;
 	dispose: () => Promise<void>;
 };
 
@@ -244,7 +246,7 @@ export const startHarness = async (
 		return { status: res.status, body: parsed, headers: res.headers };
 	};
 
-	return { req, sql, dispose: () => mf.dispose() };
+	return { req, sql, d1: db, dispose: () => mf.dispose() };
 };
 
 /** Event helper: ISO WIB + kolom ms, sama seperti yang ditulis service. */

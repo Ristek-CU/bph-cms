@@ -4,7 +4,9 @@
 //               pending, menunggu POST /admin/assistant/confirm dari user.
 // Menambah kemampuan Roro nanti = tambah satu entri di TOOLS.
 import type { z } from "zod";
+import { eq } from "drizzle-orm";
 import type { Db } from "../../db/connection";
+import { forms } from "../../db/schema";
 import { eventService } from "../events/event.service";
 import { formService } from "../forms/form.service";
 import { createEventSchema } from "../events/event.schema";
@@ -53,6 +55,13 @@ const slimForm = (f: Record<string, unknown>) => ({
 	closes_at: f.closes_at,
 	submission_count: f.submission_count,
 });
+// Form milik divisi aktif? — analitik jawaban hanya boleh dibaca pemilik form
+// (permission forms.submissions, pola sama dengan route analytics).
+const formOwned = async (db: Db, formId: string, divisionId?: string) => {
+	const [f] = await db.select({ id: forms.id, divisionId: forms.divisionId }).from(forms).where(eq(forms.id, formId)).limit(1);
+	if (!f) return false;
+	return !divisionId || f.divisionId === divisionId;
+};
 
 export const TOOLS: ToolEntry[] = [
 	{
@@ -85,6 +94,29 @@ export const TOOLS: ToolEntry[] = [
 		},
 	},
 	{
+		name: "get_form_stats",
+		description:
+			"Insight respons form milik divisi user: total jawaban, tren 7 hari, distribusi jawaban per pilihan, rata-rata skala/angka, dan jawaban terbaru. Butuh: form_id (dari get_forms). Dipakai untuk memberi insight atas jawaban responden.",
+		input_schema: {
+			type: "object",
+			properties: { form_id: { type: "string", description: "ID form dari get_forms" } },
+			required: ["form_id"],
+		},
+		kind: "read",
+		// Analitik memuat jawaban mentah — permission submissions, bukan forms.read.
+		permission: "forms.submissions",
+		run: async (ctx, input) => {
+			const formId = (input as { form_id?: string })?.form_id;
+			if (!formId) return { ok: false, error: "form_id wajib" };
+			if (!(await formOwned(ctx.db, formId, ctx.divisionId))) {
+				return { ok: false, error: "Form tidak ditemukan di divisi kamu." };
+			}
+			const stats = await formService.analytics(ctx.db, formId);
+			// Sisakan contoh jawaban 3 per field — teks panjang responden cukup untuk insight.
+			return { ok: true, data: stats };
+		},
+	},
+	{
 		name: "create_event",
 		description:
 			"Usulkan event BARU (selalu draft, bukan publish). Butuh: title, starts_at, ends_at (ISO 8601 +07:00), location. Opsional: description, cover_image_url, location_url, registration_url, organizer, sessions[] (name, starts_at, ends_at, speaker?, location?).",
@@ -98,6 +130,7 @@ export const TOOLS: ToolEntry[] = [
 				location: { type: "string" },
 				location_url: { type: "string" },
 				registration_url: { type: "string" },
+				registration_open: { type: "boolean", description: "Default true" },
 				organizer: { type: "string" },
 				sessions: {
 					type: "array",
@@ -131,6 +164,7 @@ export const TOOLS: ToolEntry[] = [
 			properties: {
 				title: { type: "string" },
 				description: { type: "string" },
+				background_color: { type: "string", description: "Hex, mis. #F6F4EF" },
 				opens_at: { type: "string" },
 				closes_at: { type: "string" },
 				thank_you_message: { type: "string" },

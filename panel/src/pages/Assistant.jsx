@@ -3,7 +3,7 @@
 // proposal dengan tombol konfirmasi. Backend: src/modules/assistant/.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, errText, fmtRange } from "../api.js";
+import { api, errText, fmtRange, getToken, ApiFail } from "../api.js";
 import { useToast } from "../components/ui.jsx";
 import { IconPlus, IconTrash, IconCheck } from "../components/Icons.jsx";
 
@@ -19,6 +19,20 @@ const FIELD_TYPE_LABEL = {
 	date: "Tanggal",
 	file: "Upload file",
 };
+
+// Chat panel tampil teks polos — LLM kadang masih nyelipin simbol markdown.
+// Buang yang paling umum: bold/italic bintang, heading, backtick, dash bullet,
+// tabel pipe di awal baris.
+const stripMd = (s) =>
+	s
+		.replace(/<｜?DSML｜>[\s\S]*?(?:<\/｜?DSML｜>|$)/g, "")
+		.replace(/<｜DSML｜[\s\S]*/g, "")
+		.replace(/\*\*([^*]*)\*\*/g, "$1")
+		.replace(/\*([^*\n]+)\*/g, "$1")
+		.replace(/^#{1,6}\s+/gm, "")
+		.replace(/`([^`]*)`/g, "$1")
+		.replace(/^\s*[-•]\s+/gm, "")
+		.replace(/^\s*\|.*\|\s*$/gm, "");
 
 // Kartu proposal di dalam bubble assistant.
 function ProposalCard({ proposal, status, resultResourceId, onConfirm, busy }) {
@@ -93,14 +107,27 @@ function ProposalActions({ status, resultResourceId, onConfirm, busy, toast, lab
 	);
 }
 
+// Status "Roro lagi mikir…" — menampilkan potongan pikiran terakhir saat model
+// berpikir (GLM 5.2 selalu berpikir 4–60 detik sebelum menjawab).
+function ThinkingBubble({ text }) {
+	return (
+		<div className="roro-msg assistant">
+			<div className="roro-bubble roro-thinking">
+				<p className="roro-thinking-label">Roro lagi mikir…</p>
+				<p className="roro-thinking-text">{text.slice(-180)}</p>
+			</div>
+		</div>
+	);
+}
+
 // Satu percakapan: welcome screen atau bubble list.
-function ChatView({ messages, onConfirm, busyConfirm, convId }) {
+function ChatView({ messages, onConfirm, busyConfirm, convId, streaming }) {
 	const endRef = useRef(null);
 	useEffect(() => {
 		endRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages.length]);
+	}, [messages.length, streaming?.thinking]);
 
-	if (!messages.length) {
+	if (!messages.length && !streaming) {
 		return (
 			<div className="roro-welcome">
 				<h2>Hai, aku Roro 👋</h2>
@@ -122,7 +149,7 @@ function ChatView({ messages, onConfirm, busyConfirm, convId }) {
 			{messages.map((m) => (
 				<div key={m.id} className={`roro-msg ${m.role}`}>
 					<div className="roro-bubble">
-						<span style={{ whiteSpace: "pre-wrap" }}>{m.content}</span>
+						<span style={{ whiteSpace: "pre-wrap" }}>{m.role === "assistant" ? stripMd(m.content) : m.content}</span>
 						{m.role === "assistant" && m.proposal_json && (
 							<ProposalCard
 								proposal={m.proposal_json}
@@ -135,6 +162,7 @@ function ChatView({ messages, onConfirm, busyConfirm, convId }) {
 					</div>
 				</div>
 			))}
+			{streaming && (streaming.phase === "thinking" ? <ThinkingBubble text={streaming.thinking} /> : null)}
 			<div ref={endRef} />
 		</div>
 	);
@@ -143,13 +171,28 @@ function ChatView({ messages, onConfirm, busyConfirm, convId }) {
 export default function Assistant({ user }) {
 	const toast = useToast();
 	const [conversations, setConversations] = useState([]);
-	const [convId, setConvId] = useState(null);
+	// Percakapan aktif dipersist per-session — pindah modul lalu balik ke Roro
+	// tetap di percakapan yang sama (tidak kereset ke chat baru).
+	const [convId, setConvId] = useState(() => sessionStorage.getItem("roro_conv_id") || null);
 	const [messages, setMessages] = useState([]);
 	const [input, setInput] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [streaming, setStreaming] = useState(null); // { phase, thinking } saat chat mengalir
 	const [busyConfirm, setBusyConfirm] = useState(false);
 	const [listOpen, setListOpen] = useState(false); // mobile
 	const inputRef = useRef(null);
+
+	// Balik ke Roro: kalau ada percakapan tersimpan, buka langsung.
+	useEffect(() => {
+		if (convId && messages.length === 0) openConversation(convId);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	const changeConv = (id) => {
+		setConvId(id);
+		if (id) sessionStorage.setItem("roro_conv_id", id);
+		else sessionStorage.removeItem("roro_conv_id");
+	};
 
 	const loadConversations = useCallback(async () => {
 		try {
@@ -161,7 +204,7 @@ export default function Assistant({ user }) {
 	}, []);
 
 	const openConversation = useCallback(async (id) => {
-		setConvId(id);
+		changeConv(id);
 		setListOpen(false);
 		try {
 			const d = await api(`/admin/assistant/conversations/${id}`);
@@ -181,31 +224,85 @@ export default function Assistant({ user }) {
 				...m,
 				{ id: `tmp-${Date.now()}`, role: "user", content: message },
 			]);
-			try {
-				const d = await api("/admin/assistant/chat", {
-					method: "POST",
-					json: { conversation_id: convId ?? undefined, message },
+			// Streaming: tampilkan pikiran lalu jawaban saat masih mengalir.
+			setStreaming({ phase: "thinking", thinking: "" });
+			let streamed = "";
+			const upsert = () => {
+				// Placeholder assistant terakhir di-refresh tiap delta.
+				setMessages((m) => {
+					const last = m[m.length - 1];
+					const bubble = { id: "streaming", role: "assistant", content: streamed, proposal_json: null };
+					return last?.id === "streaming" ? [...m.slice(0, -1), bubble] : [...m, bubble];
 				});
-				setMessages((m) => [
-					...m,
-					{
-						id: d.message_id,
-						role: "assistant",
-						content: d.reply,
-						proposal_json: d.proposal,
-						proposal_status: d.proposal ? "pending" : null,
-						result_resource_id: null,
-					},
-				]);
+			};
+			try {
+				const res = await fetch("/api/v1/admin/assistant/chat/stream", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+					body: JSON.stringify({ conversation_id: convId ?? undefined, message }),
+				});
+				if (!res.ok) {
+					const body = await res.json().catch(() => ({}));
+					throw new ApiFail(body, res.status);
+				}
+				const reader = res.body.getReader();
+				const dec = new TextDecoder();
+				let buf = "";
+				let final = null;
+				for (;;) {
+					const { value, done } = await reader.read();
+					if (done) break;
+					buf += dec.decode(value, { stream: true });
+					let idx;
+					while ((idx = buf.indexOf("\n\n")) !== -1) {
+						const line = buf.slice(0, idx).split("\n").find((l) => l.startsWith("data:"));
+						buf = buf.slice(idx + 2);
+						if (!line) continue;
+						let ev;
+						try {
+							ev = JSON.parse(line.slice(5));
+						} catch {
+							continue;
+						}
+						if (ev.type === "thinking") {
+							setStreaming((s) => ({ phase: "thinking", thinking: (s?.thinking ?? "") + ev.text }));
+						} else if (ev.type === "text") {
+							streamed += ev.text;
+							setStreaming({ phase: "text" });
+							upsert();
+						} else if (ev.type === "done") {
+							final = ev;
+						} else if (ev.type === "error") {
+							throw new Error(ev.message);
+						}
+					}
+				}
+				if (!final) throw new Error("Stream terputus — coba lagi");
+				// Ganti placeholder dengan pesan final (id beneran + proposal).
+				setMessages((m) => {
+					const cleaned = m.filter((x) => x.id !== "streaming");
+					return [
+						...cleaned,
+						{
+							id: final.message_id,
+							role: "assistant",
+							content: final.reply,
+							proposal_json: final.proposal,
+							proposal_status: final.proposal ? "pending" : null,
+							result_resource_id: null,
+						},
+					];
+				});
 				if (!convId) {
-					setConvId(d.conversation_id);
+					changeConv(final.conversation_id);
 					loadConversations();
 				}
 			} catch (e) {
 				toast(errText(e), "err");
-				setMessages((m) => m.filter((x) => !x.id.startsWith("tmp-")));
+				setMessages((m) => m.filter((x) => !x.id.startsWith("tmp-") && x.id !== "streaming"));
 				setInput(message);
 			} finally {
+				setStreaming(null);
 				setBusy(false);
 				inputRef.current?.focus();
 			}
@@ -249,7 +346,7 @@ export default function Assistant({ user }) {
 	}, [send]);
 
 	const newChat = () => {
-		setConvId(null);
+		changeConv(null);
 		setMessages([]);
 		setListOpen(false);
 	};
@@ -287,7 +384,7 @@ export default function Assistant({ user }) {
 
 			{/* Thread */}
 			<div className="roro-main">
-				<ChatView messages={messages} onConfirm={confirmProposal} busyConfirm={busyConfirm} convId={convId} />
+				<ChatView messages={messages} onConfirm={confirmProposal} busyConfirm={busyConfirm} convId={convId} streaming={streaming} />
 				<form
 					className="roro-input"
 					onSubmit={(e) => {

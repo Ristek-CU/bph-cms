@@ -52,7 +52,7 @@
 			"database_name": "bph-cms-db",
 			"database_id": "06c72542-0126-48ed-bbfc-6077393e948e",
 			"migrations_dir": "drizzle",
-			"remote": true
+			"remote": false
 		}
 	],
 	"services": [
