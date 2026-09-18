@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, errText } from "../api.js";
-import { useToast, useEscape, useFocusTrap, Confirm, SkeletonCard, copyText } from "../components/ui.jsx";
+import { useToast, Confirm, SkeletonCard, copyText } from "../components/ui.jsx";
 import {
 	IconPlus, IconPencil, IconTrash, IconGrip, IconLink, IconCheck,
 	IconQrCode, IconDownload, IconExternalLink, IconBarChart, IconPieChart, IconTrendingUp,
@@ -398,8 +398,9 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 	const [busy, setBusy] = useState(false);
 	const [askDelete, setAskDelete] = useState(false);
 
-	// Dialog field ala advo: null = tutup, "new" = tambah, object = edit field itu.
-	const [dialog, setDialog] = useState(null);
+	// Edit inline ala GF: editingId = id field yang sedang diedit di tempat.
+	// null = tidak ada yang edit; klik kartu lain pindah edit (autosave).
+	const [editingId, setEditingId] = useState(null);
 	const [askField, setAskField] = useState(null); // field yang mau dihapus
 	const [dragId, setDragId] = useState(null);
 	const [overId, setOverId] = useState(null);
@@ -593,7 +594,11 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 						<p className="muted small">Tarik <IconGrip size={13} /> untuk mengubah urutan. Jawaban lama menyimpan snapshot label, jadi histori tetap aman.</p>
 					</div>
 					{canManage && (
-						<button type="button" className="btn" onClick={() => setDialog("new")}>
+						<button type="button" className="btn" onClick={() => {
+							const f = { ...emptyField(), sort_order: fields.length };
+							persistFields((fs) => [...fs, f], "Pertanyaan ditambahkan.");
+							setEditingId(f.id);
+						}}>
 							<IconPlus size={16} /> Tambah Pertanyaan
 						</button>
 					)}
@@ -613,19 +618,34 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 							{canManage && <span className="field-grip" aria-hidden><IconGrip size={15} /></span>}
 							<span className="field-num">{i + 1}</span>
 							{(() => { const FIcon = fieldTypeIcon(f.type); return FIcon ? <span className="field-type-icon" aria-hidden><FIcon size={17} /></span> : null; })()}
-							<div className="field-row-main">
-								<div className="field-row-badges">
-									<span className="field-row-label">{f.label || "(pertanyaan kosong)"}</span>
-									{Boolean(f.required) && <span className="req-star">*</span>}
-									<span className="badge outline">{fieldTypeName(f.type)}</span>
-									{f.active === false && <span className="badge draft">nonaktif</span>}
+							{editingId === f.id && canManage ? (
+								<InlineFieldEditor
+									field={f}
+									onDone={(draft) => {
+										setEditingId(null);
+										persistFields((fs) => fs.map((x) => (x.id === f.id ? { ...x, ...draft } : x)), "Pertanyaan diperbarui.");
+									}}
+									// removeId: field baru masih kosong saat batal — hapus sekalian.
+									onCancel={(removeId) => {
+										setEditingId(null);
+										if (removeId) persistFields((fs) => fs.filter((x) => x.id !== removeId).map((x, j) => ({ ...x, sort_order: j })));
+									}}
+								/>
+							) : (
+								<div className="field-row-main">
+									<div className="field-row-badges">
+										<span className="field-row-label">{f.label || "(pertanyaan kosong)"}</span>
+										{Boolean(f.required) && <span className="req-star">*</span>}
+										<span className="badge outline">{fieldTypeName(f.type)}</span>
+										{f.active === false && <span className="badge draft">nonaktif</span>}
+									</div>
+									{f.options && (
+										<p className="muted field-row-opts">
+											{f.type === "linear_scale" ? "Skala" : "Opsi"}: {f.type === "linear_scale" ? f.options : f.options.split(/[;\n]/).map((s) => s.trim()).filter(Boolean).join(", ")}
+										</p>
+									)}
 								</div>
-								{f.options && (
-									<p className="muted field-row-opts">
-										{f.type === "linear_scale" ? "Skala" : "Opsi"}: {f.type === "linear_scale" ? f.options : f.options.split(/[;\n]/).map((s) => s.trim()).filter(Boolean).join(", ")}
-									</p>
-								)}
-							</div>
+							)}
 							{canManage && (
 								<div className="field-row-actions">
 									<label className="switch-row" style={{ margin: 0 }} title={f.active === false ? "Nonaktif — tersembunyi di form publik" : "Aktif di form publik"}>
@@ -634,7 +654,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 											<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
 										</span>
 									</label>
-									<button type="button" className="icon-btn" onClick={() => setDialog(f)} aria-label={`Edit pertanyaan ${f.label || i + 1}`}><IconPencil size={15} /></button>
+									<button type="button" className="icon-btn" onClick={() => setEditingId(editingId === f.id ? null : f.id)} aria-label={`Edit pertanyaan ${f.label || i + 1}`} aria-expanded={editingId === f.id}><IconPencil size={15} /></button>
 									<button type="button" className="icon-btn" title="Duplikat pertanyaan" aria-label={`Duplikat pertanyaan ${f.label || i + 1}`}
 										onClick={() => persistFields((fs) => {
 											const at = fs.findIndex((x) => x.id === f.id) + 1;
@@ -672,21 +692,6 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					)}
 				</div>
 			</section>
-
-			{dialog !== null && (
-				<FieldDialog
-					key={dialog === "new" ? "create" : `edit-${dialog.id}`}
-					field={dialog === "new" ? null : dialog}
-					onSubmit={(draft) => {
-						persistFields((fs) => {
-							if (dialog === "new") return [...fs, { ...emptyField(), ...draft, sort_order: fs.length }];
-							return fs.map((f) => (f.id === dialog.id ? { ...f, ...draft } : f));
-						}, dialog === "new" ? "Pertanyaan ditambahkan." : "Pertanyaan diperbarui.");
-						setDialog(null);
-					}}
-					onCancel={() => setDialog(null)}
-				/>
-			)}
 
 			<Confirm
 				open={Boolean(askField)}
@@ -812,22 +817,18 @@ function QrCard({ formTitle, slug, status, toast }) {
 	);
 }
 
-/* ── Dialog tambah/edit pertanyaan — ala Google Forms: label tanpa border,
-   pemilih tipe dengan ikon, dan live preview yang menyesuaikan otomatis ──── */
-function FieldDialog({ field, onSubmit, onCancel }) {
-	const isEdit = Boolean(field);
-	// Tipe terkunci saat edit — ganti tipe jawaban field berisi respons merusak data.
-	const [label, setLabel] = useState(field?.label || "");
-	const [type, setType] = useState(field?.type || "short_text");
-	const [required, setRequired] = useState(Boolean(field?.required));
-	const [active, setActive] = useState(field?.active !== false);
-	const [options, setOptions] = useState(
-		field?.type === "linear_scale" ? field.options : String(field?.options || "").split(";").map((s) => s.trim()).filter(Boolean).join("\n"),
-	);
-	const ref = useFocusTrap(true);
-	useEscape(onCancel);
+/* ── Editor inline pertanyaan — ala Google Forms: pertanyaan diedit di tempat
+   (tanpa modal), opsi pilihan ganda diedit per-baris, tipe tetap bisa diganti ── */
+function InlineFieldEditor({ field, onDone, onCancel }) {
+	const [label, setLabel] = useState(field.label || "");
+	const [type, setType] = useState(field.type || "short_text");
+	const [required, setRequired] = useState(Boolean(field.required));
+	const [options, setOptions] = useState(optionsToInput(field));
+	const isNew = field.id.startsWith("temp-");
 	const showOptions = CHOICE_TYPES.includes(type) || type === "linear_scale";
-	const TIcon = fieldTypeIcon(type);
+
+	// Esc = batal; batal di field baru yang masih kosong = hapus field itu.
+	const cancel = () => onCancel(isNew && !label.trim() && !options.trim() ? field.id : null);
 
 	// Opsi utk preview: linear_scale "1-5" → [1..5]; choice → daftar teks.
 	const previewOptions = useMemo(() => {
@@ -841,99 +842,97 @@ function FieldDialog({ field, onSubmit, onCancel }) {
 		return String(options).split(/[;\n]/).map((s) => s.trim()).filter(Boolean);
 	}, [type, options]);
 	const validOptions = type === "linear_scale" ? previewOptions !== null : (previewOptions?.length ?? 0) >= (CHOICE_TYPES.includes(type) ? 2 : 0);
+	const canSubmit = label.trim() && (!showOptions || validOptions);
 
 	const submit = (e) => {
 		e.preventDefault();
-		if (!label.trim()) return;
-		onSubmit({ label: label.trim(), description: "", type, required, active, options });
+		if (!canSubmit) return;
+		onDone({ label: label.trim(), description: "", type, required, active: field.active !== false, options });
 	};
 
+	// Esc batal; opsi pertama auto-focus saat showOptions aktif & label kosong
+	// (baru tambah pertanyaan choice) — biar langsung ketik opsi.
 	return (
-		<div className="modal-backdrop" onClick={onCancel}>
-			<div ref={ref} className="modal field-dialog gf-dialog" tabIndex={-1} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={isEdit ? "Edit pertanyaan" : "Tambah pertanyaan"}>
-				<div className="dlg-head">
-					<h3>{isEdit ? "Edit Pertanyaan" : "Tambah Pertanyaan"}</h3>
-					<p>{isEdit ? `Field "${field.label}" — tipe terkunci agar jawaban lama konsisten.` : "Pertanyaan baru tampil di form publik setelah disimpan."}</p>
-				</div>
-				<form onSubmit={submit} className="dlg-body">
-					<div className="gf-question-card">
-						<input
-							className="gf-question-input"
-							value={label}
-							onChange={(e) => setLabel(e.target.value)}
-							maxLength={255}
-							placeholder="Pertanyaan tanpa judul"
-							required
-							autoFocus
-							aria-label="Label pertanyaan"
-						/>
-						{isEdit ? (
-							<span className="badge outline gf-type-chip" title="Tipe terkunci saat edit">
-								{TIcon && <TIcon size={14} />} {fieldTypeName(type)}
-							</span>
-						) : (
-							<DropdownTypePicker value={type} onChange={setType} />
-						)}
-					</div>
-
-					{/* Live preview — bentuk input menyesuaikan otomatis sesuai tipe. */}
-					<div className="gf-preview" aria-label="Pratinjau pertanyaan">
-						<p className="gf-preview-head">
-							<span>Pratinjau</span>
-							<span className="gf-preview-hint">otomatis sesuai tipe</span>
-						</p>
-						<div className="gf-preview-body">
-							<p className="gf-preview-label">
-								{label || "Pertanyaan tanpa judul"}
-								{required && <span className="req"> *</span>}
-							</p>
-							<FieldPreview type={type} options={previewOptions} optionsValid={validOptions} />
-						</div>
-					</div>
-
-					{showOptions && (
-						<div className="form-field">
-							<label className="field-label" htmlFor="dlg-opts">
-								{type === "linear_scale" ? "Skala (min-maks)" : "Pilihan jawaban"}
-								<span className="req">*</span>
-							</label>
-							{type === "linear_scale" ? (
-								<input id="dlg-opts" value={options} onChange={(e) => setOptions(e.target.value)} placeholder="1-5" inputMode="numeric" />
-							) : (
-								<textarea id="dlg-opts" rows={4} value={options} onChange={(e) => setOptions(e.target.value)} placeholder={"Pilihan A\nPilihan B\nPilihan C"} />
-							)}
-							<p className="field-help">
-								{type === "linear_scale"
-									? "Tulis rentang angka, contoh: 1-5. Maksimal rentang 10."
-									: (previewOptions?.length ?? 0) < 2
-										? `Tulis minimal 2 pilihan, satu per baris.${(previewOptions?.length ?? 0) > 0 ? ` Saat ini ${previewOptions.length}.` : ""}`
-										: `${previewOptions.length} pilihan — satu per baris.`}
-							</p>
-						</div>
-					)}
-					<div className="gf-switches">
-						<label className="switch-row" htmlFor="dlg-req">
-							<span className="switch">
-								<input id="dlg-req" type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
-								<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
-							</span>
-							<span className="switch-label">Wajib diisi <span className="req">*</span></span>
-						</label>
-						<label className="switch-row" htmlFor="dlg-active">
-							<span className="switch">
-								<input id="dlg-active" type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-								<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
-							</span>
-							<span className="switch-label">Aktif di form publik</span>
-						</label>
-					</div>
-					<div className="row-actions">
-						<button type="button" className="btn ghost" onClick={onCancel}>Batal</button>
-						<button type="submit" className="btn" disabled={showOptions && !validOptions}>{isEdit ? "Simpan" : "Tambah"}</button>
-					</div>
-				</form>
+		<form className="inline-field-editor" onSubmit={submit} onKeyDown={(e) => { if (e.key === "Escape") cancel(); }} aria-label={`Edit pertanyaan ${field.label || ""}`}>
+			<div className="ife-row">
+				<input
+					className="ife-label"
+					value={label}
+					onChange={(e) => setLabel(e.target.value)}
+					maxLength={255}
+					placeholder="Pertanyaan tanpa judul"
+					autoFocus
+					aria-label="Label pertanyaan"
+				/>
+				<DropdownTypePicker value={type} onChange={setType} />
 			</div>
-		</div>
+			{showOptions && (
+				<div className="ife-options">
+					{type === "linear_scale" ? (
+						<div className="ife-opt-row">
+							<span className="muted small">Skala</span>
+							<input value={options} onChange={(e) => setOptions(e.target.value)} placeholder="1-5" inputMode="numeric" aria-label="Rentang skala" style={{ maxWidth: 120 }} />
+							<span className="muted small">contoh: 1-5, maks rentang 10</span>
+						</div>
+					) : (
+						String(options).split("\n").map((opt, i, arr) => (
+							<div key={i} className="ife-opt-row">
+								<span className="ife-opt-marker" aria-hidden>{type === "checkboxes" ? "☐" : "○"}</span>
+								<input
+									value={opt}
+									placeholder={`Opsi ${i + 1}`}
+									aria-label={`Opsi ${i + 1}`}
+									// Enter = baris baru, Backspace di baris kosong = hapus baris.
+									onChange={(e) => {
+										const lines = String(options).split("\n");
+										lines[i] = e.target.value;
+										setOptions(lines.join("\n"));
+									}}
+									onKeyDown={(e) => {
+										if (e.key === "Enter") {
+											e.preventDefault(); e.stopPropagation();
+											const next = e.target.closest(".ife-opt-row").nextElementSibling?.querySelector("input");
+											if (next) next.focus();
+											else setOptions((o) => `${o}\n`);
+										}
+										if (e.key === "Backspace" && e.target.value === "" && arr.length > 1) {
+											e.preventDefault();
+											const lines = String(options).split("\n").filter((_, j) => j !== i);
+											setOptions(lines.join("\n"));
+											e.target.closest(".ife-opt-row").previousElementSibling?.querySelector("input")?.focus();
+										}
+									}}
+								/>
+								{arr.length > 1 && (
+									<button type="button" className="icon-btn" aria-label={`Hapus opsi ${i + 1}`} onClick={() => setOptions(String(options).split("\n").filter((_, j) => j !== i).join("\n"))}>
+										<IconTrash size={13} />
+									</button>
+								)}
+							</div>
+						))
+					)}
+					{type !== "linear_scale" && (
+						<button type="button" className="btn ghost sm ife-add-opt" onClick={() => setOptions((o) => (o ? `${o.replace(/\n+$/, "")}\n` : "") + `Opsi ${String(options).split("\n").filter((s) => s.trim()).length + 1}`)}>
+							<IconPlus size={13} /> Tambah opsi
+						</button>
+					)}
+					{!validOptions && <p className="field-help">Minimal 2 pilihan untuk disimpan.</p>}
+				</div>
+			)}
+			<div className="ife-foot">
+				<label className="switch-row" title="Wajib diisi pengisi">
+					<span className="switch">
+						<input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} aria-label="Wajib diisi" />
+						<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
+					</span>
+					<span className="switch-label small">Wajib diisi</span>
+				</label>
+				<span className="ife-foot-actions">
+					<button type="button" className="btn ghost sm" onClick={cancel}>Batal</button>
+					<button type="submit" className="btn sm" disabled={!canSubmit}>Selesai</button>
+				</span>
+			</div>
+		</form>
 	);
 }
 
@@ -969,47 +968,6 @@ function DropdownTypePicker({ value, onChange }) {
 			)}
 		</div>
 	);
-}
-
-/* Pratinjau jawaban per tipe — replika ringkas DynamicField di landing page. */
-function FieldPreview({ type, options, optionsValid }) {
-	if (type === "linear_scale") {
-		if (!optionsValid) return <p className="gf-preview-warn">Tulis rentang skala (contoh: 1-5) untuk melihat pratinjau.</p>;
-		return (
-			<div className="gf-preview-opts row" role="group">
-				{options.map((n) => (
-					<label key={n} className="gf-preview-opt scale">
-						<input type="radio" disabled tabIndex={-1} />
-						<span>{n}</span>
-					</label>
-				))}
-			</div>
-		);
-	}
-	if (CHOICE_TYPES.includes(type)) {
-		if (!optionsValid) return <p className="gf-preview-warn">Tulis minimal 2 pilihan untuk melihat pratinjau.</p>;
-		return (
-			<div className="gf-preview-opts" role="group">
-				{options.map((opt, i) => (
-					<label key={`${opt}-${i}`} className="gf-preview-opt">
-						<input type={type === "checkboxes" ? "checkbox" : "radio"} disabled tabIndex={-1} />
-						<span>{opt}</span>
-					</label>
-				))}
-			</div>
-		);
-	}
-	if (type === "paragraph") return <div className="gf-preview-input tall" aria-hidden />;
-	if (type === "date") return <div className="gf-preview-input date" aria-hidden>🗓️ dd / mm / yyyy</div>;
-	if (type === "file") return (
-		<div className="gf-preview-file" aria-hidden>
-			<IconTypeFile size={18} />
-			<span><strong>Pilih file</strong><br /><small>Maks. 5 file, masing-masing 10MB</small></span>
-		</div>
-	);
-	// short_text / email / number
-	const ph = type === "email" ? "nama@email.com" : type === "number" ? "Contoh: 10" : "Jawaban kamu";
-	return <div className="gf-preview-input" aria-hidden>{ph}</div>;
 }
 
 function optionsToInput(field) {

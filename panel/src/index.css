@@ -623,22 +623,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .dlg-body { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 14px; }
 .dlg-body .row-actions { margin: 2px -18px -18px; }
 
-/* Dialog pertanyaan ala Google Forms: kartu pertanyaan tanpa border + ikon tipe
-   + live preview yang menyesuaikan otomatis. */
-.gf-dialog .dlg-body { padding: 16px 18px 18px; }
-.gf-question-card {
-	display: flex; align-items: flex-start; gap: 10px; justify-content: space-between;
-	background: var(--bg); border-radius: 14px; padding: 12px 14px;
-	border-left: 4px solid var(--gold);
-}
-.gf-question-input {
-	flex: 1; min-width: 0; border: 0 !important; background: transparent !important;
-	font-size: 16px; font-weight: 600; padding: 4px 2px !important; height: auto !important;
-}
-.gf-question-input:focus { outline: none; box-shadow: none !important; }
-.gf-type-chip { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 10px; }
-.gf-switches { display: flex; flex-direction: column; gap: 10px; }
-
+/* Type picker tipe pertanyaan (dipakai editor inline) */
 .gf-typepicker { position: relative; flex-shrink: 0; }
 .gf-typepicker-btn {
 	display: inline-flex; align-items: center; gap: 4px; height: 34px; padding: 0 10px;
@@ -662,35 +647,22 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .gf-typepicker-check { margin-left: auto; color: var(--teal); }
 .gf-typepicker-item span { flex: 1; min-width: 0; }
 
-/* Live preview */
-.gf-preview { background: #fff; border: 1.5px dashed var(--border); border-radius: 14px; padding: 12px 14px; }
-.gf-preview-head {
-	margin: 0 0 8px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-	font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--teal);
+/* Editor inline pertanyaan (ala GF): menggantikan modal — kartu row expand. */
+.inline-field-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.ife-row { display: flex; align-items: center; gap: 10px; }
+.ife-label {
+	flex: 1; min-width: 0; border: 0 !important; background: transparent !important;
+	font-size: 15.5px; font-weight: 600; padding: 4px 2px !important; height: auto !important;
 }
-.gf-preview-hint { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
-.gf-preview-body { display: grid; gap: 10px; }
-.gf-preview-label { margin: 0; font-size: 14.5px; font-weight: 600; color: var(--text); }
-.gf-preview-warn { margin: 0; font-size: 12.5px; color: #b45309; }
-.gf-preview-opts { display: flex; flex-direction: column; gap: 8px; }
-.gf-preview-opts.row { flex-direction: row; flex-wrap: wrap; gap: 8px; }
-.gf-preview-opt {
-	display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px;
-	border: 1px solid var(--border); border-radius: 10px; font-size: 13.5px; background: var(--bg);
-}
-.gf-preview-opt input { accent-color: var(--navy); margin: 0; }
-.gf-preview-opt.scale { min-width: 44px; justify-content: center; padding: 6px 8px; }
-.gf-preview-input {
-	height: 38px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 8px;
-	display: flex; align-items: center; padding: 0 12px; font-size: 13.5px; color: var(--muted); background: var(--bg);
-}
-.gf-preview-input.tall { height: 88px; align-items: flex-start; padding-top: 10px; }
-.gf-preview-input.date { color: var(--text); }
-.gf-preview-file {
-	display: flex; align-items: center; gap: 12px; padding: 14px; border: 2px dashed var(--border);
-	border-radius: 12px; background: var(--bg); color: var(--navy); font-size: 13.5px;
-}
-.gf-preview-file small { color: var(--muted); }
+.ife-label:focus { outline: none; box-shadow: none !important; }
+.ife-options { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 0 4px; }
+.ife-opt-row { display: flex; align-items: center; gap: 8px; }
+.ife-opt-marker { color: var(--muted); font-size: 15px; flex-shrink: 0; }
+.ife-opt-row input { flex: 1; min-width: 0; height: 34px; }
+.ife-add-opt { align-self: flex-start; margin-left: 26px; }
+.ife-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ife-foot-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.field-row:has(.inline-field-editor) { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal); background: #fbfdfc; }
 
 /* Ikon tipe di baris susunan pertanyaan */
 .field-type-icon {
