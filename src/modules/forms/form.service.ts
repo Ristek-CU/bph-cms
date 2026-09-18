@@ -18,10 +18,13 @@ const slugify = (title: string) =>
 
 // Sufiks -2..-N saat slug bentrok (pattern events.service).
 const uniqueSlug = async (db: Db, base: string): Promise<string> => {
+	// Ponytail: pakai substr, BUKAN LIKE — D1 menolak LIKE pattern >±48 char
+	// ("LIKE or GLOB pattern too complex"), slug panjang dari judul panjang
+	// memicunya di production. Prefix match ekuivalen: substr(slug, 1, len+1) = base || '-'.
 	const rows = await db
 		.select({ slug: forms.slug })
 		.from(forms)
-		.where(sql`${forms.slug} = ${base} OR ${forms.slug} LIKE ${base + "-%"}`);
+		.where(sql`${forms.slug} = ${base} OR (length(${forms.slug}) > ${base.length} AND substr(${forms.slug}, 1, ${base.length + 1}) = ${base + "-"})`);
 	const taken = new Set(rows.map((r) => r.slug));
 	if (!taken.has(base)) return base;
 	for (let i = 2; ; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`;

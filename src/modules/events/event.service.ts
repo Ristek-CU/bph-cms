@@ -30,7 +30,9 @@ const uniqueSlug = async (db: Db, base: string): Promise<string> => {
 	const rows = await db
 		.select({ slug: events.slug })
 		.from(events)
-		.where(sql`${events.slug} = ${base} OR ${events.slug} LIKE ${base + "-%"}`);
+		// Ponytail: substr, bukan LIKE — D1 menolak LIKE pattern >±48 char
+		// ("LIKE or GLOB pattern too complex"). Lihat forms/form.service.ts uniqueSlug.
+		.where(sql`${events.slug} = ${base} OR (length(${events.slug}) > ${base.length} AND substr(${events.slug}, 1, ${base.length + 1}) = ${base + "-"})`);
 	const taken = new Set(rows.map((r) => r.slug));
 	if (!taken.has(base)) return base;
 	for (let i = 2; ; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`;
