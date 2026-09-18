@@ -182,8 +182,10 @@ export default function Assistant({ user }) {
 	const [listOpen, setListOpen] = useState(false); // mobile
 	const inputRef = useRef(null);
 
-	// Balik ke Roro: kalau ada percakapan tersimpan, buka langsung.
+	// Balik ke Roro: kalau ada percakapan tersimpan, buka langsung. Daftar
+	// percakapan di-load tiap mount — pindah halaman lalu balik tetap ada isinya.
 	useEffect(() => {
+		loadConversations();
 		if (convId && messages.length === 0) openConversation(convId);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
