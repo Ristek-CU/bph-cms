@@ -557,16 +557,22 @@ export const assistantService = {
 		// buang teks, paksa ronde nyata dengan tool + reminder tegas.
 		// Umum: [Tool: ...], [get_form_stats: ...], [create_event] — gaya bebas.
 		const FAKE_CALL = /\[\s*(?:tool\b|get_|create_)/i;
-		// Varian 2: JSON mentah bocor ke teks ("create_form {...}") — rescue: kalau
-		// payload valid, jadikan proposal sungguhan (model tidak perlu ulang).
+		// Varian 2: JSON mentah bocor ke teks ("create_form {...}" atau wrapper
+		// {"tool":...,"params":{...}}) — rescue: kalau payload valid, jadikan
+		// proposal sungguhan (model tidak perlu ulang).
+		const stripToolJson = (t: string): string =>
+			t
+				// (a) create_form {...} — buang nama tool + blok JSON balanced.
+				.replace(/\bcreate_(?:event|form)\s*\{[\s\S]*?\}(?:\s*\n\s*})*/, "\n")
+				// (b) wrapper {"tool": "create_form", ...} — buang blok JSON dari { pertama.
+				.replace(/\{\s*"tool"\s*:\s*"create_(?:event|form)"[\s\S]*?\}(?:\s*\n\s*})*/, "\n")
+				.replace(/\n{3,}/g, "\n\n")
+				.trim();
 		if (!saved && !formStatsMd) {
 			const rescued = rescueToolCallText(replyText);
 			if (rescued && canUseTool(actor.permissions, toolByName(rescued.tool)!, { isOwnDivision: true })) {
 				saved = rescued;
-				// Buang blok tool-call dari teks; sisakan sapaan/penjelasan lain.
-				replyText = replyText
-					.replace(/\bcreate_(?:event|form)\s*\{[\s\S]*?\}[\s\S]*?(?=\n|$)/, "")
-					.trim();
+				replyText = stripToolJson(replyText); // Buang blok tool-call; sisakan sapaan lain.
 			}
 		}
 		if (FAKE_CALL.test(replyText)) {
@@ -581,6 +587,38 @@ export const assistantService = {
 			replyText = stripDsml(replyText);
 			// Ronde ulang bisa berakhir tool_use lagi (data terambil) → ronde teks
 			// terakhir supaya user tetap dapat ringkasan.
+			if (!replyText.trim()) await streamRound(true);
+		}
+
+		// Varian 3 (dilihat di prod): model MENCERITAKAN draf dalam prosa dan berjanji
+		// "aku susun draftnya" — TANPA tool call, TANPA JSON. User menunggu kartu
+		// proposal yang tidak pernah muncul. Deteksi janji-tanpa-proposal → buang
+		// teks, paksa ronde dengan tool sungguhan.
+		const PROMISES_DRAFT =
+			/((aku|saya|sudah|akan|langsung|coba|tinggal)\s*(saja\s*)?(saya\s*)?(susun|buat|siapkan|usulkan|kirim)[^\n]{0,60}(draft|draf))|(berikut\s+(draft|draf)(\s+(form|event))-nya)|((draft|draf)\s+(ini\s+)?(form|event)?\s*(sudah|berstatus))/i;
+		if (!saved && !formStatsMd && PROMISES_DRAFT.test(replyText)) {
+			replyText = "";
+			llmMessages.push({
+				role: "user",
+				content:
+					"(Sistem: pesanmu menceritakan draf dalam teks tapi TIDAK memanggil tool create_event/create_form, " +
+					"jadi kartu draf tidak muncul untuk user. Panggil tool create_event atau create_form SEKARANG dengan " +
+					"data yang sudah kamu rangkum, lalu akhiri giliran. Jangan menulis detail draf sebagai teks biasa.)",
+			});
+			await streamRound(false);
+			// Ronde paksa bisa: (i) tool_use sungguhan → proposal terbentuk di
+			// variabel proposal (baca ulang), (ii) JSON bocor sbg teks → rescue.
+			saved = (proposal as Proposal | null) ?? saved;
+			if (!saved) {
+				const preRescue = replyText;
+				const rescued2 = rescueToolCallText(preRescue);
+				if (rescued2 && canUseTool(actor.permissions, toolByName(rescued2.tool)!, { isOwnDivision: true })) {
+					saved = rescued2;
+				}
+			}
+			replyText = stripToolJson(replyText);
+			// Ronde paksa menghasilkan tool_use (proposal) ATAU teks kosong → butuh
+			// ronde penutup supaya user dapat ringkasan draf.
 			if (!replyText.trim()) await streamRound(true);
 		}
 
@@ -781,37 +819,73 @@ const CLAIMS_CREATED = /(event|form|draf|draft)[^.]{0,40}(sudah|berhasil|telah)\
 // seluruh teks jadi kosong, anggap ronde itu "tanpa teks".
 const stripDsml = (text: string) => text.replace(/<｜?DSML｜>[\s\S]*?(?:<\/｜?DSML｜>|$)/g, "").replace(/<｜DSML｜[\s\S]*$/g, "").trim();
 
-// GLM kadang mengirim tool call sebagai TEKS: nama tool + JSON mentah tanpa
-// bracket gaya fake-call (FAKE_CALL tidak menangkap). Bocoran ini tampil ke user
-// sebagai JSON mentah. Rescue: ekstrak JSON-nya, validasi, jadikan proposal asli.
+// GLM kadang mengirim tool call sebagai TEKS dengan beberapa format:
+//   a) `create_form {...}` — nama tool + JSON langsung
+//   b) `{"tool": "create_form", "params": {...}}` — wrapper JSON (dilihat di prod)
+// Rescue: ekstrak JSON-nya, validasi, jadikan proposal asli.
 // Return { tool, data } kalau berhasil — null kalau tidak ada/invalid.
 const rescueToolCallText = (text: string): Proposal | null => {
-	const m = /\bcreate_(event|form)\s*\{\s*"/.exec(text);
-	if (!m) return null;
-	// Ambil JSON balanced-brace mulai dari "{" pertama setelah nama tool.
-	const start = text.indexOf("{", m.index);
-	let depth = 0;
-	let end = -1;
-	for (let i = start; i < text.length; i++) {
-		if (text[i] === "{") depth++;
-		else if (text[i] === "}") {
-			depth--;
-			if (depth === 0) {
-				end = i + 1;
-				break;
+	// Cari kandidat JSON object di teks: mulai dari tiap "{", ambil balanced-brace,
+	// coba parse. Valid kalau bentuknya tool call (a) atau wrapper (b).
+	const tryParse = (s: string): { tool: string; data: unknown } | null => {
+		try {
+			const obj = JSON.parse(s) as Record<string, unknown>;
+			if (typeof obj?.tool === "string" && obj.tool.startsWith("create_")) {
+				// (b) wrapper: {"tool": "create_form", "params": {...}}
+				const data = "params" in obj ? obj.params : obj.data ?? obj.input;
+				const tool = toolByName(obj.tool);
+				const parsed = tool?.validate?.safeParse(data);
+				if (tool && parsed?.success) return { tool: tool.name, data: parsed.data };
+				return null;
+			}
+			return null;
+		} catch {
+			return null;
+		}
+	};
+	// (a) create_form {...} — jalankan pemeriksaan balanced-brace dari nama tool.
+	const m = /\bcreate_(event|form)\s*\{/.exec(text);
+	if (m) {
+		const start = text.indexOf("{", m.index);
+		let depth = 0;
+		let end = -1;
+		for (let i = start; i < text.length; i++) {
+			if (text[i] === "{") depth++;
+			else if (text[i] === "}") {
+				depth--;
+				if (depth === 0) {
+					end = i + 1;
+					break;
+				}
+			}
+		}
+		if (end > 0) {
+			const raw = text.slice(start, end);
+			const tool = toolByName(`create_${m[1]}`);
+			try {
+				const parsed = tool?.validate?.safeParse(JSON.parse(raw));
+				if (tool && parsed?.success) return { tool: tool.name, data: parsed.data };
+			} catch {
+				/* lanjut ke pemindaian wrapper di bawah */
 			}
 		}
 	}
-	if (end < 0) return null;
-	try {
-		const data = JSON.parse(text.slice(start, end));
-		const tool = toolByName(`create_${m[1]}`);
-		const parsed = tool?.validate?.safeParse(data);
-		if (!tool || !parsed?.success) return null;
-		return { tool: tool.name, data: parsed.data };
-	} catch {
-		return null;
+	// (b) wrapper — coba tiap "{...}" balanced mulai dari "{" pertama.
+	for (let i = text.indexOf("{"); i >= 0; i = text.indexOf("{", i + 1)) {
+		let depth = 0;
+		for (let j = i; j < text.length; j++) {
+			if (text[j] === "{") depth++;
+			else if (text[j] === "}") {
+				depth--;
+				if (depth === 0) {
+					const found = tryParse(text.slice(i, j + 1));
+					if (found) return found;
+					break;
+				}
+			}
+		}
 	}
+	return null;
 };
 const sanitizeReply = (text: string, hasProposal: boolean): string => {
 	if (hasProposal || !text || !CLAIMS_CREATED.test(text)) return text;

@@ -90,6 +90,20 @@ const MOCK_STREAM = [
 				"\n\nDraft sudah kususun, tinggal konfirmasi.",
 		),
 	],
+	// S7: rescue wrapper — {"tool": "create_form", "params": {...}} bocor sbg teks.
+	[
+		tx(
+			"Baik, aku langsung buat draft formnya. Berikut data yang aku kirim:\n\n" +
+				JSON.stringify({ tool: "create_form", params: { title: "Wrapper Form", fields: [{ label: "Nama", type: "short_text", required: true }] } }, null, 2),
+		),
+	],
+	// S8: janji draf tanpa tool call — model cerita form dalam prosa.
+	[tx("Oke! Aku susun draftnya sekarang. Berikut draft formnya:\n\nJudul: Form Prosa\n1. Nama — wajib\n\nDraft ini berstatus DRAFT.")],
+	[
+		th("Sistem minta tool call..."),
+		tu("tu-s8", "create_event", EVENT_OK),
+	],
+	[tx("Draf event sudah kususulkan lewat kartu — tinggal konfirmasi.")],
 ];
 
 const h: Harness = await startHarness({
@@ -246,6 +260,34 @@ eq("rescued jadi proposal create_event", done6?.proposal?.tool, "create_event");
 eq("rescued data tervalidasi", done6?.proposal?.data?.title, "Streaming Futsal Cup");
 ok("JSON mentah dibuang dari reply", !(done6?.reply ?? "").includes('"title"'), done6?.reply);
 ok("sapaan lain tetap ada", (done6?.reply ?? "").includes("kususun"), done6?.reply);
+
+// ── Rescue varian wrapper: {"tool": "create_form", "params": ...} ───────────
+section("Rescue wrapper JSON");
+
+const s7 = await h.req(`${ASST}/chat/stream`, {
+	token: "tok-a-admin",
+	method: "POST",
+	json: { conversation_id: convS, message: "buatin form lewat wrapper" },
+});
+const ev7 = parseSse(s7.body);
+const done7 = ev7.find((e) => e.type === "done");
+eq("wrapper rescued jadi proposal create_form", done7?.proposal?.tool, "create_form");
+eq("wrapper data tervalidasi", done7?.proposal?.data?.title, "Wrapper Form");
+ok("wrapper JSON dibuang dari reply", !(done7?.reply ?? "").includes('"params"'), done7?.reply);
+
+// ── Janji draf tanpa tool call → dipaksa ronde dengan tool ──────────────────
+section("Promise-draft prose guard");
+
+const s8 = await h.req(`${ASST}/chat/stream`, {
+	token: "tok-a-admin",
+	method: "POST",
+	json: { conversation_id: convS, message: "kejar form prosa" },
+});
+const ev8 = parseSse(s8.body);
+const done8 = ev8.find((e) => e.type === "done");
+eq("prosa → dipaksa tool call → proposal", done8?.proposal?.tool, "create_event");
+ok("prosa dibuang, ganti ringkasan draf", (done8?.reply ?? "").includes("kususulkan"), done8?.reply);
+ok("prosa lama tidak bocor", !(done8?.reply ?? "").includes("Form Prosa"), done8?.reply);
 
 // ── Tanpa key → fail-closed via stream (bukan 500) ──────────────────────────
 section("Fail-closed via stream");
