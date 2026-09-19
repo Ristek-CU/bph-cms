@@ -596,7 +596,9 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					{canManage && (
 						<button type="button" className="btn" onClick={() => {
 							const f = { ...emptyField(), sort_order: fields.length };
-							persistFields((fs) => [...fs, f], "Pertanyaan ditambahkan.");
+							// Tidak persist di sini — label masih kosong, API menolak (422).
+							// persistFields jalan di onDone saat label sudah terisi.
+							setFields((fs) => [...fs, f]);
 							setEditingId(f.id);
 						}}>
 							<IconPlus size={16} /> Tambah Pertanyaan
