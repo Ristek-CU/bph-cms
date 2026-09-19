@@ -183,17 +183,14 @@ const st = await h.req(`/api/v1/admin/forms/submissions/${sid}`, { token: "tok-a
 eq("update status submission → 200", st.status, 200);
 eq("status berubah", st.body?.data?.status, "reviewed");
 
-// ── Delete guard: form bersubmission tidak boleh dihapus ───────────────────
-section("Delete guard");
+// ── Delete: form bersubmission ikut terhapus (cascade manual submissions) ──
+section("Delete dengan respons");
 
 const delWithSubs = await h.req(`/api/v1/admin/forms/${form.id}`, { token: "tok-a-admin", method: "DELETE" });
-eq("delete form dengan respons → 409", delWithSubs.status, 409);
+eq("delete form dengan respons → 200", delWithSubs.status, 200);
 
-const delSub = await h.req(`/api/v1/admin/forms/submissions/${sid}`, { token: "tok-a-admin", method: "DELETE" });
-eq("delete submission → 200", delSub.status, 200);
-
-const delNow = await h.req(`/api/v1/admin/forms/${form.id}`, { token: "tok-a-admin", method: "DELETE" });
-eq("delete form tanpa respons → 200", delNow.status, 200);
+const goneSubs = await h.req(`/api/v1/admin/forms/submissions/${sid}`, { token: "tok-a-admin", method: "PUT", json: { status: "reviewed" } });
+eq("respons ikut terhapus → 404", goneSubs.status, 404);
 
 const gonePublic = await h.req(`/api/v1/forms/${form.slug}`, { headers: { "CF-Connecting-IP": "10.9.9.9" } });
 eq("form terhapus → publik 404", gonePublic.status, 404);

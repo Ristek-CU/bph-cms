@@ -235,10 +235,10 @@ export const formService = {
 	async delete(db: Db, id: string) {
 		const [existing] = await db.select().from(forms).where(eq(forms.id, id)).limit(1);
 		if (!existing) throw ApiError.notFound("Form tidak ditemukan");
-		const count = await db.select({ n: sql<number>`count(*)` }).from(formSubmissions).where(eq(formSubmissions.formId, id));
-		if (Number(count[0]?.n ?? 0) > 0) {
-			throw ApiError.conflict("Form masih punya respons tersimpan. Tutup form, atau hapus respons dulu.");
-		}
+		// Hapus form + responsnya sekaligus (permintaan BPH). form_answers/form_files
+		// ter-cascade dari form_submissions (FK ON DELETE cascade); form_fields
+		// ter-cascade dari forms. File R2 tetap — pattern deleteSubmission.
+		await db.delete(formSubmissions).where(eq(formSubmissions.formId, id));
 		await db.delete(forms).where(eq(forms.id, id));
 		return existing;
 	},
