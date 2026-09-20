@@ -49,7 +49,9 @@ function sessionsOnDay(ev, dayKey) {
 }
 
 // Panel agenda: detail hari terpilih — event + sesi per jam + aksi.
-function DayAgenda({ dayKey, events, onEdit, onNew, capabilities }) {
+// ownDivisionId: kalender lintas divisi — aksi edit hanya untuk event divisi
+// sendiri; event divisi lain read-only (tampil badge nama divisinya).
+function DayAgenda({ dayKey, events, onEdit, onNew, capabilities, ownDivisionId }) {
 	return (
 		<div className="card agenda-card">
 			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
@@ -70,11 +72,13 @@ function DayAgenda({ dayKey, events, onEdit, onNew, capabilities }) {
 				events.map((e) => {
 					const st = displayStatus(e);
 					const sess = sessionsOnDay(e, dayKey);
+					const own = !ownDivisionId || !e.division_id || e.division_id === ownDivisionId;
 					return (
 						<div key={e.id} className="agenda-ev">
 							<div className="agenda-ev-head">
 								<div style={{ minWidth: 0 }}>
 									<strong>{e.title}</strong>
+									{!own && <span className="badge div" style={{ marginLeft: 8 }}>{e.division_name}</span>}
 									{e.status === "draft" && <span className="badge draft" style={{ marginLeft: 8 }}>Draft</span>}
 									<div className="muted small meta" style={{ marginTop: 4 }}>
 										<span className="meta-item"><IconClock size={13} /> {fmtRange(e.starts_at, e.ends_at)}</span>
@@ -98,10 +102,10 @@ function DayAgenda({ dayKey, events, onEdit, onNew, capabilities }) {
 								</ul>
 							)}
 							<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-								{capabilities?.canEditEvent?.(e) && (
+								{own && capabilities?.canEditEvent?.(e) && (
 									<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
 								)}
-								{e.status !== "draft" && (
+								{own && e.status !== "draft" && (
 									<a className="btn ghost sm" href={publicLink(e)} target="_blank" rel="noreferrer">Lihat publik</a>
 								)}
 								<a className="btn ghost sm" href={gcalUrl(e)} target="_blank" rel="noreferrer">
@@ -120,7 +124,7 @@ function DayAgenda({ dayKey, events, onEdit, onNew, capabilities }) {
  * Kalender bulanan lengkap + agenda hari terpilih.
  * Dipakai di /events/kalender (penuh) dan Ringkasan (compact).
  */
-export default function Calendar({ events, onEdit, compact = false, capabilities }) {
+export default function Calendar({ events, onEdit, compact = false, capabilities, ownDivisionId = null }) {
 	const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
 	const [ym, setYm] = useState({ y: now.getFullYear(), m: now.getMonth() });
 	const [picked, setPicked] = useState(null);
@@ -191,11 +195,11 @@ export default function Calendar({ events, onEdit, compact = false, capabilities
 							{dayEvents.slice(0, compact ? 2 : 4).map((e) => (
 								<button
 									key={e.id}
-									className={`cal-chip ${displayStatus(e)}`}
+									className={`cal-chip ${displayStatus(e)} ${ownDivisionId && e.division_id && e.division_id !== ownDivisionId ? "other-div" : ""}`}
 									onClick={(ev) => { ev.stopPropagation(); pick(); }}
 
 									onKeyDown={onChipArrow}
-									title={e.title}
+									title={ownDivisionId && e.division_name && e.division_id !== ownDivisionId ? `${e.title} — ${e.division_name}` : e.title}
 								>
 									{e.title}
 								</button>
@@ -229,6 +233,7 @@ export default function Calendar({ events, onEdit, compact = false, capabilities
 					onEdit={onEdit}
 					onNew={setAskNew}
 					capabilities={capabilities}
+					ownDivisionId={ownDivisionId}
 				/>
 			)}
 

@@ -207,6 +207,9 @@ main.page { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: conta
 .badge.upcoming { background: #e9f3f2; color: #06455b; }
 .badge.past { background: #ede9e3; color: #667b7d; }
 .badge.closed { background: #fbe9e9; color: #a03a3a; }
+.badge.div { background: #f3ecdc; color: #7a5c14; }
+/* Chip kalender milik divisi lain: garis putus-putus = read-only buat divismu. */
+.cal-chip.other-div { border-style: dashed; opacity: 0.85; }
 
 .err-text { color: var(--err); font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
 .ok-text { color: var(--ok); font-size: 13px; }

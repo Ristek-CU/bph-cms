@@ -1,14 +1,28 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { displayStatus, fmtRange, publicLink } from "../api.js";
-import { useToast, copyText } from "../components/ui.jsx";
+import { api, displayStatus, fmtRange, publicLink } from "../api.js";
+import { useToast, copyText, ErrorState } from "../components/ui.jsx";
 import { href } from "../components/Shell.jsx";
 import Calendar from "../components/Calendar.jsx";
 import { IconChevronRight } from "../components/Icons.jsx";
 
 const LABEL = { draft: "Draft", ongoing: "Berlangsung", upcoming: "Akan Datang", past: "Selesai" };
 
-export default function Overview({ events, onEdit, capabilities }) {
+export default function Overview({ events, onEdit, capabilities, user }) {
 	const toast = useToast();
+
+	// Kalender Ringkasan = aktivitas seluruh SGA (informasi antar divisi):
+	// semua event published semua divisi. Event milik divisi user tetap dapat
+	// aksi edit/copy-link; divisi lain read-only.
+	const [allEvents, setAllEvents] = useState(null);
+	const [calErr, setCalErr] = useState("");
+	const loadCalendar = () => {
+		setCalErr("");
+		api("/admin/events/calendar")
+			.then((d) => setAllEvents(d.items || []))
+			.catch((e) => setCalErr(e?.message || "Gagal memuat kalender."));
+	};
+	useEffect(loadCalendar, []);
 
 	const counts = events.reduce(
 		(acc, e) => {
@@ -53,12 +67,25 @@ export default function Overview({ events, onEdit, capabilities }) {
 				<div>
 					<div className="card">
 						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-							<h2 className="card-title">Kalender event</h2>
+							<h2 className="card-title">Kalender SGA — semua divisi</h2>
 							<Link to="/events/kalender" className="small overview-link">
 								Buka penuh <IconChevronRight size={13} />
 							</Link>
 						</div>
-						<Calendar events={events} onEdit={onEdit} capabilities={capabilities} compact />
+						<p className="muted small" style={{ marginTop: -4 }}>
+							Aktivitas seluruh SGA — rencanakan jadwal divisimu tanpa bentrok dengan divisi lain.
+						</p>
+						{calErr ? (
+							<ErrorState message={calErr} onRetry={loadCalendar} />
+						) : (
+							<Calendar
+								events={allEvents || []}
+								ownDivisionId={user?.division?.id || null}
+								onEdit={onEdit}
+								capabilities={capabilities}
+								compact
+							/>
+						)}
 					</div>
 				</div>
 

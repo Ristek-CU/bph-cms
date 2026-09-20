@@ -743,6 +743,35 @@ ok("path traversal di /storage → 404", traversal.status === 404, traversal.sta
 const missingObject = await h.req("/api/v1/storage/covers/tidak-ada.png");
 eq("objek tidak ada → 404", missingObject.status, 404);
 
+// ── 15b. Kalender lintas divisi (Ringkasan: informasi antar divisi) ─────────
+section("Kalender lintas divisi (admin)");
+
+const calAll = await h.req("/api/v1/admin/events/calendar?month=2026-09", { token: "tok-a-admin" });
+eq("kalender lintas divisi → 200", calAll.status, 200);
+const calItems = calAll.body?.data?.items ?? [];
+// Semua divisi terlihat: event published divisi A, B, dan BPH.
+ok(
+	"memuat event semua divisi",
+	["ev-a-pub", "ev-b-pub", "ev-bph-pub"].every((id) => calItems.some((e: any) => e.id === id)),
+	calItems.map((e: any) => e.id),
+);
+ok(
+	"embedding nama divisi",
+	calItems.find((e: any) => e.id === "ev-b-pub")?.division_name === "UKM",
+	calItems.find((e: any) => e.id === "ev-b-pub"),
+);
+ok(
+	"draft divisi lain TIDAK bocor",
+	!calItems.some((e: any) => ["ev-a-draft", "ev-b-draft"].includes(e.id)),
+	calItems.map((e: any) => e.id),
+);
+const calViewer = await h.req("/api/v1/admin/events/calendar?month=2026-09", { token: "tok-a-viewer" });
+eq("viewer juga bisa lihat (read-only informasi)", calViewer.status, 200);
+const calBad = await h.req("/api/v1/admin/events/calendar?month=September", { token: "tok-a-admin" });
+eq("bulan invalid → 422", calBad.status, 422);
+const calAnon = await h.req("/api/v1/admin/events/calendar?month=2026-09");
+eq("tanpa token → 401", calAnon.status, 401);
+
 // ── 16. Audit log tertulis ───────────────────────────────────────────────────
 section("Audit log");
 

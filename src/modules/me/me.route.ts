@@ -57,6 +57,13 @@ meRouter.get(
 			userWorkspaces = [{ id: null, label: "SGA CMS Hub", kind: "cms_hub", url: null }];
 		}
 
+		// Link "Dokumentasi API" di panel hanya tampil untuk email di allowlist
+		// (sumber kebenaran sama dengan gate /api/v1/openapi di index.ts).
+		const docsAllow = (c.env.DOCS_ALLOW_EMAILS ?? "")
+			.split(",")
+			.map((e) => e.trim().toLowerCase())
+			.filter(Boolean);
+
 		return ApiResponse.ok(c, "OK", {
 			user: {
 				id: userId,
@@ -64,6 +71,7 @@ meRouter.get(
 				name: userName || userEmail.split("@")[0] || "User",
 				role: userRole,
 			},
+			can_access_docs: docsAllow.includes(userEmail.toLowerCase()),
 			active_division_id: activeDivisionId,
 			memberships: memberships.map((m) => ({
 				division: m.division,

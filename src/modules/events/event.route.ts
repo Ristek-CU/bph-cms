@@ -5,6 +5,8 @@ import type { AppContext } from "../../types";
 import { adminAuth } from "../../middlewares/admin-auth";
 import { requirePermission } from "../../middlewares/require-permission";
 import { ApiResponse } from "../../shared/api-response";
+import { ApiError } from "../../shared/api-error";
+import { publicEventService } from "./event.public.service";
 import { recordAuditLog } from "../audit/audit.service";
 import { getDb } from "../../db/connection";
 import { eventService } from "./event.service";
@@ -67,6 +69,28 @@ adminEventRouter.get(
 		successWrapper(z.array(adminEventSchema)),
 	),
 	listEvents,
+);
+
+// Kalender lintas divisi (published semua divisi + nama divisi). Informasi antar
+// divisi di Ringkasan: semua pengurus bisa LIHAT jadwal SGA untuk merencanakan
+// acaranya sendiri; draft tetap privat (scope divisi masing-masing).
+adminEventRouter.get(
+	"/calendar",
+	requirePermission("events.read.own_division"),
+	ok(
+		"Cross-division calendar of published events",
+		"Semua event published seluruh divisi yang beririsan dengan bulan (YYYY-MM, WIB, default bulan berjalan) + division_id/division_name. Tanpa draft, tanpa sessions.",
+		successWrapper(z.object({ items: z.array(z.record(z.string(), z.any())) })),
+	),
+	async (c) => {
+		const month = c.req.query("month");
+		if (month !== undefined && !/^\d{4}-\d{2}$/.test(month)) {
+			throw ApiError.validation("Validation failed", { month: ["Must be YYYY-MM, e.g. 2026-09"] });
+		}
+		const now = new Date().toLocaleString("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit" });
+		const result = await publicEventService.calendarAllDivisions(getDb(c.env.DB), month ?? now);
+		return ApiResponse.ok(c, "OK", result);
+	},
 );
 
 adminEventRouter.post(

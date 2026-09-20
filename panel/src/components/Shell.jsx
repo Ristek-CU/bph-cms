@@ -131,9 +131,13 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 				</NavLink>
 			)}
 			<div className="nav-sep" />
-			<a href="/docs/" target="_blank" rel="noreferrer" title="Dokumentasi API untuk developer">
-				<span className="icon" aria-hidden><IconLink /></span> Dokumentasi API
-			</a>
+			{/* Dokumentasi API khusus Ristek (allowlist server DOCS_ALLOW_EMAILS) —
+			    divisi lain tidak diperlihatkan linknya sama sekali. */}
+			{user?.canAccessDocs && (
+				<a href="/docs/" target="_blank" rel="noreferrer" title="Dokumentasi API untuk developer">
+					<span className="icon" aria-hidden><IconLink /></span> Dokumentasi API
+				</a>
+			)}
 		</nav>
 	);
 

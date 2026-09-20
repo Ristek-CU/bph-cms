@@ -64,6 +64,7 @@ function App() {
 				division: activeMembership?.division,
 				role: activeMembership?.role,
 				permissions: activeMembership?.permissions || [],
+				canAccessDocs: !!me.can_access_docs,
 			});
 			if (me.workspace_options && me.workspace_options.length > 1) {
 				setWorkspaces(me.workspace_options);
@@ -245,7 +246,7 @@ function App() {
 				path="/overview"
 				element={
 					<Shell {...shellProps} title="Ringkasan" crumb={[{ label: "Modul", to: "/" }, { label: "Ringkasan" }]}>
-						{eventContent(<Overview events={events} onEdit={onEdit} capabilities={capabilities} />)}
+						{eventContent(<Overview events={events} onEdit={onEdit} capabilities={capabilities} user={user} />)}
 					</Shell>
 				}
 			/>

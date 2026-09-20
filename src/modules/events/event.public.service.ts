@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { ApiError } from "../../shared/api-error";
-import { eventSessions, events } from "../../db/schema";
+import { divisions, eventSessions, events } from "../../db/schema";
 import type { Db } from "../../db/connection";
 import { computeStatus } from "./status";
 
@@ -111,6 +111,40 @@ export const publicEventService = {
 				endsAtMs: events.endsAtMs,
 			})
 			.from(events)
+			.where(
+				and(
+					eq(events.status, "published"),
+					lte(events.startsAtMs, endMs - 1),
+					gte(events.endsAtMs, startMs),
+				),
+			)
+			.orderBy(asc(events.startsAtMs));
+
+		return { items: rows.map(({ startsAtMs, endsAtMs, ...rest }) => rest) };
+	},
+
+	// Kalender lintas divisi untuk panel Ringkasan (informasi antar divisi):
+	// semua event PUBLISHED dari SEMUA divisi + nama divisinya. Draft tidak ikut —
+	// tetap privat milik divisi. Read-only: edit/copy-link ditentukan panel
+	// berdasar kecocokan division_id dengan divisi aktif user.
+	async calendarAllDivisions(db: Db, month: string) {
+		const { startMs, endMs } = monthRangeWib(month);
+		const rows = await db
+			.select({
+				id: events.id,
+				slug: events.slug,
+				title: events.title,
+				starts_at: events.startsAt,
+				ends_at: events.endsAt,
+				location: events.location,
+				organizer: events.organizer,
+				division_id: events.divisionId,
+				division_name: divisions.name,
+				startsAtMs: events.startsAtMs,
+				endsAtMs: events.endsAtMs,
+			})
+			.from(events)
+			.innerJoin(divisions, eq(events.divisionId, divisions.id))
 			.where(
 				and(
 					eq(events.status, "published"),
