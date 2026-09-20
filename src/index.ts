@@ -66,6 +66,17 @@ v1.onError(errorHandler);
 
 v1.get("/", (c) => ApiResponse.ok(c, "BPH CMS is running", { service: "bph-cms" }));
 
+// Health check: verifikasi D1 hidup (sumber data utama). Untuk Ristek mengecek
+// "API aman/berjalan" dari halaman docs.
+v1.get("/health", async (c) => {
+	try {
+		await c.env.DB.prepare("SELECT 1").first();
+		return ApiResponse.ok(c, "OK", { service: "bph-cms", db: "up", time_wib: new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }) });
+	} catch {
+		return ApiResponse.ok(c, "Degraded", { service: "bph-cms", db: "down", time_wib: new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jakarta" }) });
+	}
+});
+
 // Aset media publik (dipakai cover_image_url). Cache immutable — key uuid unik.
 // D1 rate limit: dilayani sebelum publicEventRouter, jadi tidak kena limiter manapun.
 // Browser yang me-render cover dari cache tetap lolos — cache-control immutable
