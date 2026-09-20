@@ -48,7 +48,9 @@ input, textarea, select { font: inherit; }
 :focus-visible { outline: none; box-shadow: var(--ring); border-radius: 8px; }
 
 /* ---- Layout shell ---- */
-.shell { display: flex; min-height: 100vh; }
+/* Shell setinggi viewport: sidebar & topbar selalu terlihat, scroll terjadi
+   DI DALAM main.page (pola sama dengan chat Roro) — bukan scroll document. */
+.shell { display: flex; height: 100dvh; }
 /* Sidebar terang ala advo (#fbfcf8, border hijau pucat) — bukan navy lagi. */
 .sidebar {
 	width: 240px; flex-shrink: 0; background: #fbfcf8; color: #174852;
@@ -152,7 +154,7 @@ input, textarea, select { font: inherit; }
 .crumb-item a { color: var(--muted); text-decoration: none; }
 .crumb-item a:hover { color: var(--teal); text-decoration: underline; }
 .topbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-main.page { padding: 24px 28px 96px; max-width: 1280px; width: 100%; margin: 0 auto; animation: subtle-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+main.page { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px 28px 96px; max-width: 1280px; width: 100%; margin: 0 auto; animation: subtle-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
 /* Animasi identik advo globals.css */
 @keyframes subtle-fade-up {
 	from { opacity: 0; transform: translateY(12px); }
@@ -496,7 +498,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .studio-cards { display: grid; gap: 14px; grid-template-columns: 1fr; min-width: 0; }
 @media (min-width: 700px) { .studio-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .studio-empty { grid-column: 1 / -1; }
-.studio-create { position: sticky; top: 84px; }
+.studio-create { position: sticky; top: 0; }
 .create-icon {
 	width: 40px; height: 40px; border-radius: 12px; background: var(--navy); color: var(--gold-2);
 	font-size: 22px; font-weight: 700; display: flex; align-items: center; justify-content: center;
@@ -789,7 +791,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 
 /* ---- Mobile ---- */
 @media (max-width: 900px) {
-	.shell { display: block; }
+	.shell { display: flex; flex-direction: column; height: 100dvh; }
 	.sidebar {
 		position: fixed; left: -260px; z-index: 50; transition: left 0.2s ease; height: 100vh;
 	}
@@ -820,7 +822,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .skeleton-card { padding: 16px; }
 
 /* ---- Roro AI chat ---- */
-.roro-layout { display: flex; gap: 14px; align-items: stretch; min-height: calc(100vh - 170px); }
+.roro-layout { display: flex; gap: 14px; align-items: stretch; flex: 1; min-height: 0; }
 .roro-sidebar {
 	width: 220px; flex: 0 0 220px; display: flex; flex-direction: column; gap: 10px;
 	border-right: 1px solid var(--line); padding-right: 12px;
@@ -1002,7 +1004,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 .login-error { background: #fff0eb; color: #9c3826; border: 1px solid #e9c6ba; }
 .login-notice { background: #eaf2ee; color: var(--navy); border: 1px solid var(--border); }
 
-.roro-layout { height: calc(100dvh - 155px); min-height: 440px; }
+/* Halaman scroll internal (.page) — Roro isi penuh area page tanpa height viewport. */
+.roro-layout { height: 100%; min-height: 0; }
 .roro-main, .roro-sidebar { min-height: 0; }
 .roro-thread { min-height: 0; }
 .roro-bubble { overflow-wrap: anywhere; }
@@ -1025,7 +1028,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 	.topbar { min-height: 76px; flex-wrap: wrap; }
 	.topbar-actions:empty { display: none; }
 	.roro-mobile-controls { display: flex; gap: 8px; margin-bottom: 12px; }
-	.roro-layout { height: calc(100dvh - 180px); min-height: 380px; }
+	.roro-layout { height: auto; min-height: 480px; }
 	.roro-sidebar:not(.open) { display: none; }
 	.roro-sidebar.open { position: absolute; left: 0; width: min(290px, 100%); height: 100%; border: 1px solid var(--border); border-radius: 12px; }
 	.roro-history-close { display: inline-flex; }
