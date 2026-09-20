@@ -196,7 +196,7 @@ section("Stream: get_form_stats (input tool diteruskan)");
 const s2 = await h.req(`${ASST}/chat/stream`, {
 	token: "tok-a-admin",
 	method: "POST",
-	json: { conversation_id: convS, message: "Berapa respons form pendaftaran panitia?" },
+	json: { conversation_id: convS, message: "Cek data form pendaftaran panitia lewat tool ya" },
 });
 eq("stream stats → 200", s2.status, 200);
 const ev2 = parseSse(s2.body);
@@ -291,6 +291,34 @@ ok("prosa lama tidak bocor", !(done8?.reply ?? "").includes("Form Prosa"), done8
 
 // ── Tanpa key → fail-closed via stream (bukan 500) ──────────────────────────
 section("Fail-closed via stream");
+
+// Regresi memori via stream: dulu updateMemory hanya di chat() non-stream,
+// sedangkan panel selalu pakai /chat/stream → memori tidak pernah terbentuk.
+// S1 memakai 1 respons; 10 pesan user = 10x chat (S1) + 1 respons untuk
+// updateMemory. Fixture ke-11 khusus ringkasan memori.
+{
+	const h3: Harness = await startHarness({
+		vars: {
+			RORO_MOCK_STREAM: JSON.stringify([...Array.from({ length: 10 }, () => [tx("Siap, dicatat.")])]),
+			// updateMemory memakai llmChat (non-stream) — fixture terpisah.
+			RORO_MOCK: JSON.stringify([{ content: [{ type: "text", text: "MEMORI: user suka event futsal." }], stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } }]),
+		},
+	});
+	let conv3 = null;
+	for (let i = 0; i < 10; i++) {
+		const r = await h3.req(`${ASST}/chat/stream`, {
+			token: "tok-a-admin",
+			method: "POST",
+			json: { message: `pesan ke-${i}`, conversation_id: conv3 ?? undefined },
+		});
+		if (r.status !== 200) ok(`memori: chat ke-${i} → 200`, false, r.status);
+		const done = parseSse(r.body).find((e) => e.type === "done");
+		conv3 = done?.conversation_id;
+	}
+	const mem = await h3.sql("SELECT memory_md FROM ai_memories");
+	ok("memori terbentuk via /chat/stream", (mem[0]?.memory_md ?? "").includes("futsal"), mem[0]);
+	await h3.dispose();
+}
 
 const h2: Harness = await startHarness({});
 const nk = await h2.req(`${ASST}/chat/stream`, {

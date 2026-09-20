@@ -826,6 +826,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 	border-right: 1px solid var(--line); padding-right: 12px;
 }
 .roro-new { align-self: stretch; }
+.roro-quota { margin: -6px 0 0; padding: 0 2px; }
 .roro-conv-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .roro-conv { display: flex; align-items: center; border-radius: 8px; }
 .roro-conv > button:first-child {

@@ -406,7 +406,7 @@ export const assistantService = {
 		// Intent insight → injeksi snapshot statistik asli ke system prompt.
 		// ponytail: regex intent + snapshot semua form ber-submissions; kalau
 		// divisi punya banyak form, ganti dengan tool yang dipanggil sistem.
-		const WANTS_INSIGHT = /insight|statistik|analitik|respon\s?den|responden|jawaban|isi form|rekap/i.test(input.message);
+		const WANTS_INSIGHT = /insight|statistik|analitik|respons|responden|jawaban|isi form|rekap/i.test(input.message);
 		let formStatsMd: string | undefined;
 		if (WANTS_INSIGHT) {
 			const { items } = await formService.listAdmin(db, { divisionId: actor.divisionId, perPage: 50 });
@@ -640,6 +640,19 @@ export const assistantService = {
 		});
 		await db.update(aiConversations).set({ updatedAt: new Date().toISOString() }).where(eq(aiConversations.id, convId));
 		await quotaRecord(db, actor.userId, quotaDay(), { input_tokens: totalIn, output_tokens: totalOut });
+
+		// Memori: sama dengan chat() — jalur stream adalah jalur utama panel, tanpa
+		// ini memori tidak pernah diperbarui di produksi.
+		// ponytail: done event tertunda selama panggilan memori (tiap 10 pesan);
+		// pindah ke waitUntil kalau latensinya terasa.
+		const userCount = await db
+			.select({ n: sql<number>`count(*)` })
+			.from(aiMessages)
+			.where(and(eq(aiMessages.conversationId, convId), eq(aiMessages.role, "user")));
+		const count = Number(userCount[0]?.n ?? 0);
+		if (count > 0 && count % MEMORY_EVERY === 0) {
+			await this.updateMemory(db, actor, env, convId).catch(() => {}); // memori gagal ≠ chat gagal
+		}
 
 		emit({
 			type: "done",

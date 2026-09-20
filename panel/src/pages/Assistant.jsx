@@ -183,6 +183,7 @@ export default function Assistant() {
 	const [chatError, setChatError] = useState("");
 	const [listError, setListError] = useState("");
 	const [deleteId, setDeleteId] = useState(null);
+	const [usage, setUsage] = useState(null); // { today: {used, limit}, month: {used, limit} }
 	const requestVersion = useRef(0);
 	const streamController = useRef(null);
 	const historyRef = useFocusTrap(listOpen);
@@ -195,6 +196,11 @@ export default function Assistant() {
 		loadConversations();
 		if (convId && messages.length === 0) openConversation(convId);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	// Kuota harian — biar user tahu sisa chat sebelum kena 429.
+	useEffect(() => {
+		api("/admin/assistant/usage").then(setUsage).catch(() => {});
 	}, []);
 
 	const changeConv = (id) => {
@@ -224,7 +230,14 @@ export default function Assistant() {
 			const d = await api(`/admin/assistant/conversations/${id}`);
 			if (version === requestVersion.current) setMessages(d || []);
 		} catch (e) {
-			if (version === requestVersion.current) setChatError(errText(e));
+			if (version !== requestVersion.current) return;
+			if (e?.statusCode === 404) {
+				// convId basi di sessionStorage (ganti akun/chat terhapus) — jangan
+				// dead-end error; pulihkan ke chat baru.
+				changeConv(null);
+			} else {
+				setChatError(errText(e));
+			}
 		} finally { if (version === requestVersion.current) setLoadingChat(false); }
 	}, []);
 
@@ -314,6 +327,7 @@ export default function Assistant() {
 					changeConv(final.conversation_id);
 					loadConversations();
 				}
+				api("/admin/assistant/usage").then(setUsage).catch(() => {});
 			} catch (e) {
 				if (e.name === "AbortError") return;
 				toast(errText(e), "err");
@@ -394,6 +408,11 @@ export default function Assistant() {
 				<button className="btn gold roro-new" disabled={busy || busyConfirm} onClick={newChat}>
 					<IconPlus size={14} /> Chat baru
 				</button>
+				{usage?.today && (
+					<p className="roro-quota small muted" title="Batas chat Roro per hari (WIB)">
+						Kuota hari ini: {usage.today.used}/{usage.today.limit}
+					</p>
+				)}
 				<div className="roro-conv-list">
 					{listError && <ErrorState message={listError} onRetry={loadConversations} />}
 					{!listError && !conversations.length && <p className="muted small">Percakapanmu akan muncul di sini.</p>}
