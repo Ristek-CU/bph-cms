@@ -110,11 +110,26 @@ function ProposalActions({ status, resultResourceId, onConfirm, busy, tool, labe
 function ThinkingBubble({ text }) {
 	return (
 		<div className="roro-msg assistant">
+			<Avatar animate />
 			<div className="roro-bubble roro-thinking">
 				<p className="roro-thinking-label">Roro lagi mikir…</p>
 				<p className="roro-thinking-text">{text.slice(-180)}</p>
 			</div>
 		</div>
+	);
+}
+
+// Maskot Roro (panel/public/roro.png). Saat Roro "bekerja" (streaming),
+// avatar berdenyut — kesan AI agent yang hidup, bukan ikon mati.
+function Avatar({ animate = false }) {
+	return (
+		<img
+			src="/roro.png"
+			alt=""
+			aria-hidden
+			className={`roro-avatar ${animate ? "roro-avatar-live" : ""}`}
+			draggable={false}
+		/>
 	);
 }
 
@@ -128,7 +143,8 @@ function ChatView({ messages, onConfirm, busyConfirm, streaming }) {
 	if (!messages.length && !streaming) {
 		return (
 			<div className="roro-welcome">
-				<h2>Hai, aku Roro 👋</h2>
+				<img src="/roro.png" alt="" aria-hidden className="roro-welcome-logo" draggable={false} />
+				<h2>Hai, aku Roro</h2>
 				<p>Bisa bantu apa hari ini?</p>
 				<div className="roro-suggest">
 					<button className="btn ghost" onClick={() => window.dispatchEvent(new CustomEvent("roro:prompt", { detail: "Bantu aku buat event lomba futsal" }))}>
@@ -146,6 +162,7 @@ function ChatView({ messages, onConfirm, busyConfirm, streaming }) {
 		<div className="roro-thread">
 			{messages.map((m) => (
 				<div key={m.id} className={`roro-msg ${m.role}`}>
+					{m.role === "assistant" && <Avatar />}
 					<div className="roro-bubble">
 						<span style={{ whiteSpace: "pre-wrap" }}>{m.role === "assistant" ? stripMd(m.content) : m.content}</span>
 						{m.role === "assistant" && m.proposal_json && (
@@ -447,8 +464,8 @@ export default function Assistant() {
 						aria-label="Pesan untuk Roro"
 						disabled={busy || loadingChat || !!chatError}
 					/>
-					<button className="btn gold" disabled={busy || loadingChat || !!chatError || !input.trim()}>
-						{busy ? "…" : "Kirim"}
+					<button className="btn gold roro-send" disabled={busy || loadingChat || !!chatError || !input.trim()} aria-label="Kirim pesan">
+						{busy ? <img src="/roro.png" alt="" aria-hidden className="roro-avatar roro-avatar-live roro-send-logo" draggable={false} /> : <img src="/roro.png" alt="" aria-hidden className="roro-send-logo" draggable={false} />}
 					</button>
 				</form>
 			</div>
