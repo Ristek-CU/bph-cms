@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, errText } from "../api.js";
-import { useToast, SkeletonCard } from "../components/ui.jsx";
+import { useToast, SkeletonCard, ErrorState } from "../components/ui.jsx";
 
 const ROLES = [
 	["platform_admin", "Platform Admin"],
@@ -11,20 +11,19 @@ const ROLES = [
 
 // Kelola akun + divisi + audit log (hanya platform_admin — di-gate permission
 // backend accounts.manage / audit.read, link sidebar di-gate di Shell).
-export default function Accounts({ initialTab = "accounts" }) {
-	const [tab, setTab] = useState(initialTab);
-	return (
-		<>
-			<div className="toolbar" style={{ marginBottom: 12 }}>
-				<button className={`btn ${tab === "accounts" ? "gold" : "ghost"}`} onClick={() => setTab("accounts")}>Akun</button>
-				<button className={`btn ${tab === "divisions" ? "gold" : "ghost"}`} onClick={() => setTab("divisions")}>Divisi</button>
-				<button className={`btn ${tab === "audit" ? "gold" : "ghost"}`} onClick={() => setTab("audit")}>Audit Log</button>
-			</div>
-			{tab === "accounts" && <AccountsTab />}
-			{tab === "divisions" && <DivisionsTab />}
-			{tab === "audit" && <AuditTab />}
-		</>
-	);
+export default function Accounts({ permissions = [] }) {
+	const canManage = permissions.includes("accounts.manage");
+	const canAudit = permissions.includes("audit.read");
+	const [tab, setTab] = useState(canManage ? "accounts" : "audit");
+	return <>
+		<div className="page-intro"><h2>Akses tim, tertata.</h2><p>Kelola keanggotaan, divisi, dan riwayat aktivitas pengurus.</p></div>
+		<div className="toolbar" aria-label="Bagian pengelolaan akun">
+			{[["accounts", "Akun", canManage], ["divisions", "Divisi", canManage], ["audit", "Audit log", canAudit]].filter((t) => t[2]).map(([id, label]) => <button key={id} className={`chip ${tab === id ? "active" : ""}`} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+		</div>
+		{tab === "accounts" && canManage && <AccountsTab />}
+		{tab === "divisions" && canManage && <DivisionsTab />}
+		{tab === "audit" && canAudit && <AuditTab />}
+	</>;
 }
 
 function AccountsTab() {
@@ -63,7 +62,7 @@ function AccountsTab() {
 		}
 	};
 
-	if (err) return <div className="card err-text">{err}</div>;
+	if (err) return <ErrorState message={err} onRetry={load} />;
 	if (rows === null) return <SkeletonCard />;
 
 	return (
@@ -71,7 +70,7 @@ function AccountsTab() {
 			<div className="card">
 				<h3 style={{ marginBottom: 10 }}>Tambah membership</h3>
 				<p className="muted small" style={{ marginBottom: 10 }}>
-					user_id berasal dari auth service (superapp). Email dipakai untuk pencocokan saat login.
+					Tambahkan pengurus yang sudah memiliki akun Superapp, lalu pilih divisi dan hak aksesnya.
 				</p>
 				<form onSubmit={create} className="grid-2">
 					<div>
@@ -161,7 +160,7 @@ function DivisionsTab() {
 		}
 	};
 
-	if (err) return <div className="card err-text">{err}</div>;
+	if (err) return <ErrorState message={err} onRetry={load} />;
 	if (rows === null) return <SkeletonCard />;
 
 	return (
@@ -212,13 +211,12 @@ function AuditTab() {
 	const [rows, setRows] = useState(null);
 	const [err, setErr] = useState("");
 
-	useEffect(() => {
-		api("/admin/audit-logs")
-			.then((d) => setRows(d.items || d || []))
-			.catch((e) => setErr(errText(e)));
+	const load = useCallback(() => {
+		setErr("");
+		api("/admin/audit-logs").then((d) => setRows(d.items || d || [])).catch((e) => setErr(errText(e)));
 	}, []);
-
-	if (err) return <div className="card err-text">{err}</div>;
+	useEffect(() => { load(); }, [load]);
+	if (err) return <ErrorState message={err} onRetry={load} />;
 	if (rows === null) return <SkeletonCard />;
 
 	return (

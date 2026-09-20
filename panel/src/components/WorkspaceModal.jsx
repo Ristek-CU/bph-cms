@@ -1,4 +1,4 @@
-import { Fragment, useEffect } from "react";
+import { Fragment } from "react";
 import { useEscape, useFocusTrap } from "./ui.jsx";
 
 // Overlay pemilihan dashboard. Tampil HANYA saat login baru atau saat user
@@ -46,7 +46,7 @@ export default function WorkspaceModal({ workspaces, onSelect, busy = false, err
 										<span className="ws-label">{ws.label}</span>
 										<span className="ws-desc">
 											{busy
-												? "Menyiapkan handoff…"
+												? "Menyiapkan dashboard…"
 												: ws.kind === "cms_hub"
 													? "Kelola event, form, dan QPR lintas divisi."
 													: "Buka dashboard eksternal khusus divisi."}

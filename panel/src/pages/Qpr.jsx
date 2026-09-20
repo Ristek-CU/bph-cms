@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errText } from "../api.js";
-import { useToast, Confirm, SkeletonCard, Card, copyText } from "../components/ui.jsx";
+import { useToast, Confirm, SkeletonCard, Card, copyText, ErrorState, useEscape, useFocusTrap } from "../components/ui.jsx";
 
 // QPR v2 — tanpa login (model kejujuran). BPH kelola periode + roster nama;
 // anggota buka link publik, pilih namanya dari dropdown, isi skala 1-5,
@@ -19,7 +19,7 @@ function NoManage() {
 	return (
 		<div className="empty-state">
 			<p>Kamu tidak punya akses kelola QPR. Buka link publik periode yang sedang berjalan untuk mengisi penilaian.</p>
-			<p className="muted small">Contoh: {PUBLIC_BASE}/&lt;id-periode&gt;</p>
+			<p className="muted small">Minta link periode aktif kepada pengurus BPH. Kamu bisa mengisi penilaian langsung dari link tersebut.</p>
 		</div>
 	);
 }
@@ -45,11 +45,12 @@ function AdminView() {
 
 	return (
 		<>
-			{err && <div className="card err-text">{err}</div>}
+			<div className="page-intro"><h2>Evaluasi untuk tumbuh bersama.</h2><p>Buat periode, tambahkan nama pengisi, lalu bagikan link penilaian.</p></div>
+			{err && <ErrorState message={err} onRetry={load} />}
 			<div className="toolbar" style={{ marginBottom: 12 }}>
 				<button className="btn gold" onClick={() => setShowCreate(true)}>+ Periode baru</button>
 			</div>
-			{periods === null ? (
+			{err ? null : periods === null ? (
 				<SkeletonCard />
 			) : periods.length === 0 ? (
 				<div className="empty-state"><p>Belum ada periode penilaian.</p></div>
@@ -71,6 +72,8 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 	const [title, setTitle] = useState("");
 	const [desc, setDesc] = useState("");
 	const [busy, setBusy] = useState(false);
+	const modalRef = useFocusTrap(open);
+	useEscape(() => open && !busy && onClose());
 	if (!open) return null;
 
 	const submit = async (e) => {
@@ -101,8 +104,8 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 	};
 
 	return (
-		<div className="modal-backdrop" onClick={onClose}>
-			<form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Periode baru">
+		<div className="modal-backdrop" onClick={() => !busy && onClose()}>
+			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Periode baru">
 				<h3>Periode baru</h3>
 				<div style={{ display: "grid", gap: 10, marginTop: 10 }}>
 					<div>
@@ -116,7 +119,7 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 					<p className="muted small">Pertanyaan bawaan: Kinerja, Kolaborasi, Inisiatif (skala 1–5).</p>
 				</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
-					<button type="button" className="btn ghost" onClick={onClose}>Batal</button>
+					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
 					<button className="btn gold" type="submit" disabled={busy || !title.trim()}>{busy ? "Menyimpan…" : "Buat periode"}</button>
 				</div>
 			</form>
@@ -167,7 +170,7 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 	return (
 		<div className="card">
 			<div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-				<div style={{ cursor: "pointer", minWidth: 0 }} onClick={toggle}>
+				<div style={{ minWidth: 0 }}>
 					<strong>{period.title}</strong>
 					<div className="muted small">
 						{STATUS_LABEL[period.status] ?? period.status}
@@ -177,13 +180,13 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 					</div>
 				</div>
 				<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-					<button className="btn ghost" disabled={busy} onClick={toggle}>{open ? "Tutup detail" : "Kelola"}</button>
+					<button className="btn ghost" disabled={busy} aria-expanded={open} onClick={toggle}>{open ? "Tutup detail" : "Kelola"}</button>
 					<button className="btn ghost" disabled={busy} onClick={showRecap}>Rekap</button>
 					{period.status !== "draft" && (
 						<button className="btn ghost" disabled={busy} onClick={copyLink}>Salin link</button>
 					)}
 					{period.status === "draft" && (
-						<button className="btn" disabled={busy || period.total_entries === 0}
+						<button className="btn" title={period.total_entries === 0 ? "Tambahkan nama pengisi melalui Kelola terlebih dahulu" : undefined} disabled={busy || period.total_entries === 0}
 							onClick={() => act(() => api(`/admin/qpr/periods/${period.id}/open`, { method: "POST" }))}>Buka</button>
 					)}
 					{period.status === "open" && (
@@ -192,6 +195,7 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 					<button className="btn ghost" disabled={busy} onClick={() => setAskDelete(true)}>Hapus</button>
 				</div>
 			</div>
+			{open && !detail && !recap && <p role="status" className="muted">Memuat detail…</p>}
 			{open && detail && (
 				<div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
 					<div className="muted small" style={{ marginBottom: 6 }}>
@@ -238,7 +242,7 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 					</div>
 				</div>
 			)}
-			{recap && (
+			{open && recap && (
 				<div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
 					<div className="muted small" style={{ marginBottom: 6 }}>
 						Rekap — {recap.done_entries}/{recap.total_entries} sudah isi
@@ -309,6 +313,8 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 	// Pertanyaan editable sebagai "Kategori | Label" per baris.
 	const [qraw, setQraw] = useState(period.questions.map((q) => `${q.category} | ${q.label}`).join("\n"));
 	const [busy, setBusy] = useState(false);
+	const modalRef = useFocusTrap(open);
+	useEscape(() => open && !busy && onClose());
 	if (!open) return null;
 
 	const submit = async (e) => {
@@ -335,8 +341,8 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 	};
 
 	return (
-		<div className="modal-backdrop" onClick={onClose}>
-			<form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Edit periode">
+		<div className="modal-backdrop" onClick={() => !busy && onClose()}>
+			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Edit periode">
 				<h3>Edit periode</h3>
 				<div style={{ display: "grid", gap: 10, marginTop: 10 }}>
 					<div>
@@ -354,7 +360,7 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 					{period.status === "closed" && <p className="muted small">Periode selesai — judul/pertanyaan terkunci, hanya meta.</p>}
 				</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
-					<button type="button" className="btn ghost" onClick={onClose}>Batal</button>
+					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
 					<button className="btn" type="submit" disabled={busy || !title.trim()}>{busy ? "Menyimpan…" : "Simpan"}</button>
 				</div>
 			</form>
@@ -366,6 +372,8 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 	const [raw, setRaw] = useState("");
 	const [busy, setBusy] = useState(false);
+	const modalRef = useFocusTrap(open);
+	useEscape(() => open && !busy && onClose());
 	if (!open) return null;
 
 	const submit = async (e) => {
@@ -390,15 +398,15 @@ function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 	};
 
 	return (
-		<div className="modal-backdrop" onClick={onClose}>
-			<form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Tambah nama pengisi">
+		<div className="modal-backdrop" onClick={() => !busy && onClose()}>
+			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Tambah nama pengisi">
 				<h3>Tambah nama pengisi</h3>
 				<div style={{ marginTop: 10 }}>
 					<label className="field-label" htmlFor="qp-entries">Nama (satu per baris, opsional "Nama | Divisi")</label>
 					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={"Raka Pratama | Ristek\nSinta Dewi | Ristek"} required />
 				</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
-					<button type="button" className="btn ghost" onClick={onClose}>Batal</button>
+					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
 					<button className="btn" type="submit" disabled={busy || !raw.trim()}>{busy ? "Menyimpan…" : "Tambah"}</button>
 				</div>
 			</form>
@@ -425,6 +433,7 @@ export function PublicFill({ periodId }) {
 	}, [periodId]);
 
 	const submit = async () => {
+		if (busy) return;
 		if (!name) { toast("Pilih namamu dulu.", "err"); return; }
 		const questions = roster.questions.filter((q) => !q.note_only);
 		if (questions.some((q) => !scores[q.label])) { toast("Isi semua skala dulu.", "err"); return; }
@@ -443,20 +452,21 @@ export function PublicFill({ periodId }) {
 		}
 	};
 
-	if (err) return <Card className="err-text">{err}</Card>;
-	if (doneMsg) return <div className="empty-state"><p>{doneMsg}</p></div>;
+	if (err) return <ErrorState message={err} onRetry={() => { setErr(""); api(`/qpr/${periodId}`).then(setRoster).catch((e) => setErr(errText(e))); }} />;
+	if (doneMsg) return <div className="card qpr-success" role="status"><span aria-hidden>✓</span><h2>Terima kasih!</h2><p>{doneMsg}</p><p className="muted">Jawabanmu sudah tersimpan. Halaman ini boleh ditutup.</p></div>;
 	if (!roster) return <SkeletonCard lines={5} />;
 
 	const questions = roster.questions.filter((q) => !q.note_only);
 
 	return (
 		<Card style={{ maxWidth: 560, margin: "0 auto" }}>
-			<strong style={{ fontSize: 18 }}>{roster.title}</strong>
+			<p className="studio-kicker">PENILAIAN PENGURUS</p><h1 className="qpr-title">{roster.title}</h1>
 			{roster.description && <div className="muted small" style={{ marginTop: 2 }}>{roster.description}</div>}
-			<div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+			<p className="muted small">Pilih nama sendiri dan isi semua pertanyaan. Skala 1 paling rendah, 5 paling tinggi.</p>
+			{roster.remaining.length === 0 ? <p className="login-notice">Semua nama telah mengisi penilaian ini.</p> : <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
 				<div>
 					<label className="field-label" htmlFor="qpr-name">Namamu</label>
-					<select id="qpr-name" value={name} onChange={(e) => setName(e.target.value)}>
+					<select disabled={busy} id="qpr-name" value={name} onChange={(e) => setName(e.target.value)}>
 						<option value="" disabled>Pilih namamu…</option>
 						{roster.remaining.map((r) => (
 							<option key={r.id} value={r.name}>{r.name}{r.division ? ` — ${r.division}` : ""}</option>
@@ -472,7 +482,7 @@ export function PublicFill({ periodId }) {
 						<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
 							{[1, 2, 3, 4, 5].map((n) => (
 								<label key={n} className="qpr-scale" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, minHeight: 24, padding: "2px 8px" }}>
-									<input type="radio" name={`q_${q.label}`} checked={scores[q.label] === n}
+									<input type="radio" disabled={busy} aria-label={`${n} dari 5`} name={`q_${q.label}`} checked={scores[q.label] === n}
 										onChange={() => setScores((s) => ({ ...s, [q.label]: n }))} /> {n}
 								</label>
 							))}
@@ -481,12 +491,13 @@ export function PublicFill({ periodId }) {
 				))}
 				<div>
 					<label className="field-label" htmlFor="qpr-note">Catatan (opsional)</label>
-					<textarea id="qpr-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+					<textarea id="qpr-note" disabled={busy} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
 				</div>
 				<div>
-					<button className="btn" disabled={busy || !name} onClick={submit}>{busy ? "Mengirim…" : "Kirim penilaian"}</button>
+					<p className="field-help" role="status">{questions.filter((q) => scores[q.label]).length} dari {questions.length} pertanyaan terisi</p>
+					<button className="btn" disabled={busy || !name || questions.some((q) => !scores[q.label])} onClick={submit}>{busy ? "Mengirim…" : "Kirim penilaian"}</button>
 				</div>
-			</div>
+			</div>}
 		</Card>
 	);
 }

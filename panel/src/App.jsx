@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { HashRouter, Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HashRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, errText, setToken as persistToken, clearToken, signIn, requestWorkspaceHandoff } from "./api.js";
-import { ToastProvider, SkeletonCard } from "./components/ui.jsx";
+import { ToastProvider, SkeletonCard, ErrorState } from "./components/ui.jsx";
 import { Login, Shell } from "./components/Shell.jsx";
 import { IconCalendar, IconPlus } from "./components/Icons.jsx";
 import WorkspaceModal from "./components/WorkspaceModal.jsx";
@@ -30,6 +30,7 @@ const canDeleteEvent = (permissions) => hasScopedPermission(permissions, "events
 const canSeeForms = (permissions) =>
 	hasScopedPermission(permissions, "forms.read") || hasScopedPermission(permissions, "forms.submissions");
 
+const EMPTY_PERMISSIONS = [];
 const WS_KEY = "bph_cms_workspace";
 
 function App() {
@@ -44,12 +45,20 @@ function App() {
 	const [wsErr, setWsErr] = useState("");
 	const [events, setEvents] = useState([]);
 	const [loadErr, setLoadErr] = useState("");
+	const [eventsLoading, setEventsLoading] = useState(true);
+	const [authErr, setAuthErr] = useState("");
+	const [loginNotice, setLoginNotice] = useState("");
+	const authGeneration = useRef(0);
+	const location = useLocation();
 	const navigate = useNavigate();
 
 	const loadMe = useCallback(async () => {
+		const generation = authGeneration.current;
+		setAuthErr("");
 		try {
 			const me = await api("/me");
-			const activeMembership = me.memberships?.[0];
+			if (generation !== authGeneration.current) return;
+			const activeMembership = me.memberships?.find((m) => m.division.id === me.active_division_id) || me.memberships?.[0];
 			setUser({
 				...me.user,
 				division: activeMembership?.division,
@@ -70,29 +79,31 @@ function App() {
 		} catch (e) {
 			// 401 sudah ditangani api() (dispatch bph:unauthorized → reset + login).
 			// Error lain (5xx, network): tampilkan, jangan telan diam-diam.
-			if (e?.statusCode !== 401) setLoadErr(errText(e));
+			if (generation === authGeneration.current && e?.statusCode !== 401) setAuthErr(errText(e));
 		}
 	}, []);
 
 	const load = useCallback(async () => {
+		const generation = authGeneration.current;
 		setLoadErr("");
-		const d = await api("/admin/events");
-		setEvents(d.items || d || []);
+		setEventsLoading(true);
+		try {
+			const d = await api("/admin/events");
+			if (generation === authGeneration.current) setEvents(d.items || d || []);
+		} catch (e) {
+			if (generation === authGeneration.current && e?.statusCode !== 401) setLoadErr(errText(e));
+		} finally {
+			if (generation === authGeneration.current) setEventsLoading(false);
+		}
 	}, []);
 
 	useEffect(() => {
-		if (!token) return;
-		loadMe();
-		load().catch((e) => {
-			if (e?.statusCode === 401) {
-				clearToken();
-				setToken(null);
-				navigate("/login", { replace: true });
-			} else {
-				setLoadErr(errText(e));
-			}
-		});
-	}, [token, load, loadMe, navigate]);
+		if (token) loadMe();
+	}, [token, loadMe]);
+
+	useEffect(() => {
+		if (token && user) load();
+	}, [token, user, load]);
 
 	useEffect(() => {
 		if (!token) return;
@@ -106,11 +117,16 @@ function App() {
 	// 401 dari modul mana pun (api() dispatch) → reset state + ke login.
 	useEffect(() => {
 		const onUnauthorized = () => {
+			clearToken();
+			authGeneration.current++;
+			setLoginNotice("Sesi kamu berakhir. Masuk lagi untuk melanjutkan.");
+			setShowWorkspaceModal(false);
+			setWorkspaces([]);
+			sessionStorage.removeItem("roro_conv_id");
 			localStorage.removeItem(WS_KEY);
 			setUser(null);
 			setEvents([]);
 			setToken(null);
-			navigate("/login", { replace: true });
 		};
 		window.addEventListener("bph:unauthorized", onUnauthorized);
 		return () => window.removeEventListener("bph:unauthorized", onUnauthorized);
@@ -121,17 +137,18 @@ function App() {
 		persistToken(data.token);
 		localStorage.removeItem(WS_KEY); // login baru → tanya workspace lagi
 		setToken(data.token);
-		setUser(data.user || { email });
-		navigate("/", { replace: true });
+		setUser(null);
+		setLoginNotice("");
+		if (location.pathname === "/login") navigate("/", { replace: true });
 	};
 
 	// "Ganti Dashboard" eksplisit dari UI — satu-satunya jalan kembali ke selection
 	// selain login baru.
-	const openWorkspacePicker = () => {
+	const openWorkspacePicker = useCallback(() => {
 		localStorage.removeItem(WS_KEY);
 		setWsErr("");
 		setShowWorkspaceModal(true);
-	};
+	}, []);
 
 	const handleSelectWorkspace = async (ws) => {
 		setWsErr("");
@@ -163,7 +180,13 @@ function App() {
 	// Logout harus me-reset state App (token/user/events) — clearToken() saja tidak
 	// cukup: /login me-redirect ke "/" dan app tetap render dengan user basi.
 	const handleLogout = useCallback(() => {
+		authGeneration.current++;
 		clearToken();
+		sessionStorage.removeItem("roro_conv_id");
+		setShowWorkspaceModal(false);
+		setWsBusy(false);
+		setAuthErr("");
+		setLoginNotice("");
 		localStorage.removeItem(WS_KEY);
 		setToken(null);
 		setUser(null);
@@ -172,7 +195,7 @@ function App() {
 		navigate("/login", { replace: true });
 	}, [navigate]);
 
-	const permissions = user?.permissions || [];
+	const permissions = user?.permissions || EMPTY_PERMISSIONS;
 	const capabilities = useMemo(
 		() => ({
 			canCreateEvent: canCreateEvent(permissions),
@@ -189,43 +212,24 @@ function App() {
 			onLogout: handleLogout,
 		}),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[user, workspaces.length, handleLogout],
+		[user, workspaces.length, handleLogout, openWorkspacePicker],
 	);
 
 	if (!token) {
 		// QPR isi tetap bisa dibuka tanpa akun (model no-login).
 		if (window.location.hash.startsWith("#/qpr/")) return <PublicQprRoute token={token} />;
-		return <Login onLogin={handleLogin} />;
+		return <Login onLogin={handleLogin} notice={loginNotice} />;
 	}
-	// Workspace selection = OVERLAY di atas app, bukan pengganti app.
-	// Module tetap mounted di belakang — pindah workspace tidak reset state halaman.
-	if (showWorkspaceModal && workspaces.length > 1) {
-		return (
-			<>
-				<Routes>
-					<Route path="/login" element={<Navigate to="/" replace />} />
-					<Route
-						path="/"
-						element={
-							<Shell {...shellProps} title="Ringkasan" crumb="Beranda">
-								<Overview events={events} onEdit={onEdit} capabilities={capabilities} />
-							</Shell>
-						}
-					/>
-					<Route path="*" element={<Navigate to="/" replace />} />
-				</Routes>
-				<WorkspaceModal
-					workspaces={workspaces}
-					onSelect={handleSelectWorkspace}
-					busy={wsBusy}
-					error={wsErr}
-					onCancel={wsBusy ? undefined : () => setShowWorkspaceModal(false)}
-				/>
-			</>
-		);
-	}
+	if (!user) return <main className="auth-loading" aria-label="Menyiapkan dashboard">
+		{authErr ? <ErrorState title="Dashboard belum bisa dibuka" message={authErr} onRetry={loadMe} /> : <><p role="status">Menyiapkan ruang kerja kamu…</p><SkeletonCard lines={4} /></>}
+		<button className="btn ghost" onClick={handleLogout}>Kembali ke login</button>
+	</main>;
+	const eventContent = (children) => loadErr
+		? <ErrorState title="Event belum bisa dimuat" message={loadErr} onRetry={load} />
+		: eventsLoading ? <SkeletonCard lines={5} /> : children;
 
 	return (
+		<>
 		<Routes>
 			<Route path="/login" element={<Navigate to="/" replace />} />
 			{/* Roro = landing; Ringkasan pindah ke /overview. */}
@@ -241,8 +245,7 @@ function App() {
 				path="/overview"
 				element={
 					<Shell {...shellProps} title="Ringkasan" crumb={[{ label: "Modul", to: "/" }, { label: "Ringkasan" }]}>
-						{loadErr && <div className="card err-text">{loadErr}</div>}
-						<Overview events={events} onEdit={onEdit} capabilities={capabilities} />
+						{eventContent(<Overview events={events} onEdit={onEdit} capabilities={capabilities} />)}
 					</Shell>
 				}
 			/>
@@ -266,7 +269,7 @@ function App() {
 							</>
 						}
 					>
-						<EventList events={events} onEdit={onEdit} capabilities={capabilities} />
+						{eventContent(<EventList events={events} onEdit={onEdit} capabilities={capabilities} />)}
 					</Shell>
 				}
 			/>
@@ -285,7 +288,7 @@ function App() {
 							) : null
 						}
 					>
-						<EventCalendar events={events} onEdit={onEdit} capabilities={capabilities} />
+						{eventContent(<EventCalendar events={events} onEdit={onEdit} capabilities={capabilities} />)}
 					</Shell>
 				}
 			/>
@@ -358,7 +361,7 @@ function App() {
 				element={
 					<Shell {...shellProps} title="Akun & Audit" crumb={[{ label: "Admin", to: "/" }, { label: "Akun" }]}>
 						{permissions.includes("accounts.manage") || permissions.includes("audit.read") ? (
-							<Accounts />
+							<Accounts permissions={permissions} />
 						) : (
 							<NoAccess />
 						)}
@@ -374,6 +377,11 @@ function App() {
 			<Route path="/docs" element={<NavigateDocs />} />
 			<Route path="*" element={<Navigate to="/" replace />} />
 		</Routes>
+		{showWorkspaceModal && workspaces.length > 1 && <WorkspaceModal workspaces={workspaces} onSelect={handleSelectWorkspace} busy={wsBusy} error={wsErr} onCancel={wsBusy ? undefined : () => {
+			localStorage.setItem(WS_KEY, String(localStorage.getItem("bph_cms_token")));
+			setShowWorkspaceModal(false);
+		}} />}
+		</>
 	);
 }
 
@@ -400,8 +408,8 @@ function NoAccess() {
 // tamu tetap standalone (model QPR no-login).
 function PublicQprRoute({ token, shellProps }) {
 	const periodId = window.location.hash.match(/qpr\/([^/?#]+)/)?.[1];
-	const fill = <PublicFill periodId={periodId} />;
-	if (!token) return fill;
+	const fill = <PublicFill key={periodId} periodId={periodId} />;
+	if (!token) return <main className="public-page"><div className="public-brand">SGA Cakrawala <span>Penilaian QPR</span></div>{fill}</main>;
 	return (
 		<Shell {...shellProps} title="Isi QPR" crumb={[{ label: "Modul", to: "/" }, { label: "QPR", to: "/qpr" }, { label: "Isi" }]}
 			actions={<Link className="btn ghost" to="/qpr">Kembali ke panel</Link>}>
@@ -415,26 +423,30 @@ function NewEventRoute({ canPublish }) {
 	return <EventEditor prefillDate={sp.get("date")} canPublish={canPublish} canDelete={false} />;
 }
 
-function EditEventRoute({ events, onEdit, capabilities }) {
+function EditEventRoute({ events, capabilities }) {
 	const id = window.location.hash.match(/events\/([^/]+)\/edit/)?.[1];
 	const ev = events.find((e) => e.id === id);
 	if (!ev) {
 		// Event belum ada di state (mis. baru dibuka via link langsung) — coba refresh.
-		return <Reloader id={id} onEdit={onEdit} capabilities={capabilities} />;
+		return <Reloader key={id} id={id} capabilities={capabilities} />;
 	}
-	return <EventEditor event={ev} />;
+	if (!capabilities.canEditEvent(ev)) return <NoAccess />;
+	return <EventEditor key={ev.id} event={ev} canPublish={capabilities.canPublishEvent} canDelete={capabilities.canDeleteEvent} />;
 }
 
-function Reloader({ id, onEdit, capabilities }) {
+function Reloader({ id, capabilities }) {
 	const [ev, setEv] = useState(undefined); // undefined = loading, null = 404
+	const [error, setError] = useState("");
+	const [attempt, setAttempt] = useState(0);
 	useEffect(() => {
 		api("/admin/events")
 			.then((d) => {
 				const found = (d.items || d || []).find((e) => e.id === id);
 				setEv(found || null);
 			})
-			.catch(() => setEv(null));
-	}, [id]);
+			.catch((e) => setError(errText(e)));
+	}, [id, attempt]);
+	if (error) return <ErrorState message={error} onRetry={() => { setError(""); setAttempt((n) => n + 1); }} />;
 	if (ev === undefined) return <SkeletonCard lines={5} />;
 	if (ev === null) {
 		return (

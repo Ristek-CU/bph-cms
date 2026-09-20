@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, errText } from "../api.js";
-import { useToast, Confirm, SkeletonCard, copyText } from "../components/ui.jsx";
+import { api, errText, isoToInput } from "../api.js";
+import { useToast, Confirm, SkeletonCard, copyText, ErrorState, useUnsavedChanges } from "../components/ui.jsx";
 import {
 	IconPlus, IconPencil, IconTrash, IconGrip, IconLink, IconCheck,
 	IconQrCode, IconDownload, IconExternalLink, IconBarChart, IconPieChart, IconTrendingUp,
@@ -49,7 +49,7 @@ export default function Forms({ user }) {
 	const toast = useToast();
 	const canManage = useMemo(
 		() =>
-			user?.permissions?.some((p) => p.startsWith("forms.create") || p.startsWith("forms.update") || p.startsWith("forms.publish")),
+			user?.permissions?.some((p) => p.startsWith("forms.create")),
 		[user],
 	);
 	const canSeeSubmissions = useMemo(() => user?.permissions?.some((p) => p.startsWith("forms.submissions")), [user]);
@@ -95,15 +95,15 @@ export default function Forms({ user }) {
 				</p>
 			</div>
 
-			{err && <div className="card err-text">{err}</div>}
+			{err && <ErrorState message={err} onRetry={load} />}
 
 			<div className="studio-grid">
 				<div className="studio-cards">
-					{forms === null ? (
+					{err ? null : forms === null ? (
 						<SkeletonCard />
 					) : forms.length === 0 ? (
 						<div className="empty-state studio-empty">
-							<p>Belum ada form. Buat form pertama dari panel di samping.</p>
+							<p>{canManage ? "Belum ada form. Mulai lewat bagian Form baru." : "Belum ada form yang tersedia untuk divisi kamu."}</p>
 						</div>
 					) : (
 						forms.map((f) => (
@@ -185,12 +185,14 @@ export function FormBuilderRoute({ user }) {
 	const navigate = useNavigate();
 	const toast = useToast();
 	const [form, setForm] = useState(undefined); // undefined = loading, null = 404
+	const [loadError, setLoadError] = useState("");
 
 	const load = useCallback(async () => {
 		try {
 			setForm(await api(`/admin/forms/${formId}`));
-		} catch {
-			setForm(null);
+			setLoadError("");
+		} catch (e) {
+			if (e.statusCode === 404) setForm(null); else setLoadError(errText(e));
 		}
 	}, [formId]);
 	useEffect(() => {
@@ -198,10 +200,11 @@ export function FormBuilderRoute({ user }) {
 	}, [load]);
 
 	const canManage = useMemo(
-		() => user?.permissions?.some((p) => p.startsWith("forms.update") || p.startsWith("forms.publish")),
+		() => user?.permissions?.some((p) => p.startsWith("forms.update")),
 		[user],
 	);
 
+	if (loadError) return <ErrorState message={loadError} onRetry={load} />;
 	if (form === undefined) return <SkeletonCard lines={5} />;
 	if (form === null)
 		return (
@@ -219,7 +222,7 @@ export function FormBuilderRoute({ user }) {
 			</div>
 			{/* onSaved: refresh detail saja — daftar form di /forms me-load sendiri saat mount,
 			    dulu prop loadForms malah memanggil loader events (salah ketik). */}
-			<Editor form={form} canManage={canManage} toast={toast} onSaved={load} onDelete={() => navigate("/forms")} />
+			<Editor key={form.id} form={form} canManage={canManage} canPublish={user?.permissions?.some((p) => p.startsWith("forms.publish"))} canDelete={user?.permissions?.some((p) => p.startsWith("forms.delete"))} canSeeSubmissions={user?.permissions?.some((p) => p.startsWith("forms.submissions"))} toast={toast} onSaved={load} onDelete={() => navigate("/forms")} />
 		</>
 	);
 }
@@ -271,6 +274,8 @@ export function FormAnalyticsRoute({ user }) {
 
 function SubmissionsSection({ formId, toast }) {
 	const [subs, setSubs] = useState(undefined);
+	const [loadError, setLoadError] = useState("");
+	const [pageLoading, setPageLoading] = useState(false);
 	const [total, setTotal] = useState(0);
 	const [page, setPage] = useState(1);
 	const [busy, setBusy] = useState(false);
@@ -279,15 +284,16 @@ function SubmissionsSection({ formId, toast }) {
 
 	const loadPage = useCallback(
 		(p) => {
+			setLoadError("");
+			setPageLoading(true);
 			api(`/admin/forms/${formId}/submissions?page=${p}&per_page=${perPage}`)
 				.then((d) => {
 					setSubs(d.items || []);
 					setTotal(d.meta?.total ?? (d.items || []).length);
 				})
 				.catch((e) => {
-					toast(errText(e), "err");
-					setSubs([]);
-				});
+					setLoadError(errText(e));
+				}).finally(() => setPageLoading(false));
 		},
 		[formId, toast],
 	);
@@ -314,6 +320,7 @@ function SubmissionsSection({ formId, toast }) {
 			await api(`/admin/forms/submissions/${id}`, { method: "DELETE" });
 			setSubs((ss) => ss.filter((s) => s.id !== id));
 			setTotal((t) => Math.max(0, t - 1));
+			if (subs.length === 1 && page > 1) setPage((p) => p - 1);
 			toast("Respons dihapus.");
 		} catch (e) {
 			toast(errText(e), "err");
@@ -322,7 +329,8 @@ function SubmissionsSection({ formId, toast }) {
 		}
 	};
 
-	if (subs === undefined) return <SkeletonCard lines={4} />;
+	if (loadError) return <ErrorState message={loadError} onRetry={() => loadPage(page)} />;
+	if (subs === undefined || pageLoading) return <SkeletonCard lines={4} />;
 
 	const pages = Math.max(1, Math.ceil(total / perPage));
 
@@ -344,7 +352,7 @@ function SubmissionsSection({ formId, toast }) {
 								<span>{new Date(s.created_at).toLocaleString("id-ID")}</span>
 								<span className="sub-count">{s.answers.length} jawaban</span>
 								<span className={`badge ${s.status === "new" ? "published" : "draft"}`}>{s.status}</span>
-								<span className="sub-actions" onClick={(e) => e.preventDefault()}>
+								<span className="sub-actions" onClick={(e) => e.stopPropagation()}>
 									<select disabled={busy} value={s.status} onChange={(e) => setStatus(s.id, e.target.value)} aria-label="Status respons">
 										<option value="new">new</option>
 										<option value="reviewed">reviewed</option>
@@ -387,16 +395,20 @@ function SubmissionsSection({ formId, toast }) {
 }
 
 /* ── Editor form (builder) ────────────────────────────────────────────────── */
-function Editor({ form, canManage, toast, onSaved, onDelete }) {
+function Editor({ form, canManage, canPublish, canDelete, canSeeSubmissions, toast, onSaved, onDelete }) {
 	const [title, setTitle] = useState(form.title);
 	const [description, setDescription] = useState(form.description || "");
 	const [thankYou, setThankYou] = useState(form.thank_you_message || "");
 	const [bgColor, setBgColor] = useState(form.background_color || "#F6F4EF");
-	const [opensAt, setOpensAt] = useState(form.opens_at ? form.opens_at.slice(0, 16) : "");
-	const [closesAt, setClosesAt] = useState(form.closes_at ? form.closes_at.slice(0, 16) : "");
+	const [opensAt, setOpensAt] = useState(isoToInput(form.opens_at));
+	const [closesAt, setClosesAt] = useState(isoToInput(form.closes_at));
 	const [fields, setFields] = useState(form.fields.map((f) => ({ ...f, options: optionsToInput(f) })));
 	const [busy, setBusy] = useState(false);
 	const [askDelete, setAskDelete] = useState(false);
+
+	const snapshot = JSON.stringify({ title, description, thankYou, bgColor, opensAt, closesAt, fields });
+	const [savedSnapshot, setSavedSnapshot] = useState(snapshot);
+	useUnsavedChanges(canManage && snapshot !== savedSnapshot);
 
 	// Edit inline ala GF: editingId = id field yang sedang diedit di tempat.
 	// null = tidak ada yang edit; klik kartu lain pindah edit (autosave).
@@ -428,6 +440,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 		setBusy(true);
 		try {
 			await api(`/admin/forms/${form.id}`, { method: "PUT", json: buildBody(fields) });
+			setSavedSnapshot(snapshot);
 			toast("Form tersimpan.");
 			await onSaved();
 		} catch (e) {
@@ -440,6 +453,10 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 	const publish = async () => {
 		setBusy(true);
 		try {
+			if (canManage) {
+				await api(`/admin/forms/${form.id}`, { method: "PUT", json: buildBody(fields) });
+				setSavedSnapshot(snapshot);
+			}
 			await api(`/admin/forms/${form.id}/publish`, { method: "POST" });
 			toast("Form diterbitkan — link publik aktif.");
 			await onSaved();
@@ -498,17 +515,20 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 	// tambah/edit/hapus/duplikat) langsung PUT. Optimistic — kalau gagal, state
 	// dikembalikan ke snapshot sebelum mutasi.
 	const persistFields = async (updater, okMsg) => {
-		if (!canManage || busy) return;
+		if (!canManage || busy) return false;
 		const snapshot = fields;
 		const next = typeof updater === "function" ? updater(fields) : updater;
 		setFields(next);
 		setBusy(true);
 		try {
 			await api(`/admin/forms/${form.id}`, { method: "PUT", json: buildBody(next) });
+			setSavedSnapshot(JSON.stringify({ title, description, thankYou, bgColor, opensAt, closesAt, fields: next }));
 			if (okMsg) toast(okMsg);
+			return true;
 		} catch (e) {
 			setFields(snapshot);
 			toast(errText(e), "err");
+			return false;
 		} finally {
 			setBusy(false);
 		}
@@ -529,8 +549,8 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					</p>
 				</div>
 				<div className="builder-head-actions">
-					<a className="btn sec sm" href={form.status === "draft" ? undefined : publicFormLink(form.slug)} target="_blank" rel="noreferrer" aria-disabled={form.status === "draft"} onClick={(e) => e.preventDefault()}><IconExternalLink size={14} /> Form publik</a>
-					<Link className="btn sm" to={`/forms/${form.id}/analytics`}><IconBarChart size={14} /> Buka analytics</Link>
+					<a className="btn sec sm" href={form.status === "draft" ? undefined : publicFormLink(form.slug)} target="_blank" rel="noreferrer" aria-disabled={form.status === "draft"} onClick={(e) => { if (form.status === "draft") e.preventDefault(); }}><IconExternalLink size={14} /> Form publik</a>
+					{canSeeSubmissions && <Link className="btn sm" to={`/forms/${form.id}/analytics`}><IconBarChart size={14} /> Buka analitik</Link>}
 				</div>
 			</div>
 
@@ -550,25 +570,25 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					</div>
 					<div className="form-field">
 						<label className="field-label" htmlFor="fd-title">Judul</label>
-						<input id="fd-title" value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canManage} />
+						<input id="fd-title" value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canManage || busy} />
 					</div>
 					<div className="form-field">
 						<label className="field-label" htmlFor="fd-desc">Deskripsi</label>
-						<textarea id="fd-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canManage} />
+						<textarea id="fd-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canManage || busy} />
 					</div>
 					<div className="grid-2 form-field">
 						<div className="form-field" style={{ marginBottom: 0 }}>
 							<label className="field-label" htmlFor="fd-opens">Buka (WIB)</label>
-							<input id="fd-opens" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} disabled={!canManage} />
+							<input id="fd-opens" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} disabled={!canManage || busy} />
 						</div>
 						<div className="form-field" style={{ marginBottom: 0 }}>
 							<label className="field-label" htmlFor="fd-closes">Tutup (WIB)</label>
-							<input id="fd-closes" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} disabled={!canManage} />
+							<input id="fd-closes" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} disabled={!canManage || busy} />
 						</div>
 					</div>
 					<div className="form-field">
 						<label className="field-label" htmlFor="fd-thanks">Pesan setelah submit</label>
-						<input id="fd-thanks" value={thankYou} onChange={(e) => setThankYou(e.target.value)} disabled={!canManage} />
+						<input id="fd-thanks" value={thankYou} onChange={(e) => setThankYou(e.target.value)} disabled={!canManage || busy} />
 					</div>
 					<div className="form-field">
 						<label className="field-label" htmlFor="fd-bg">Warna background halaman form</label>
@@ -578,10 +598,10 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 								type="color"
 								value={bgColor}
 								onChange={(e) => setBgColor(e.target.value.toUpperCase())}
-								disabled={!canManage}
+								disabled={!canManage || busy}
 								style={{ width: 44, height: 36, padding: 2, borderRadius: 8, border: "1px solid var(--line)", cursor: "pointer" }}
 							/>
-							<input value={bgColor} onChange={(e) => setBgColor(e.target.value)} disabled={!canManage} style={{ width: 110, fontFamily: "monospace" }} aria-label="Kode warna hex" />
+							<input value={bgColor} onChange={(e) => setBgColor(e.target.value)} disabled={!canManage || busy} style={{ width: 110, fontFamily: "monospace" }} aria-label="Kode warna hex" />
 						</div>
 					</div>
 				</div>
@@ -591,10 +611,10 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 				<div className="builder-fields-head">
 					<div>
 						<h2>Susunan pertanyaan</h2>
-						<p className="muted small">Tarik <IconGrip size={13} /> untuk mengubah urutan. Jawaban lama menyimpan snapshot label, jadi histori tetap aman.</p>
+						<p className="muted small">Atur urutan dengan tombol panah atau tarik <IconGrip size={13} />. Selesaikan edit pertanyaan sebelum menyimpan.</p>
 					</div>
 					{canManage && (
-						<button type="button" className="btn" onClick={() => {
+						<button type="button" className="btn" disabled={busy || editingId !== null} onClick={() => {
 							const f = { ...emptyField(), sort_order: fields.length };
 							// Tidak persist di sini — label masih kosong, API menolak (422).
 							// persistFields jalan di onDone saat label sudah terisi.
@@ -610,7 +630,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 						<li
 							key={f.id}
 							className={`field-row${dragId === f.id ? " dragging" : ""}${overId === f.id && dragId !== f.id ? " over" : ""}`}
-							draggable={canManage}
+							draggable={canManage && !busy && editingId === null}
 							onDragStart={(e) => { setDragId(f.id); e.dataTransfer.effectAllowed = "move"; }}
 							onDragOver={(e) => { e.preventDefault(); if (f.id !== dragId) setOverId(f.id); }}
 							onDragLeave={() => { if (overId === f.id) setOverId(null); }}
@@ -623,14 +643,14 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 							{editingId === f.id && canManage ? (
 								<InlineFieldEditor
 									field={f}
-									onDone={(draft) => {
-										setEditingId(null);
-										persistFields((fs) => fs.map((x) => (x.id === f.id ? { ...x, ...draft } : x)), "Pertanyaan diperbarui.");
+									busy={busy}
+									onDone={async (draft) => {
+										if (await persistFields((fs) => fs.map((x) => (x.id === f.id ? { ...x, ...draft } : x)), "Pertanyaan diperbarui.")) setEditingId(null);
 									}}
 									// removeId: field baru masih kosong saat batal — hapus sekalian.
 									onCancel={(removeId) => {
 										setEditingId(null);
-										if (removeId) persistFields((fs) => fs.filter((x) => x.id !== removeId).map((x, j) => ({ ...x, sort_order: j })));
+										if (removeId) setFields((fs) => fs.filter((x) => x.id !== removeId));
 									}}
 								/>
 							) : (
@@ -650,14 +670,16 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 							)}
 							{canManage && (
 								<div className="field-row-actions">
+									<button type="button" className="icon-btn" disabled={busy || editingId !== null || i === 0} aria-label={`Naikkan pertanyaan ${i + 1}`} onClick={() => persistFields((fs) => { const next = [...fs]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; return next; })}>↑</button>
+									<button type="button" className="icon-btn" disabled={busy || editingId !== null || i === fields.length - 1} aria-label={`Turunkan pertanyaan ${i + 1}`} onClick={() => persistFields((fs) => { const next = [...fs]; [next[i + 1], next[i]] = [next[i], next[i + 1]]; return next; })}>↓</button>
 									<label className="switch-row" style={{ margin: 0 }} title={f.active === false ? "Nonaktif — tersembunyi di form publik" : "Aktif di form publik"}>
 										<span className="switch">
-											<input type="checkbox" checked={f.active !== false} onChange={() => persistFields((fs) => fs.map((x) => (x.id === f.id ? { ...x, active: !(f.active !== false) } : x)))} aria-label={`Aktifkan ${f.label || i + 1}`} />
+											<input type="checkbox" disabled={busy || editingId !== null} checked={f.active !== false} onChange={() => persistFields((fs) => fs.map((x) => (x.id === f.id ? { ...x, active: !(f.active !== false) } : x)))} aria-label={`Aktifkan ${f.label || i + 1}`} />
 											<span className="switch-track" aria-hidden><span className="switch-thumb" /></span>
 										</span>
 									</label>
-									<button type="button" className="icon-btn" onClick={() => setEditingId(editingId === f.id ? null : f.id)} aria-label={`Edit pertanyaan ${f.label || i + 1}`} aria-expanded={editingId === f.id}><IconPencil size={15} /></button>
-									<button type="button" className="icon-btn" title="Duplikat pertanyaan" aria-label={`Duplikat pertanyaan ${f.label || i + 1}`}
+									<button type="button" className="icon-btn" disabled={busy || editingId !== null} onClick={() => setEditingId(editingId === f.id ? null : f.id)} aria-label={`Edit pertanyaan ${f.label || i + 1}`} aria-expanded={editingId === f.id}><IconPencil size={15} /></button>
+									<button type="button" className="icon-btn" disabled={busy || editingId !== null} title="Duplikat pertanyaan" aria-label={`Duplikat pertanyaan ${f.label || i + 1}`}
 										onClick={() => persistFields((fs) => {
 											const at = fs.findIndex((x) => x.id === f.id) + 1;
 											const copy = { ...f, id: `temp-${++tempFieldSeq}`, label: `${f.label || "Pertanyaan"} (salinan)`, sort_order: at };
@@ -665,7 +687,7 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 										})}>
 										<IconDuplicate size={15} />
 									</button>
-									<button type="button" className="icon-btn danger" onClick={() => setAskField(f)} aria-label={`Hapus pertanyaan ${f.label || i + 1}`}><IconTrash size={15} /></button>
+									<button type="button" className="icon-btn danger" disabled={busy || editingId !== null} onClick={() => setAskField(f)} aria-label={`Hapus pertanyaan ${f.label || i + 1}`}><IconTrash size={15} /></button>
 								</div>
 							)}
 						</li>
@@ -675,22 +697,23 @@ function Editor({ form, canManage, toast, onSaved, onDelete }) {
 					<div className="empty-state"><p>Belum ada pertanyaan.</p></div>
 				)}
 
+				<p className="editor-save-status" role="status">{busy ? "Menyimpan…" : editingId !== null ? "Selesaikan edit pertanyaan terlebih dahulu." : snapshot !== savedSnapshot ? "Ada perubahan yang belum disimpan" : "Semua perubahan tersimpan"}</p>
 				<div className="sticky-bar">
-					<button className="btn" disabled={busy || !canManage || !title.trim()} onClick={save}>{busy ? "Menyimpan…" : "Simpan"}</button>
-					{canManage && form.status === "draft" && (
-						<button className="btn gold" disabled={busy} onClick={publish}>Terbitkan</button>
+					<button className="btn" disabled={busy || editingId !== null || !canManage || !title.trim()} onClick={save}>{busy ? "Menyimpan…" : "Simpan"}</button>
+					{canPublish && form.status === "draft" && (
+						<button className="btn gold" disabled={busy || editingId !== null || !title.trim()} onClick={publish}>Simpan &amp; terbitkan</button>
 					)}
-					{canManage && form.status === "published" && (
+					{canPublish && form.status === "published" && (
 						<button className="btn sec" disabled={busy} onClick={() => setStatus("close", "Form ditutup — tidak menerima respons baru.")}>Tutup</button>
 					)}
-					{canManage && form.status === "published" && (
+					{canPublish && form.status === "published" && (
 						<button className="btn ghost" disabled={busy} onClick={() => setStatus("unpublish", "Form kembali ke draft — link publik mati.")}>Batalkan terbit</button>
 					)}
-					{canManage && form.status === "closed" && (
-						<button className="btn gold" disabled={busy} onClick={() => setStatus("publish", "Form dibuka kembali.")}>Buka kembali</button>
+					{canPublish && form.status === "closed" && (
+						<button className="btn gold" disabled={busy} onClick={publish}>Buka kembali</button>
 					)}
-					{canManage && (
-						<button className="btn danger" style={{ marginLeft: "auto" }} onClick={() => setAskDelete(true)}>Hapus form</button>
+					{canDelete && (
+						<button disabled={busy} className="btn danger" style={{ marginLeft: "auto" }} onClick={() => setAskDelete(true)}>Hapus form</button>
 					)}
 				</div>
 			</section>
@@ -821,7 +844,7 @@ function QrCard({ formTitle, slug, status, toast }) {
 
 /* ── Editor inline pertanyaan — ala Google Forms: pertanyaan diedit di tempat
    (tanpa modal), opsi pilihan ganda diedit per-baris, tipe tetap bisa diganti ── */
-function InlineFieldEditor({ field, onDone, onCancel }) {
+function InlineFieldEditor({ field, onDone, onCancel, busy }) {
 	const [label, setLabel] = useState(field.label || "");
 	const [type, setType] = useState(field.type || "short_text");
 	const [required, setRequired] = useState(Boolean(field.required));
@@ -830,7 +853,7 @@ function InlineFieldEditor({ field, onDone, onCancel }) {
 	const showOptions = CHOICE_TYPES.includes(type) || type === "linear_scale";
 
 	// Esc = batal; batal di field baru yang masih kosong = hapus field itu.
-	const cancel = () => onCancel(isNew && !label.trim() && !options.trim() ? field.id : null);
+	const cancel = () => { if (!busy) onCancel(isNew && !field.label ? field.id : null); };
 
 	// Opsi utk preview: linear_scale "1-5" → [1..5]; choice → daftar teks.
 	const previewOptions = useMemo(() => {
@@ -848,7 +871,7 @@ function InlineFieldEditor({ field, onDone, onCancel }) {
 
 	const submit = (e) => {
 		e.preventDefault();
-		if (!canSubmit) return;
+		if (!canSubmit || busy) return;
 		onDone({ label: label.trim(), description: "", type, required, active: field.active !== false, options });
 	};
 
@@ -930,8 +953,8 @@ function InlineFieldEditor({ field, onDone, onCancel }) {
 					<span className="switch-label small">Wajib diisi</span>
 				</label>
 				<span className="ife-foot-actions">
-					<button type="button" className="btn ghost sm" onClick={cancel}>Batal</button>
-					<button type="submit" className="btn sm" disabled={!canSubmit}>Selesai</button>
+					<button type="button" className="btn ghost sm" disabled={busy} onClick={cancel}>Batal</button>
+					<button type="submit" className="btn sm" disabled={!canSubmit || busy}>{busy ? "Menyimpan…" : "Selesai"}</button>
 				</span>
 			</div>
 		</form>
@@ -948,11 +971,11 @@ function DropdownTypePicker({ value, onChange }) {
 		document.addEventListener("pointerdown", close);
 		return () => document.removeEventListener("pointerdown", close);
 	}, [open]);
-	const CurrentIcon = fieldTypeIcon(value);
 	return (
 		<div className="gf-typepicker" ref={wrapRef}>
 			<button type="button" className="gf-typepicker-btn" aria-haspopup="listbox" aria-expanded={open} title="Pilih tipe pertanyaan" onClick={() => setOpen((o) => !o)}>
-				{CurrentIcon && <CurrentIcon size={17} />}
+				{/* eslint-disable-next-line react/static-components -- FIcon dipilih dari FIELD_TYPES (module-level), bukan dibuat saat render */}
+				{(() => { const FIcon = fieldTypeIcon(value); return FIcon ? <span className="gf-typepicker-icon"><FIcon size={17} /></span> : null; })()}
 				<span className="gf-typepicker-caret" aria-hidden>▾</span>
 			</button>
 			{open && (

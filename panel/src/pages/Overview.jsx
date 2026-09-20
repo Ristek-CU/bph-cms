@@ -38,6 +38,7 @@ export default function Overview({ events, onEdit, capabilities }) {
 
 	return (
 		<>
+			<div className="page-intro"><p className="studio-kicker">RUANG KERJA PENGURUS</p><h2>Semua agenda, dalam jangkauan.</h2><p>Pantau event berjalan dan siapkan kegiatan berikutnya.</p></div>
 			<div className="stat-grid">
 				<div className="stat hero">
 					<div className="num">{counts.ongoing}</div>
@@ -66,7 +67,7 @@ export default function Overview({ events, onEdit, capabilities }) {
 						<h2 className="card-title" style={{ marginBottom: 10 }}>Event terdekat</h2>
 						{soonest.length === 0 ? (
 							<p className="muted">
-								Belum ada event yang terbit.
+								Belum ada event yang berlangsung atau akan datang.
 								{capabilities?.canCreateEvent && (
 									<>
 										{" "}

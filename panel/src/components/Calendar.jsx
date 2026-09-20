@@ -81,7 +81,7 @@ function DayAgenda({ dayKey, events, onEdit, onNew, capabilities }) {
 										<span className="meta-item"><IconMapPin size={13} /> {e.location}</span>
 									</div>
 								</div>
-								<span className={`badge ${st}`}>{st}</span>
+								<span className={`badge ${st}`}>{{ draft: "Draft", ongoing: "Berlangsung", upcoming: "Akan datang", past: "Selesai" }[st]}</span>
 							</div>
 							{sess.length > 0 && (
 								<ul className="timeline">
@@ -121,7 +121,7 @@ function DayAgenda({ dayKey, events, onEdit, onNew, capabilities }) {
  * Dipakai di /events/kalender (penuh) dan Ringkasan (compact).
  */
 export default function Calendar({ events, onEdit, compact = false, capabilities }) {
-	const now = new Date();
+	const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
 	const [ym, setYm] = useState({ y: now.getFullYear(), m: now.getMonth() });
 	const [picked, setPicked] = useState(null);
 	const [askNew, setAskNew] = useState(null);
@@ -187,13 +187,13 @@ export default function Calendar({ events, onEdit, compact = false, capabilities
 							className={`cal-cell ${c.other ? "other" : ""} ${c.key === todayKey ? "today" : ""} ${picked?.dayKey === c.key ? "picked" : ""}`}
 							onClick={() => !c.other && pick()}
 						>
-							<span className="d">{Number(c.key.slice(8))}</span>
+							<button type="button" className="cal-day-button" aria-label={`${fmtDateLong(`${c.key}T12:00:00+07:00`)}, ${dayEvents.length} event`} aria-pressed={picked?.dayKey === c.key} onClick={(e) => { e.stopPropagation(); pick(); }}><span className="d">{Number(c.key.slice(8))}</span></button>
 							{dayEvents.slice(0, compact ? 2 : 4).map((e) => (
 								<button
 									key={e.id}
 									className={`cal-chip ${displayStatus(e)}`}
 									onClick={(ev) => { ev.stopPropagation(); pick(); }}
-									onFocus={() => !c.other && pick()}
+
 									onKeyDown={onChipArrow}
 									title={e.title}
 								>
@@ -213,7 +213,7 @@ export default function Calendar({ events, onEdit, compact = false, capabilities
 			{/* Ringkasan bulan saat compact */}
 			{compact && (
 				<p className="muted small" style={{ marginTop: 8, marginBottom: 0 }}>
-					{monthEvents.length} event pada bulan ini · klik tanggal untuk detail · semua waktu WIB
+					{new Set(monthEvents.map((e) => e.id)).size} event pada bulan ini · klik tanggal untuk detail · semua waktu WIB
 				</p>
 			)}
 			{!compact && (

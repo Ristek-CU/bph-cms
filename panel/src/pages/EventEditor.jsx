@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
 	api, getToken, isoToInput, toIsoWib, fmtTime, fmtDateLong,
 } from "../api.js";
-import { Confirm, useToast } from "../components/ui.jsx";
+import { Confirm, useToast, Field, useUnsavedChanges } from "../components/ui.jsx";
 import { IconClock, IconMapPin, IconTicket } from "../components/Icons.jsx";
 
 let sessSeq = 0;
@@ -53,19 +53,6 @@ const translateErrors = (errors) => {
 	}
 	return out;
 };
-
-function Field({ label, required, help, error, children }) {
-	return (
-		<div>
-			<label className="field-label">
-				{label} {required && <span className="req">*</span>}
-			</label>
-			{children}
-			{help && <p className="field-help">{help}</p>}
-			{error && <div className="field-err">{error}</div>}
-		</div>
-	);
-}
 
 // State jam sesi disimpan sebagai bagian: _date (YYYY-MM-DD), _start/_end (HH:MM).
 // Selesai < mulai di hari sama = sesi lewat tengah malam (end dianggap hari berikutnya).
@@ -181,7 +168,7 @@ function Preview({ form, sessions, cover }) {
 	);
 }
 
-export default function EventEditor({ event, prefillDate, canPublish = true, canDelete = true }) {
+export default function EventEditor({ event, prefillDate, canPublish = false, canDelete = false }) {
 	const navigate = useNavigate();
 	const toast = useToast();
 	const editing = !!event?.id;
@@ -207,30 +194,37 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 	const [askDelete, setAskDelete] = useState(false);
 	const [askPublish, setAskPublish] = useState(false);
 	const [showPreview, setShowPreview] = useState(false);
+	const [uploading, setUploading] = useState(false);
+	const snapshot = JSON.stringify({ form, sessions, cover });
+	const [savedSnapshot, setSavedSnapshot] = useState(snapshot);
+	const dirty = snapshot !== savedSnapshot;
+	useUnsavedChanges(dirty);
+
 
 	const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 	// Patch sesi berdasarkan urutan tampil (sortedSessions), konsisten dengan render.
 	const setSess = (i, patch) => setSessions(sortedSessions.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 	const sortedSessions = useMemo(
-		() => [...sessions].sort((a, b) => (a._start || "").localeCompare(b._start || "")),
+		() => [...sessions].sort((a, b) => `${a._date}T${a._start}`.localeCompare(`${b._date}T${b._start}`)),
 		[sessions],
 	);
 
 	async function upload(file) {
-		const fd = new FormData();
-		fd.append("file", file);
-		const res = await fetch("/api/v1/admin/media", {
-			method: "POST",
-			headers: { Authorization: `Bearer ${getToken()}` },
-			body: fd,
-		});
-		const b = await res.json().catch(() => ({}));
-		if (!res.ok || b.success === false) {
-			toast(b?.message || "Upload gagal. Cek ukuran maks 5MB.", "err");
-			return;
+		if (uploading || saving) return;
+		if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+			toast("Pilih gambar JPG, PNG, atau WebP dengan ukuran maksimal 5 MB.", "err"); return;
 		}
-		setCover(b.data.url);
-		toast("Cover terupload.");
+		setUploading(true);
+		try {
+			const fd = new FormData(); fd.append("file", file);
+			const res = await fetch("/api/v1/admin/media", { method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd, signal: AbortSignal.timeout(60000) });
+			const b = await res.json().catch(() => ({}));
+			if (res.status === 401) window.dispatchEvent(new Event("bph:unauthorized"));
+			if (!res.ok || b.success === false) throw new Error(b.message || "Upload gagal. Silakan coba lagi.");
+			setCover(b.data.url);
+			toast("Cover terunggah. Simpan event untuk menerapkan.");
+		} catch (e) { toast(e.message || "Upload gagal. Periksa koneksi internet.", "err"); }
+		finally { setUploading(false); }
 	}
 
 	function payload() {
@@ -282,6 +276,7 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 	}
 
 	async function save(publishAfter) {
+		if (saving || uploading) return;
 		if (publishAfter && !canPublish) {
 			toast("Akun ini tidak punya akses untuk menerbitkan event.", "err");
 			return;
@@ -290,6 +285,7 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 		setErrors(errs);
 		if (Object.keys(errs).length) {
 			toast("Masih ada isian yang perlu diperbaiki.", "err");
+			requestAnimationFrame(() => document.querySelector('[aria-invalid="true"]')?.focus());
 			return;
 		}
 		setSaving(true);
@@ -313,12 +309,13 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 				id = created.id;
 				setSavedId(id);
 			}
+			setSavedSnapshot(snapshot);
 			if (publishAfter) {
 				await api(`/admin/events/${id}/publish`, { method: "POST" });
 				setPublished(true);
 				toast("Event diterbitkan — langsung tampil di portal SGA.");
 			} else {
-				toast("Tersimpan sebagai draft.");
+				toast(published ? "Perubahan event tersimpan dan tampil di portal." : "Event tersimpan sebagai draft.");
 			}
 			notifyEventsChanged();
 			navigate(`/events/${id}/edit`);
@@ -332,6 +329,8 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 	}
 
 	async function unpublish() {
+		if (saving) return;
+		setSaving(true);
 		try {
 			await api(`/admin/events/${savedId}/unpublish`, { method: "POST" });
 			setPublished(false);
@@ -339,10 +338,12 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 			toast("Event ditarik — tidak terlihat publik.");
 		} catch (e) {
 			toast(e?.message || "Gagal menarik event.", "err");
-		}
+		} finally { setSaving(false); }
 	}
 
 	async function del() {
+		if (saving) return;
+		setSaving(true);
 		setAskDelete(false);
 		try {
 			await api(`/admin/events/${savedId}`, { method: "DELETE" });
@@ -351,7 +352,7 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 			navigate("/events");
 		} catch (e) {
 			toast(e?.message || "Gagal menghapus.", "err");
-		}
+		} finally { setSaving(false); }
 	}
 
 	return (
@@ -380,10 +381,12 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 						<div className="upload-hint">
 							<input
 								type="file"
+								disabled={uploading || saving}
 								accept="image/jpeg,image/png,image/webp"
 								aria-label="Unggah foto cover"
 								onChange={(e) => e.target.files[0] && upload(e.target.files[0])}
 							/>
+							{uploading && <p role="status">Mengunggah cover…</p>}
 							{cover && <img className="cover-preview" src={cover} alt="Pratinjau cover" />}
 						</div>
 					</Field>
@@ -465,7 +468,7 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 							onRemove={() => setSessions(sessions.filter((x) => x !== s))}
 						/>
 					))}
-					<button className="btn sec" type="button" onClick={() => setSessions([...sessions, newSession(sessions[sessions.length - 1])])}>
+					<button className="btn sec" type="button" onClick={() => setSessions([...sessions, newSession(sortedSessions[sortedSessions.length - 1] || { _date: form.starts_at.slice(0, 10), _end: form.starts_at.slice(11, 16) || "08:00" })])}>
 						+ Tambah sesi
 					</button>
 					{errors["sessions"] && <div className="field-err">{errors["sessions"]}</div>}
@@ -479,28 +482,29 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 				</div>
 			)}
 
+			<div className="editor-save-status" role="status">{saving ? "Menyimpan perubahan…" : uploading ? "Mengunggah cover…" : dirty ? "Ada perubahan yang belum disimpan" : savedId ? "Semua perubahan tersimpan" : "Mulai isi detail event. Kolom bertanda * wajib diisi."}</div>
 			<div className="sticky-bar">
 				{!editing && !savedId ? (
 					<>
-						<button className="btn" onClick={() => save(false)} disabled={saving}>
+						<button className="btn" onClick={() => save(false)} disabled={saving || uploading}>
 							{saving ? "Menyimpan…" : "Simpan Draft"}
 						</button>
 						{canPublish && (
-							<button className="btn gold" onClick={() => save(true)} disabled={saving}>
+							<button className="btn gold" onClick={() => setAskPublish(true)} disabled={saving || uploading}>
 								Simpan &amp; Terbitkan
 							</button>
 						)}
 					</>
 				) : (
 					<>
-						<button className="btn" onClick={() => save(false)} disabled={saving}>
+						<button className="btn" onClick={() => save(false)} disabled={saving || uploading}>
 							{saving ? "Menyimpan…" : "Simpan Perubahan"}
 						</button>
 						{canPublish && (
 							published ? (
-								<button className="btn sec" onClick={unpublish}>Tarik (kembali ke draft)</button>
+								<button className="btn sec" disabled={saving || uploading} onClick={unpublish}>Tarik (kembali ke draft)</button>
 							) : (
-								<button className="btn gold" onClick={() => setAskPublish(true)}>Terbitkan</button>
+								<button className="btn gold" disabled={saving || uploading} onClick={() => setAskPublish(true)}>Terbitkan</button>
 							)
 						)}
 					</>
@@ -509,7 +513,7 @@ export default function EventEditor({ event, prefillDate, canPublish = true, can
 					{showPreview ? "Sembunyikan pratinjau" : "Pratinjau"}
 				</button>
 				{savedId && canDelete && (
-					<button className="btn danger" style={{ marginLeft: "auto" }} onClick={() => setAskDelete(true)}>
+					<button className="btn danger" style={{ marginLeft: "auto" }} disabled={saving || uploading} onClick={() => setAskDelete(true)}>
 						Hapus Permanen
 					</button>
 				)}

@@ -53,12 +53,13 @@ export default function EventList({ events, onEdit, capabilities }) {
 					aria-label="Cari event"
 				/>
 				{FILTERS.map(([key, label]) => (
-					<button key={key} className={`chip ${filter === key ? "active" : ""}`} onClick={() => setFilter(key)}>
+					<button key={key} aria-pressed={filter === key} className={`chip ${filter === key ? "active" : ""}`} onClick={() => setFilter(key)}>
 						{label}
 					</button>
 				))}
 			</div>
 
+			<p className="results-count" role="status">{list.length} dari {events.length} event</p>
 			{list.length === 0 ? (
 				<div className="empty-state">
 					<p style={{ margin: "0 0 12px" }}>
@@ -66,7 +67,8 @@ export default function EventList({ events, onEdit, capabilities }) {
 							? "Belum ada event sama sekali."
 							: "Tidak ada event yang cocok dengan pencarian atau filter."}
 					</p>
-					{capabilities?.canCreateEvent && (
+					{events.length > 0 && <button className="btn sec" onClick={() => { setQ(""); setFilter("all"); }}>Reset pencarian &amp; filter</button>}
+					{events.length === 0 && capabilities?.canCreateEvent && (
 						<button className="btn gold" onClick={() => navigate("/events/baru")}>
 							<IconPlus size={16} /> Buat event pertama
 						</button>

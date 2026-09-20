@@ -3,8 +3,8 @@
 // proposal dengan tombol konfirmasi. Backend: src/modules/assistant/.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, errText, fmtRange, getToken, ApiFail } from "../api.js";
-import { useToast } from "../components/ui.jsx";
+import { api, errText, fmtRange, getToken, ApiFail, clearToken } from "../api.js";
+import { useToast, Confirm, SkeletonCard, ErrorState, useEscape, useFocusTrap } from "../components/ui.jsx";
 import { IconPlus, IconTrash, IconCheck } from "../components/Icons.jsx";
 
 const FIELD_TYPE_LABEL = {
@@ -36,8 +36,6 @@ const stripMd = (s) =>
 
 // Kartu proposal di dalam bubble assistant.
 function ProposalCard({ proposal, status, resultResourceId, onConfirm, busy }) {
-	const toast = useToast();
-
 	if (proposal.tool === "create_event") {
 		const d = proposal.data;
 		return (
@@ -59,7 +57,7 @@ function ProposalCard({ proposal, status, resultResourceId, onConfirm, busy }) {
 						))}
 					</div>
 				)}
-				<ProposalActions {...{ status, resultResourceId, onConfirm, busy, toast }} label="Iya, buatkan event" />
+				<ProposalActions {...{ status, resultResourceId, onConfirm, busy }} tool="create_event" label="Iya, buatkan event" />
 			</div>
 		);
 	}
@@ -80,22 +78,22 @@ function ProposalCard({ proposal, status, resultResourceId, onConfirm, busy }) {
 						</li>
 					))}
 				</ol>
-				<ProposalActions {...{ status, resultResourceId, onConfirm, busy, toast }} label="Iya, buatkan form" />
+				<ProposalActions {...{ status, resultResourceId, onConfirm, busy }} tool="create_form" label="Iya, buatkan form" />
 			</div>
 		);
 	}
 	return null;
 }
 
-function ProposalActions({ status, resultResourceId, onConfirm, busy, toast, label }) {
+function ProposalActions({ status, resultResourceId, onConfirm, busy, tool, label }) {
 	if (status === "executed") {
 		const target = resultResourceId
-			? `/events/${resultResourceId}/edit`
+			? (tool === "create_form" ? `/forms/${resultResourceId}` : `/events/${resultResourceId}/edit`)
 			: null;
 		return (
 			<p className="roro-done">
 				<IconCheck size={14} /> Draf dibuat.{" "}
-				<Link to="/events">Buka Event</Link> · <Link to="/forms">Buka Form</Link>
+				<Link to={target || (tool === "create_form" ? "/forms" : "/events")}>Buka {tool === "create_form" ? "form" : "event"}</Link>
 			</p>
 		);
 	}
@@ -121,7 +119,7 @@ function ThinkingBubble({ text }) {
 }
 
 // Satu percakapan: welcome screen atau bubble list.
-function ChatView({ messages, onConfirm, busyConfirm, convId, streaming }) {
+function ChatView({ messages, onConfirm, busyConfirm, streaming }) {
 	const endRef = useRef(null);
 	useEffect(() => {
 		endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -168,7 +166,7 @@ function ChatView({ messages, onConfirm, busyConfirm, convId, streaming }) {
 	);
 }
 
-export default function Assistant({ user }) {
+export default function Assistant() {
 	const toast = useToast();
 	const [conversations, setConversations] = useState([]);
 	// Percakapan aktif dipersist per-session — pindah modul lalu balik ke Roro
@@ -181,6 +179,15 @@ export default function Assistant({ user }) {
 	const [busyConfirm, setBusyConfirm] = useState(false);
 	const [listOpen, setListOpen] = useState(false); // mobile
 	const inputRef = useRef(null);
+	const [loadingChat, setLoadingChat] = useState(false);
+	const [chatError, setChatError] = useState("");
+	const [listError, setListError] = useState("");
+	const [deleteId, setDeleteId] = useState(null);
+	const requestVersion = useRef(0);
+	const streamController = useRef(null);
+	const historyRef = useFocusTrap(listOpen);
+	useEscape(() => setListOpen(false));
+	useEffect(() => () => { requestVersion.current++; streamController.current?.abort(); }, []);
 
 	// Balik ke Roro: kalau ada percakapan tersimpan, buka langsung. Daftar
 	// percakapan di-load tiap mount — pindah halaman lalu balik tetap ada isinya.
@@ -200,26 +207,31 @@ export default function Assistant({ user }) {
 		try {
 			const d = await api("/admin/assistant/conversations");
 			setConversations(d || []);
-		} catch {
-			/* daftar kosong tidak fatal */
+			setListError("");
+		} catch (e) {
+			setListError(errText(e));
 		}
 	}, []);
 
 	const openConversation = useCallback(async (id) => {
+		const version = ++requestVersion.current;
 		changeConv(id);
 		setListOpen(false);
+		setMessages([]);
+		setChatError("");
+		setLoadingChat(true);
 		try {
 			const d = await api(`/admin/assistant/conversations/${id}`);
-			setMessages(d || []);
+			if (version === requestVersion.current) setMessages(d || []);
 		} catch (e) {
-			toast(errText(e), "err");
-		}
-	}, [toast]);
+			if (version === requestVersion.current) setChatError(errText(e));
+		} finally { if (version === requestVersion.current) setLoadingChat(false); }
+	}, []);
 
 	const send = useCallback(
 		async (text) => {
 			const message = (text ?? input).trim();
-			if (!message || busy) return;
+			if (!message || busy || loadingChat || chatError) return;
 			setBusy(true);
 			setInput("");
 			setMessages((m) => [
@@ -238,12 +250,15 @@ export default function Assistant({ user }) {
 				});
 			};
 			try {
+				streamController.current = new AbortController();
 				const res = await fetch("/api/v1/admin/assistant/chat/stream", {
+					signal: streamController.current.signal,
 					method: "POST",
 					headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
 					body: JSON.stringify({ conversation_id: convId ?? undefined, message }),
 				});
 				if (!res.ok) {
+					if (res.status === 401) { clearToken(); window.dispatchEvent(new Event("bph:unauthorized")); }
 					const body = await res.json().catch(() => ({}));
 					throw new ApiFail(body, res.status);
 				}
@@ -300,6 +315,7 @@ export default function Assistant({ user }) {
 					loadConversations();
 				}
 			} catch (e) {
+				if (e.name === "AbortError") return;
 				toast(errText(e), "err");
 				setMessages((m) => m.filter((x) => !x.id.startsWith("tmp-") && x.id !== "streaming"));
 				setInput(message);
@@ -309,7 +325,7 @@ export default function Assistant({ user }) {
 				inputRef.current?.focus();
 			}
 		},
-		[input, busy, convId, toast, loadConversations],
+		[input, busy, loadingChat, chatError, convId, toast, loadConversations],
 	);
 
 	const confirmProposal = useCallback(
@@ -327,6 +343,7 @@ export default function Assistant({ user }) {
 							: x,
 					),
 				);
+				if (d.tool === "create_event") window.dispatchEvent(new Event("bph:events-changed"));
 				toast(d.tool === "create_event" ? "Draft event dibuat." : "Draft form dibuat.");
 			} catch (e) {
 				toast(errText(e), "err");
@@ -348,12 +365,16 @@ export default function Assistant({ user }) {
 	}, [send]);
 
 	const newChat = () => {
+		requestVersion.current++;
+		setLoadingChat(false);
+		setChatError("");
 		changeConv(null);
 		setMessages([]);
 		setListOpen(false);
 	};
 
 	const removeConversation = async (id) => {
+		setDeleteId(null);
 		try {
 			await api(`/admin/assistant/conversations/${id}`, { method: "DELETE" });
 			if (id === convId) newChat();
@@ -364,19 +385,24 @@ export default function Assistant({ user }) {
 	};
 
 	return (
+		<>
+		<div className="roro-mobile-controls"><button className="btn ghost" aria-expanded={listOpen} aria-controls="roro-history" onClick={() => setListOpen((v) => !v)}>Riwayat chat</button><button className="btn sec" disabled={busy || busyConfirm} onClick={newChat}>+ Chat baru</button></div>
 		<div className="roro-layout">
 			{/* Daftar percakapan */}
-			<aside className={`roro-sidebar ${listOpen ? "open" : ""}`}>
-				<button className="btn gold roro-new" onClick={newChat}>
+			<aside id="roro-history" ref={historyRef} tabIndex={-1} aria-label="Riwayat chat" className={`roro-sidebar ${listOpen ? "open" : ""}`}>
+				<button className="btn ghost roro-history-close" onClick={() => setListOpen(false)}>Tutup riwayat</button>
+				<button className="btn gold roro-new" disabled={busy || busyConfirm} onClick={newChat}>
 					<IconPlus size={14} /> Chat baru
 				</button>
 				<div className="roro-conv-list">
+					{listError && <ErrorState message={listError} onRetry={loadConversations} />}
+					{!listError && !conversations.length && <p className="muted small">Percakapanmu akan muncul di sini.</p>}
 					{conversations.map((c) => (
 						<div key={c.id} className={`roro-conv ${c.id === convId ? "active" : ""}`}>
-							<button onClick={() => openConversation(c.id)} title={c.title}>
+							<button disabled={busy || busyConfirm} onClick={() => openConversation(c.id)} title={c.title}>
 								{c.title}
 							</button>
-							<button className="roro-del" onClick={() => removeConversation(c.id)} title="Hapus">
+							<button disabled={busy || busyConfirm} className="roro-del" onClick={() => setDeleteId(c.id)} aria-label={`Hapus percakapan ${c.title}`} title="Hapus">
 								<IconTrash size={13} />
 							</button>
 						</div>
@@ -386,7 +412,7 @@ export default function Assistant({ user }) {
 
 			{/* Thread */}
 			<div className="roro-main">
-				<ChatView messages={messages} onConfirm={confirmProposal} busyConfirm={busyConfirm} convId={convId} streaming={streaming} />
+				{loadingChat ? <SkeletonCard lines={5} /> : chatError ? <ErrorState message={chatError} onRetry={() => openConversation(convId)} /> : <ChatView messages={messages} onConfirm={confirmProposal} busyConfirm={busyConfirm || busy} streaming={streaming} />}
 				<form
 					className="roro-input"
 					onSubmit={(e) => {
@@ -399,14 +425,16 @@ export default function Assistant({ user }) {
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
 						placeholder="Tanya Roro…"
-						disabled={busy}
-						autoFocus
+						aria-label="Pesan untuk Roro"
+						disabled={busy || loadingChat || !!chatError}
 					/>
-					<button className="btn gold" disabled={busy || !input.trim()}>
+					<button className="btn gold" disabled={busy || loadingChat || !!chatError || !input.trim()}>
 						{busy ? "…" : "Kirim"}
 					</button>
 				</form>
 			</div>
 		</div>
+		<Confirm open={!!deleteId} title="Hapus percakapan?" danger confirmLabel="Hapus percakapan" onCancel={() => setDeleteId(null)} onConfirm={() => removeConversation(deleteId)}>Percakapan ini akan dihapus permanen. Event atau form yang sudah dibuat tetap tersimpan.</Confirm>
+		</>
 	);
 }

@@ -6,21 +6,22 @@ export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
 export class ApiFail extends Error {
 	constructor(body, status) {
-		super(body?.message || "Error");
+		super(body?.message || ({ 401: "Email atau password tidak sesuai. Silakan coba lagi.", 403: "Akun ini belum memiliki izin untuk tindakan tersebut.", 404: "Data tidak ditemukan.", 429: "Terlalu banyak percobaan. Tunggu beberapa menit, lalu coba lagi." }[status]) || "Layanan sedang bermasalah. Silakan coba lagi.");
 		this.statusCode = body?.statusCode ?? status;
 		this.errors = body?.errors;
 	}
 }
 
-export async function api(path, { method = "GET", json } = {}) {
-	const opts = { method, headers: { Authorization: `Bearer ${getToken()}` } };
+export async function api(path, { method = "GET", json, signal } = {}) {
+	const requestToken = getToken();
+	const opts = { method, signal, headers: { Authorization: `Bearer ${requestToken}` } };
 	if (json !== undefined) {
 		opts.headers["Content-Type"] = "application/json";
 		opts.body = JSON.stringify(json);
 	}
-	const res = await fetch(`/api/v1${path}`, opts);
+	const res = await request(`/api/v1${path}`, opts);
 	const body = await res.json().catch(() => ({}));
-	if (res.status === 401) {
+	if (res.status === 401 && requestToken && requestToken === getToken()) {
 		// Token kedaluarsa/dicabut — pusatkan penanganan: bersihkan token lalu
 		// beri tahu App (listener "bph:unauthorized") supaya reset state + ke login.
 		clearToken();
@@ -32,13 +33,14 @@ export async function api(path, { method = "GET", json } = {}) {
 
 // Login lewat proxy /auth/sign-in (binding AUTH_SERVICE).
 export async function signIn(email, password) {
-	const res = await fetch("/api/v1/auth/sign-in", {
+	const res = await request("/api/v1/auth/sign-in", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password }),
 	});
 	const b = await res.json().catch(() => ({}));
 	if (!res.ok || b.success === false) throw new ApiFail(b, res.status);
+	if (!b.data?.token) throw new Error("Login belum berhasil. Silakan coba lagi.");
 	return b.data; // { token, user }
 }
 
@@ -62,12 +64,12 @@ export function isoToInput(iso) {
 }
 
 export function errText(e) {
-	let msg = e?.message || "Error";
+	let msg = e?.message || "Terjadi kesalahan. Silakan coba lagi.";
 	if (e?.errors) {
 		msg +=
 			"\n" +
 			Object.entries(e.errors)
-				.map(([f, msgs]) => `${f}: ${msgs.join(", ")}`)
+				.map(([f, msgs]) => `${f}: ${Array.isArray(msgs) ? msgs.join(", ") : String(msgs)}`)
 				.join("\n");
 	}
 	return msg;
@@ -143,3 +145,14 @@ export function gcalUrl(ev) {
 }
 
 export const publicLink = (ev) => `https://sga-cakrawala.org/events/${ev.slug}`;
+
+async function request(url, options) {
+	try {
+		return await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(30000) });
+	} catch (error) {
+		if (error.name === "AbortError") throw error;
+		throw new Error(error.name === "TimeoutError"
+			? "Permintaan terlalu lama. Coba lagi; periksa data sebelum mengulangi penyimpanan."
+			: "Tidak dapat terhubung. Periksa koneksi internet lalu coba lagi.");
+	}
+}

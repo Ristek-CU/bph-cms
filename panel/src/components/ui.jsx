@@ -64,6 +64,7 @@ export function Card({ as: Tag = "div", className = "", style, children, ...rest
 
 export function Confirm({ open, title, children, confirmLabel = "Ya, lanjutkan", danger, onConfirm, onCancel }) {
 	const ref = useFocusTrap(open);
+	useEscape(() => open && onCancel?.());
 	if (!open) return null;
 	return (
 		<div className="modal-backdrop" onClick={onCancel}>
@@ -75,7 +76,7 @@ export function Confirm({ open, title, children, confirmLabel = "Ya, lanjutkan",
 					<p>{children}</p>
 					<div className="row-actions">
 						<button className="btn ghost" onClick={onCancel}>Batal</button>
-						<button className={`btn ${danger ? "danger" : ""}`} onClick={onConfirm} autoFocus>{confirmLabel}</button>
+						<button className={`btn ${danger ? "danger" : ""}`} onClick={onConfirm}>{confirmLabel}</button>
 					</div>
 				</div>
 			</div>
@@ -101,15 +102,17 @@ export function useFocusTrap(active) {
 		const node = ref.current;
 		if (!node) return;
 		const prev = document.activeElement;
+		const previousOverflow = document.body.style.overflow;
+		document.body.style.overflow = "hidden";
 		const focusables = () =>
 			Array.from(node.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
-				.filter((el) => !el.disabled);
+				.filter((el) => !el.disabled && el.getClientRects().length > 0 && !el.closest("[inert]"));
 		// Fokus awal ke elemen interaktif pertama (atau container).
 		(focusables()[0] ?? node).focus?.();
 		const onKey = (e) => {
 			if (e.key !== "Tab") return;
 			const items = focusables();
-			if (!items.length) return;
+			if (!items.length) { e.preventDefault(); node.focus(); return; }
 			const first = items[0];
 			const last = items[items.length - 1];
 			if (e.shiftKey && document.activeElement === first) {
@@ -123,7 +126,8 @@ export function useFocusTrap(active) {
 		node.addEventListener("keydown", onKey);
 		return () => {
 			node.removeEventListener("keydown", onKey);
-			prev?.focus?.();
+			document.body.style.overflow = previousOverflow;
+			if (prev?.isConnected) prev.focus?.();
 		};
 	}, [active]);
 	return ref;
@@ -134,8 +138,8 @@ export function Field({ label, required, help, error, children }) {
 	const id = useId();
 	// Anak tunggal elemen form otomatis dapat id + aria-invalid.
 	const cloned =
-		children && !Array.isArray(children) && children.props
-			? cloneElement(children, { id: children.props.id || id, "aria-invalid": error ? true : undefined })
+		children && !Array.isArray(children) && ["input", "select", "textarea"].includes(children.type)
+			? cloneElement(children, { id: children.props.id || id, "aria-invalid": error ? true : undefined, "aria-required": required || undefined, "aria-describedby": [children.props["aria-describedby"], help && `${id}-help`, error && `${id}-error`].filter(Boolean).join(" ") || undefined })
 			: children;
 	return (
 		<div>
@@ -143,8 +147,8 @@ export function Field({ label, required, help, error, children }) {
 				{label} {required && <span className="req">*</span>}
 			</label>
 			{cloned}
-			{help && <p className="field-help">{help}</p>}
-			{error && <div className="field-err">{error}</div>}
+			{help && <p id={`${id}-help`} className="field-help">{help}</p>}
+			{error && <div id={`${id}-error`} className="field-err" role="alert">{error}</div>}
 		</div>
 	);
 }
@@ -160,4 +164,28 @@ export function SkeletonCard({ lines = 3 }) {
 }
 export function SkeletonLine({ width }) {
 	return <div className="skeleton-line" style={width ? { width } : undefined} />;
+}
+
+export function ErrorState({ title = "Data belum bisa dimuat", message, onRetry }) {
+	return <div className="card error-state" role="alert">
+		<div className="error-state-icon" aria-hidden>!</div>
+		<div><h2>{title}</h2><p>{message || "Periksa koneksi internet lalu coba lagi."}</p>
+		{onRetry && <button className="btn sec" onClick={onRetry}>Coba lagi</button>}</div>
+	</div>;
+}
+
+// Refresh/tab close protection. Internal navigation also asks before discarding edits.
+export function useUnsavedChanges(dirty) {
+	useEffect(() => {
+		if (!dirty) return;
+		const unload = (e) => { e.preventDefault(); e.returnValue = ""; };
+		const leave = (e) => {
+			const link = e.target.closest?.("a[href]");
+			if (!link || link.target === "_blank" || link.hasAttribute("download") || link.href === window.location.href) return;
+			if (!window.confirm("Perubahan belum disimpan. Tinggalkan halaman ini?")) { e.preventDefault(); e.stopPropagation(); }
+		};
+		window.addEventListener("beforeunload", unload);
+		document.addEventListener("click", leave, true);
+		return () => { window.removeEventListener("beforeunload", unload); document.removeEventListener("click", leave, true); };
+	}, [dirty]);
 }
