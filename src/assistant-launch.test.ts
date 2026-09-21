@@ -31,6 +31,8 @@ try {
  check('interrupted stream preserves reported usage', () => assert.equal(partial.find(e => e.type === 'usage').usage.output_tokens, 8));
  globalThis.fetch = async () => new Response(wire([{ type: 'error', error: { message: 'private provider detail' } }]));
  await assert.rejects(async () => { for await (const _ of llmChatStream({ RORO_API_KEY: 'fixture' }, body)) {} }, LlmUnavailableError);
+ check('event keyword cannot bypass explicit code request', () => assert.equal(precheckUserMessage('Buat kode Python untuk event').blocked, true));
+ check('programming workshop event remains allowed', () => assert.equal(precheckUserMessage('Buat event workshop Python dan JavaScript').blocked, false));
  check('ordinary Indonesian dan passes', () => assert.equal(precheckUserMessage('Buat form dan event untuk acara rapat').blocked, false));
  const rule = compileGuardRule({ category: 'injection', pattern: 're:first||second', signal: 'alternatives', enabled: 1 });
  check('all DB regex alternatives matched', () => assert.equal(precheckWithRules('second', [rule]).blocked, true));
@@ -96,6 +98,19 @@ try {
  await assistantService.updateMemory(getDb(h.d1), { userId: 'u-a-admin', permissions: [], recordAudit: async () => {} }, memoryEnv, conv);
  const afterMemory = await h.sql('SELECT * FROM ai_usage WHERE user_id = ? AND day = ?', 'u-a-admin', day);
  check('memory tokens counted without adding chat requests', () => assert.deepEqual([afterMemory[0].requests, afterMemory[0].input_tokens, afterMemory[0].output_tokens], [2, 220, 48]));
+ let providerCalls = 0;
+ globalThis.fetch = async () => ++providerCalls === 1 ? new Response(wire([
+  provider[0],
+  { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'write-1', name: 'create_form' } },
+  { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify({ title: 'Resilient draft', fields: [{ label: 'Nama', type: 'short_text', required: true }] }) } },
+  { type: 'message_delta', usage: { output_tokens: 30 }, delta: { stop_reason: 'tool_use' } },
+  { type: 'message_stop' },
+ ])) : new Response('Unavailable', { status: 503 });
+ const draftEvents = [];
+ await assistantService.chatStream(getDb(h.d1), { userId: 'u-a-admin', divisionId: DIVISIONS.a.id, permissions: ['forms.create.own_division'], recordAudit: async () => {} }, { RORO_API_KEY: 'fixture' }, { message: 'Buat form Nama' }, e => draftEvents.push(e));
+ const fallback = draftEvents.find(e => e.type === 'done');
+ check('valid proposal survives provider outage on closing round', () => assert.equal(fallback.proposal.tool, 'create_form'));
+ check('valid draft gets useful fallback instead of service failure text', () => { assert.match(fallback.reply, /Draf sudah siap/); assert.ok(!fallback.reply.includes('tidak bisa dihubungi')); });
  const deleted = await h.req(`${root}/conversations/${conv}`, { token: 'tok-a-admin', method: 'DELETE' });
  check('owner can remove chat from history', () => assert.equal(deleted.status, 200));
  const removed = await h.req(`${root}/conversations/${conv}`, { token: 'tok-a-admin' });

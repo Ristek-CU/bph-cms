@@ -23,6 +23,7 @@ import { recordAuditLog } from "../audit/audit.service";
 
 const MAX_TOOL_ROUNDS = 3;
 const HISTORY_WINDOW = 30; // pesan yang dikirim ke LLM per giliran
+const proposalReadyReply = "Draf sudah siap di kartu di bawah. Periksa detailnya, lalu konfirmasi untuk menyimpan sebagai draf. Setelah itu kamu bisa publish dari editor.";
 const MEMORY_EVERY = 10; // perbarui memori tiap N pesan user
 
 // Proposal yang disimpan di ai_messages.proposal_json.
@@ -615,7 +616,8 @@ export const assistantService = {
 				}
 			} catch (e) {
 				if (e instanceof LlmUnavailableError) {
-					replyText =
+					lastRoundUsedTool = false;
+					replyText = proposal ? proposalReadyReply :
 						"Roro sedang tidak bisa dihubungi (layanan AI bermasalah). Coba lagi sebentar lagi — pesanmu sudah tersimpan di riwayat.";
 					emit({ type: "text", text: replyText });
 					await aiLog(db, actor, convId, { eventType: "llm_unavailable", level: "error", message: e.message || "LLM unavailable" });

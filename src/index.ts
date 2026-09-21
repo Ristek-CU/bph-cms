@@ -184,35 +184,17 @@ const proxyAuth =
 			}),
 		);
 
-		// sign-in dilayani authRouter service auth yang sudah membungkus respons jadi
-		// { success, message, statusCode, data } — teruskan apa adanya.
-		if (!options.native) {
-			return new Response(res.body, {
-				status: res.status,
-				headers: { "Content-Type": "application/json" },
-			});
-		}
-
-		// authRouter yang terdeploy TIDAK punya /sign-up (diverifikasi: 404 kosong,
-		// jatuh ke wildcard better-auth). Yang hidup adalah endpoint native
-		// /sign-up/email, dan dia membalas { token, user } polos tanpa wrapper.
-		// Dibungkus ulang supaya kontrak publik /auth/sign-up tetap sama dengan
-		// /auth/sign-in dan cocok dengan authDataSchema di spec OpenAPI.
+		// Never forward upstream validation bodies: auth may echo the submitted password.
 		const text = await res.text();
-		let body: unknown;
-		try {
-			body = JSON.parse(text);
-		} catch {
-			throw ApiError.server("Service auth membalas respons non-JSON");
+		let body: { success?: boolean } | null;
+		try { body = JSON.parse(text); } catch { throw ApiError.server("Service auth membalas respons non-JSON"); }
+		if (!res.ok || body?.success === false) {
+			const status = res.status >= 400 ? res.status : 400;
+			const message = status === 401 ? "Email atau password salah" : status === 429 ? "Terlalu banyak permintaan. Coba beberapa saat lagi." : status >= 500 ? "Layanan autentikasi sedang bermasalah" : "Permintaan autentikasi tidak valid";
+			throw new ApiError(status as StatusCode, message, status === 401 ? { code: "INVALID_EMAIL_OR_PASSWORD" } : undefined);
 		}
-		if (!res.ok) {
-			const err = body as { message?: string } | null;
-			throw new ApiError(
-				res.status as StatusCode,
-				err?.message || "Sign up gagal",
-				body,
-			);
-		}
+		if (!options.native) return new Response(JSON.stringify(body), { status: res.status, headers: { "Content-Type": "application/json" } });
+
 		return ApiResponse.ok(c, "Sign up berhasil", body);
 	};
 

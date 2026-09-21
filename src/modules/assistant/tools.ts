@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import type { Db } from "../../db/connection";
 import { forms } from "../../db/schema";
 import { eventService } from "../events/event.service";
+import { nowWib } from "./prompt";
 import { formService } from "../forms/form.service";
 import { createEventSchema } from "../events/event.schema";
 import { createFormSchema } from "../forms/form.schema";
@@ -41,7 +42,9 @@ const slimEvent = (e: Record<string, unknown>) => ({
 	id: e.id,
 	title: e.title,
 	starts_at: e.starts_at,
+	starts_wib: typeof e.starts_at === "string" ? nowWib(new Date(e.starts_at)) : null,
 	ends_at: e.ends_at,
+	ends_wib: typeof e.ends_at === "string" ? nowWib(new Date(e.ends_at)) : null,
 	location: e.location,
 	status: e.status,
 	slug: e.slug,

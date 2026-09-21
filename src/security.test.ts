@@ -663,10 +663,13 @@ const signInWrong = await h.req("/api/v1/auth/sign-in", {
 });
 eq("sign-in kredensial salah → 401", signInWrong.status, 401);
 eq(
-	"sign-in meneruskan wrapper upstream apa adanya",
+	"sign-in preserves only safe auth error code",
 	signInWrong.body?.errors?.code,
 	"INVALID_EMAIL_OR_PASSWORD",
 );
+
+ok("auth error never echoes submitted password", !JSON.stringify(signInWrong.body).includes("salah-panjang"));
+ok("auth error never echoes submitted email", !JSON.stringify(signInWrong.body).includes("korban@example.com"));
 
 // ── 15. Storage R2 ───────────────────────────────────────────────────────────
 section("Storage R2");

@@ -92,7 +92,7 @@ export const llmChat = async (
 	if (!env.RORO_API_KEY) throw new LlmUnavailableError("RORO_API_KEY belum di-set");
 
 	const base = (env.RORO_BASE_URL || "https://api.surplusintelligence.ai/anthropic").replace(/\/$/, "");
-	const res = await fetch(`${base}/v1/messages`, {
+	const res = await fetchProvider(`${base}/v1/messages`, {
 		method: "POST",
 		signal: AbortSignal.timeout(120_000),
 		headers: {
@@ -121,6 +121,11 @@ export const llmChat = async (
 	}
 	data.usage = normalizeUsage(data.usage);
 	return data;
+};
+
+const fetchProvider = async (url: string, init: RequestInit): Promise<Response> => {
+	try { return await fetch(url, init); }
+	catch { throw new LlmUnavailableError("Layanan AI tidak merespons atau koneksi terputus"); }
 };
 
 // Beda dari ApiError supaya service bisa menerjemahkan ke pesan chat yang ramah,
@@ -172,7 +177,7 @@ export const llmChatStream = async function* (
 	if (!env.RORO_API_KEY) throw new LlmUnavailableError("RORO_API_KEY belum di-set");
 
 	const base = (env.RORO_BASE_URL || "https://api.surplusintelligence.ai/anthropic").replace(/\/$/, "");
-	const res = await fetch(`${base}/v1/messages`, {
+	const res = await fetchProvider(`${base}/v1/messages`, {
 		method: "POST",
 		signal: AbortSignal.timeout(120_000),
 		headers: {
@@ -267,6 +272,8 @@ export const llmChatStream = async function* (
 	}
 
 	if (!done) throw new LlmUnavailableError("LLM stream terputus sebelum selesai");
+	} catch (error) {
+		throw error instanceof LlmUnavailableError ? error : new LlmUnavailableError("LLM stream terputus");
 	} finally {
 		yield { type: "usage", usage: normalizeUsage(usage) };
 		await reader.cancel().catch(() => {});

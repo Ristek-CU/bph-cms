@@ -42,6 +42,9 @@ const FALLBACK_RULES: GuardRule[] = [
 
 const EVENT_CONTEXT = /\b(event|acara|kegiatan|formulir|form|pendaftaran|seminar|lomba|rapat|workshop|talk\s?show)\b/i;
 
+// Naming an event must not exempt an explicit request to write executable code.
+const EXPLICIT_CODE_REQUEST = /\b(tulis|buat(?:kan|in|ain)?|bikin|generate|berikan|write)\s+(?:(?:saya|aku|contoh|sebuah|some)\s+){0,2}(kode|code|skrip|script|function)\b/i;
+
 // ---- Loader + cache ---------------------------------------------------------
 
 type CompiledRule = { category: "injection" | "code"; re: RegExp; signal: string; raw: string };
@@ -106,7 +109,7 @@ export const precheckWithRules = (raw: string, rules: CompiledRule[]): PrecheckR
 	}
 
 	// (2) Permintaan kode/teknis — tolak, kecuali konteks jelas event/form.
-	if (!EVENT_CONTEXT.test(text)) {
+	if (!EVENT_CONTEXT.test(text) || EXPLICIT_CODE_REQUEST.test(text)) {
 		const codeSignals = matchAll(
 			rules.filter((r) => r.category === "code"),
 			text,

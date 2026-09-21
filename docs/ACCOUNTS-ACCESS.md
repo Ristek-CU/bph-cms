@@ -18,13 +18,13 @@ Password awal sebaiknya dibuat saat provisioning lewat service auth, lalu dikiri
 Format temporary password yang diminta untuk akun baru:
 
 ```text
-<slug-divisi>password123!
+[temporary credential removed]
 ```
 
 Contoh:
 
 ```text
-advopassword123!
+[temporary credential removed]
 ```
 
 ---
@@ -48,12 +48,12 @@ Email di bawah adalah rencana awal. Domain final harus mengikuti standar auth se
 |---|---|---|---|---|---|
 | BPH | `bph` | `bph@cakrawala.com` | Existing secret | Sudah ada | Event, QPR, Akun & Akses, Audit Log |
 | Ristek | `ristek` | `ristek@cakrawala.com` | Existing secret | Sudah ada | Event, Dashboard Terpadu, Dashboard Ristek khusus |
-| UKM | `ukm` | `ukm@cakrawala.ac.id` | `ukmpassword123!` | Belum dibuat | Event |
-| Advokasi | `advo` | `advo@cakrawala.ac.id` | `advopassword123!` | Belum dibuat | Event, Dashboard Terpadu, Dashboard Advokasi khusus |
-| BNP | `bnp` | `bnp@cakrawala.ac.id` | `bnppassword123!` | Belum dibuat | Event |
-| ICD | `icd` | `icd@cakrawala.ac.id` | `icdpassword123!` | Belum dibuat | Event |
-| Public Relation | `pr` | `pr@cakrawala.ac.id` | `prpassword123!` | Belum dibuat | Event |
-| Media | `media` | `media@cakrawala.ac.id` | `mediapassword123!` | Belum dibuat | Event |
+| UKM | `ukm` | `ukm@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
+| Advokasi | `advo` | `advo@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event, Dashboard Terpadu, Dashboard Advokasi khusus |
+| BNP | `bnp` | `bnp@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
+| ICD | `icd` | `icd@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
+| Public Relation | `pr` | `pr@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
+| Media | `media` | `media@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
 
 Jika ingin nama email lebih eksplisit untuk Public Relation, alternatifnya:
 

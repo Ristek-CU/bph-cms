@@ -150,10 +150,12 @@ export const startHarness = async (
 					}
 
 					if (path === "/v1/access/sign-in" && request.method === "POST") {
+						const submitted = await request.json();
 						return json(
 							{
 								success: false,
 								message: "Invalid email or password",
+								data: submitted,
 								statusCode: 401,
 								errors: { message: "Invalid email or password", code: "INVALID_EMAIL_OR_PASSWORD" },
 							},
