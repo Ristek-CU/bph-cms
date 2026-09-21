@@ -66,7 +66,7 @@ function AccountsTab() {
 	if (rows === null) return <SkeletonCard />;
 
 	return (
-		<div style={{ display: "grid", gap: 16 }}>
+		<div className="accounts-stack">
 			<div className="card">
 				<h3 style={{ marginBottom: 10 }}>Tambah membership</h3>
 				<p className="muted small" style={{ marginBottom: 10 }}>
@@ -75,7 +75,7 @@ function AccountsTab() {
 				<form onSubmit={create} className="grid-2">
 					<div>
 						<label className="field-label" htmlFor="acc-uid">User ID</label>
-						<input id="acc-uid" value={form.user_id} onChange={(e) => setForm({ ...form, user_id: e.target.value })} required />
+						<input id="acc-uid" type="text" value={form.user_id} onChange={(e) => setForm({ ...form, user_id: e.target.value })} required />
 					</div>
 					<div>
 						<label className="field-label" htmlFor="acc-email">Email</label>
@@ -164,17 +164,17 @@ function DivisionsTab() {
 	if (rows === null) return <SkeletonCard />;
 
 	return (
-		<div style={{ display: "grid", gap: 16 }}>
+		<div className="accounts-stack">
 			<div className="card">
 				<h3 style={{ marginBottom: 10 }}>Divisi baru</h3>
 				<form onSubmit={create} className="grid-2">
 					<div>
 						<label className="field-label" htmlFor="div-slug">Slug</label>
-						<input id="div-slug" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} placeholder="ristek" required />
+						<input id="div-slug" type="text" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} placeholder="ristek" required />
 					</div>
 					<div>
 						<label className="field-label" htmlFor="div-name">Nama</label>
-						<input id="div-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Riset & Teknologi" required />
+						<input id="div-name" type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Riset & Teknologi" required />
 					</div>
 					<div>
 						<label className="field-label" htmlFor="div-email">Email (opsional)</label>

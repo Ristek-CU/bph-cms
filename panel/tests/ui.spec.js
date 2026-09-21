@@ -44,7 +44,10 @@ async function setup(page, { signedIn = true, permissions = admin, workspace = f
 }
 
 async function visit(page, route) { await page.goto(`/#${route}`); await expect(page.locator('main')).toBeVisible(); }
-async function noOverflow(page) { expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy(); }
+async function noOverflow(page) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  expect(await page.locator('main').evaluateAll(elements => elements.every(el => el.scrollWidth <= el.clientWidth + 1))).toBeTruthy();
+}
 
 test('login preserves a protected deep link and workspace dismissal', async ({ page }) => {
   await setup(page, { signedIn: false, workspace: true });
@@ -210,6 +213,7 @@ test('all main pages render at desktop and narrow mobile widths', async ({ page 
       await expect(page.locator('.auth-loading')).toHaveCount(0);
       await page.locator('.skeleton-card').waitFor({ state: 'hidden' }).catch(() => {});
       await noOverflow(page);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(901);
       if (width !== 320) await page.screenshot({ path: testInfo.outputPath(`${width}-${route.replaceAll('/', '_') || 'home'}.png`), fullPage: true });
     }
   }
@@ -217,14 +221,44 @@ test('all main pages render at desktop and narrow mobile widths', async ({ page 
 });
 
 
-test('Roro login mascot and release remain visible on narrow mobile', async ({ page }) => {
+test('Roro login mascot and release remain visible on narrow mobile', async ({ page }, testInfo) => {
   await setup(page, { signedIn: false });
   await page.setViewportSize({ width: 375, height: 812 });
   await visit(page, '/login');
   await expect(page.getByAltText('Roro, asisten SGA yang siap membantu')).toBeVisible();
+  const mascotBounds = await page.locator('.login-roro-mascot').boundingBox();
+  const storyBounds = await page.locator('.login-story').boundingBox();
+  expect(mascotBounds.y + mascotBounds.height).toBeLessThanOrEqual(storyBounds.y + storyBounds.height - 12);
   await expect(page.locator('.release-stamp')).toHaveText(/^SGA Hub CMS v1\.0(?:\.\d+)?$/);
   expect(await page.locator('.login-roro-mascot').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
   await noOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath('login-mobile.png'), fullPage: true });
+});
+
+test('mobile chat composer stays in view on short screens and long conversations', async ({ page }, testInfo) => {
+  await setup(page);
+  await page.route('**/admin/assistant/conversations/chat-1', route => route.fulfill({ json: { success: true, data: Array.from({ length: 30 }, (_, i) => ({ id: `m-${i}`, role: i % 2 ? 'assistant' : 'user', content: 'Rencana kegiatan divisi. '.repeat(12) })) } }));
+  for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 390, height: 400 }, { width: 390, height: 300 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    await visit(page, '/');
+    const input = page.getByRole('textbox', { name: 'Pesan untuk Roro' });
+    const menu = await page.getByRole('button', { name: 'Buka menu' }).boundingBox();
+    expect(menu.width).toBeGreaterThanOrEqual(44);
+    expect(menu.height).toBeGreaterThanOrEqual(44);
+    const box = await input.boundingBox();
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    expect(await input.evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
+    await page.getByRole('button', { name: 'Riwayat chat', exact: true }).click();
+    await page.getByRole('button', { name: 'Rencana festival', exact: true }).click();
+    await expect(page.locator('.roro-msg')).toHaveCount(30);
+    await input.fill('Baris satu\nBaris dua\nBaris tiga');
+    if (viewport.height === 300) await input.fill('Pesan panjang\n'.repeat(8));
+    const after = await input.boundingBox();
+    expect(after.y + after.height).toBeLessThanOrEqual(viewport.height);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(viewport.height + 1);
+    await noOverflow(page);
+    await page.screenshot({ path: testInfo.outputPath(`chat-${viewport.width}-${viewport.height}.png`) });
+  }
 });
 
 test('Roro login image has enough resolution for a 3x display', async ({ browser }, testInfo) => {

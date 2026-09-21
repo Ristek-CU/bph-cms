@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { clearToken } from "../api.js";
 import { useEscape, useFocusTrap } from "./ui.jsx";
@@ -76,6 +76,18 @@ export function Login({ onLogin, notice }) {
 
 export function Shell({ user, children, title, crumb, actions, onSwitchDashboard, onLogout }) {
 	const [drawer, setDrawer] = useState(false);
+	const shellRef = useRef(null);
+	useEffect(() => {
+		const viewport = window.visualViewport;
+		if (!viewport) return;
+		// Mobile keyboards can shrink the visible area without changing 100dvh.
+		const resize = () => {
+			if (viewport.scale === 1) shellRef.current?.style.setProperty("--visible-height", `${viewport.height}px`);
+		};
+		resize();
+		viewport.addEventListener("resize", resize);
+		return () => viewport.removeEventListener("resize", resize);
+	}, []);
 	const navigate = useNavigate();
 	const location = useLocation();
 	useEscape(() => setDrawer(false));
@@ -182,7 +194,7 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 	);
 
 	return (
-		<div className="shell">
+		<div className="shell" ref={shellRef}>
 			<a className="skip-link" href="#main-content" onClick={(e) => { e.preventDefault(); document.getElementById("main-content")?.focus(); }}>Lewati ke konten</a>
 			{sidebar}
 			{drawer && <div className="sidebar-backdrop" onClick={() => setDrawer(false)} />}

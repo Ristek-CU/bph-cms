@@ -133,8 +133,9 @@ input, textarea, select { font: inherit; }
 .userbox { gap: 8px; }
 .userbox button + button { margin-left: 0; }
 
-.content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .topbar {
+	flex-shrink: 0;
 	display: flex; align-items: center; justify-content: space-between; gap: 12px;
 	padding: 14px 28px; background: rgba(245, 247, 243, 0.82); backdrop-filter: blur(16px);
 	-webkit-backdrop-filter: blur(16px);
@@ -168,6 +169,7 @@ main.page { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: conta
 /* ---- Komponen umum ---- */
 /* Card advo: ring foreground/10 tipis + shadow lembut panjang, bukan border abu. */
 .card {
+	min-width: 0;
 	background: var(--card); border: 0; border-radius: 16px;
 	box-shadow: 0 0 0 1px rgba(18, 59, 69, 0.08), var(--card-shadow);
 	padding: 18px 20px; margin-bottom: 16px;
@@ -987,6 +989,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 .cal-day-button { border: 0; background: transparent; color: inherit; padding: 0; text-align: left; min-height: 30px; display: flex; align-items: center; border-radius: 6px; }
 .cal-day-button:hover { background: var(--bg-2); }
 .tbl-wrap { max-width: 100%; border-radius: 10px; }
+.accounts-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.accounts-stack .grid-2 { gap: 16px; }
+.accounts-stack .grid-2 > div { min-width: 0; }
 .tbl th { background: var(--bg-2); }
 .tbl td { vertical-align: top; padding-block: 14px; }
 .public-page { max-width: 640px; margin: 0 auto; padding: 32px 20px 60px; }
@@ -1032,16 +1037,19 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 .login-notice { background: #eaf2ee; color: var(--navy); border: 1px solid var(--border); }
 
 /* Halaman scroll internal (.page) — Roro isi penuh area page tanpa height viewport. */
-.roro-layout { height: 100%; min-height: 0; }
+.shell { height: var(--visible-height, 100dvh); }
+main.page:has(.roro-layout) { display: flex; flex-direction: column; overflow: hidden; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+.roro-layout { height: auto; min-height: 0; }
 .roro-main, .roro-sidebar { min-height: 0; }
 .roro-thread { min-height: 0; }
+.roro-input { flex-shrink: 0; }
 .roro-bubble { overflow-wrap: anywhere; }
 .roro-conv > button:first-child { min-width: 0; }
 .roro-del { opacity: 1; min-width: 36px; min-height: 36px; color: var(--muted); }
 .roro-done a { color: #00685e; }
 .roro-mobile-controls { display: none; }
-.roro-input input { min-width: 0; height: 46px; }
-.roro-welcome { padding: 24px; }
+.roro-welcome { padding: 24px; min-height: 0; overflow-y: auto; justify-content: safe center; }
+.roro-welcome > * { flex-shrink: 0; }
 .roro-welcome h2 { font-size: clamp(26px, 3vw, 36px); letter-spacing: -.045em; }
 .roro-suggest .btn { background: white; border: 1px solid var(--border); padding: 14px 18px; text-align: left; }
 .field-row-actions { flex-wrap: wrap; }
@@ -1053,9 +1061,20 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 	.sidebar.open { width: min(300px, 88vw); }
 	.workspace-label { display: none; }
 	.topbar { min-height: 76px; flex-wrap: wrap; }
-	.topbar-actions:empty { display: none; }
-	.roro-mobile-controls { display: flex; gap: 8px; margin-bottom: 12px; }
-	.roro-layout { height: auto; min-height: 480px; }
+	.topbar-actions:not(:has(.btn)) { display: none; }
+	.roro-mobile-controls { display: flex; flex-shrink: 0; gap: 8px; margin-bottom: 12px; }
+	.roro-mobile-controls .btn { flex: 1; }
+	.roro-input textarea { font-size: 16px; max-height: clamp(68px, calc(var(--visible-height, 100dvh) * .3), 180px); }
+	input:not([type="checkbox"]):not([type="radio"]), select { min-height: 44px; font-size: 16px; }
+	.roro-welcome { padding: 16px 8px; }
+	.roro-welcome-logo { width: 88px; height: 88px; }
+	.roro-welcome > p { margin: 4px 0; }
+	.roro-tips { font-size: 13px; }
+	.menu-btn, .sidebar-close, .icon-btn, .roro-del { min-width: 44px; min-height: 44px; }
+	.btn, .btn.sm, .userbox-actions button, .roro-conv > button:first-child { min-height: 44px; }
+	.chip { min-height: 44px; }
+	.toolbar input[type="text"] { flex: 1 0 100%; width: 100%; max-width: none; }
+	.sidebar { height: var(--visible-height, 100dvh); }
 	.roro-sidebar:not(.open) { display: none; }
 	.roro-sidebar.open { position: absolute; left: 0; width: min(290px, 100%); height: 100%; border: 1px solid var(--border); border-radius: 12px; }
 	.roro-history-close { display: inline-flex; }
@@ -1102,7 +1121,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 	.stat { padding: 16px; }
 	.stat .lbl { font-size: 12px; }
 	.stat .num { font-size: 28px; }
-	.icon-btn, .btn.sm { min-height: 42px; }
+	.icon-btn, .btn.sm { min-height: 44px; }
 	.cal-nav h2 { font-size: 16px; min-width: 0; flex: 1; }
 	.cal-legend { margin-left: 0; gap: 8px; }
 	.ife-row { flex-wrap: wrap; }
@@ -1172,7 +1191,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 .login-roro-story > p { margin: 0; line-height: 1.7; }
 .release-stamp { display: flex; flex-direction: column; gap: 4px; font-size: 11px; line-height: 1.5; color: var(--muted); text-align: center; padding: 16px 12px; flex-shrink: 0; }
 .release-stamp small { font-size: 10px; opacity: .8; }
-.sidebar > .release-stamp { color: #b6ced3; padding-block: 10px; }
+.sidebar > .release-stamp { color: var(--muted); padding-block: 10px; }
 .login-footnote .release-stamp { padding-bottom: 0; }
 .event-details { margin-top: 8px; font-size: 12px; }
 .event-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; background: var(--bg); padding: 12px; }
@@ -1183,7 +1202,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
  .login-roro-story { display: block; margin: 8px 0 0; }
  .login-roro-story .login-eyebrow, .login-roro-story > p, .login-roro-story h1 { display: none; }
  .login-roro-stage { height: 160px; margin: 8px 0 0; }
- .login-roro-mascot { width: 200px; }
+ .login-roro-mascot { width: 180px; height: 150px; max-height: 100%; }
  .login-roro-greeting { right: calc(50% - 154px); font-size: 12px; padding: 9px 12px; }
  .login-form-panel { padding-top: 26px; }
  .usage-row { flex-wrap: wrap; }
