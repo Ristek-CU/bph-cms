@@ -1159,3 +1159,32 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 	.event-row .event-rel { display: none; }
 	.usage-row { grid-template-columns: 1fr; }
 }
+
+/* Roro welcomes the team. Keep the mascot readable at every viewport. */
+.login-roro-story { margin-block: 24px; }
+.login-roro-stage { position: relative; display: grid; place-items: center; height: clamp(250px, 34vh, 380px); margin: 18px 0 12px; }
+.login-roro-mascot { width: min(92%, 360px); height: 100%; object-fit: contain; z-index: 1; filter: drop-shadow(0 18px 24px #002a3950); animation: roro-welcome-float 4s ease-in-out infinite; }
+.login-roro-greeting { position: absolute; top: 0; right: 0; z-index: 2; color: #163a42; background: #f4d282; border-radius: 18px 18px 18px 3px; padding: 12px 18px; font-size: 14px; font-weight: 650; transform: rotate(5deg); }
+.login-roro-shadow { position: absolute; bottom: 0; width: 150px; height: 15px; border-radius: 50%; background: #002d3966; filter: blur(7px); }
+.login-roro-story h1 { font-size: clamp(30px, 3vw, 44px); margin: 18px 0 12px; line-height: 1.18; }
+.login-roro-story > p { margin: 0; line-height: 1.7; }
+.release-stamp { display: flex; flex-direction: column; gap: 4px; font-size: 11px; line-height: 1.5; color: var(--muted); text-align: center; padding: 16px 12px; flex-shrink: 0; }
+.release-stamp small { font-size: 10px; opacity: .8; }
+.sidebar > .release-stamp { color: #b6ced3; padding-block: 10px; }
+.login-footnote .release-stamp { padding-bottom: 0; }
+.event-details { margin-top: 8px; font-size: 12px; }
+.event-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; background: var(--bg); padding: 12px; }
+.usage-controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-block: 12px; }
+.usage-controls label { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+@keyframes roro-welcome-float { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-14px) rotate(3deg); } }
+@media (max-width: 760px) {
+ .login-roro-story { display: block; margin: 8px 0 0; }
+ .login-roro-story .login-eyebrow, .login-roro-story > p, .login-roro-story h1 { display: none; }
+ .login-roro-stage { height: 160px; margin: 8px 0 0; }
+ .login-roro-mascot { width: 200px; }
+ .login-roro-greeting { right: calc(50% - 154px); font-size: 12px; padding: 9px 12px; }
+ .login-form-panel { padding-top: 26px; }
+ .usage-row { flex-wrap: wrap; }
+ .usage-nums { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { .login-roro-mascot { animation: none; } }

@@ -73,6 +73,10 @@
 		}
 	],
 	"dev": {
-		"inspector_port": 9236
+		"inspector_port": 9236,
+		// ponytail: tanpa ini wrangler meng-infer host dari route custom_domain
+		// pertama (cms.sga-cakrawala.org), c.req.url host-nya jadi bukan localhost,
+		// dan gate isLocalRequest di admin-auth mematikan dev-auth (401 dev-token).
+		"host": "localhost"
 	}
 }

@@ -1,6 +1,6 @@
 // Service Roro (RORO-PLAN.md §3.4–§3.7): loop chat + tool, gerbang konfirmasi,
 // memori per akun, kuota harian/bulanan.
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 import { z } from "zod";
 import { ApiError } from "../../shared/api-error";
@@ -16,7 +16,7 @@ import { LlmUnavailableError, llmChat, llmChatStream, stripThinking, type LlmMes
 import { TOOLS, canUseTool, llmToolDefs, toolByName, type ToolContext } from "./tools";
 import { buildSystem, nowWib, todayWib } from "./prompt";
 import { logAiEvent, type LogAiEventParams } from "./oversight.service";
-import { precheckUserMessage } from "./security";
+import { precheckWithRules, loadGuardRules } from "./security";
 import { eventService } from "../events/event.service";
 import { formService } from "../forms/form.service";
 import { recordAuditLog } from "../audit/audit.service";
@@ -51,7 +51,7 @@ export const quotaCheck = async (
 	const rows = await db
 		.select({ day: aiUsage.day, requests: aiUsage.requests })
 		.from(aiUsage)
-		.where(and(eq(aiUsage.userId, userId), sql`${aiUsage.day} >= ${month}-01`));
+		.where(and(eq(aiUsage.userId, userId), sql`${aiUsage.day} >= ${month + "-01"}`));
 	const usedToday = rows.find((r) => r.day === day)?.requests ?? 0;
 	const usedMonth = rows.reduce((a, r) => a + r.requests, 0);
 
@@ -70,20 +70,21 @@ export const quotaRecord = async (
 	userId: string,
 	day: string,
 	usage: { input_tokens: number; output_tokens: number },
+	requests = 1,
 ) => {
 	await db
 		.insert(aiUsage)
 		.values({
 			userId,
 			day,
-			requests: 1,
+			requests,
 			inputTokens: usage.input_tokens,
 			outputTokens: usage.output_tokens,
 		})
 		.onConflictDoUpdate({
 			target: [aiUsage.userId, aiUsage.day],
 			set: {
-				requests: sql`${aiUsage.requests} + 1`,
+				requests: sql`${aiUsage.requests} + ${requests}`,
 				inputTokens: sql`${aiUsage.inputTokens} + ${usage.input_tokens}`,
 				outputTokens: sql`${aiUsage.outputTokens} + ${usage.output_tokens}`,
 			},
@@ -100,7 +101,7 @@ export const quotaSummary = async (
 	const rows = await db
 		.select()
 		.from(aiUsage)
-		.where(and(eq(aiUsage.userId, userId), sql`${aiUsage.day} >= ${month}-01`));
+		.where(and(eq(aiUsage.userId, userId), sql`${aiUsage.day} >= ${month + "-01"}`));
 	const daily = num(env.RORO_DAILY_LIMIT, 40);
 	const monthly = num(env.RORO_MONTHLY_LIMIT, 400);
 	const usedToday = rows.find((r) => r.day === day)?.requests ?? 0;
@@ -117,7 +118,7 @@ const conversationOr404 = async (db: Db, id: string, userId: string) => {
 	const [conv] = await db
 		.select()
 		.from(aiConversations)
-		.where(and(eq(aiConversations.id, id), eq(aiConversations.userId, userId)));
+		.where(and(eq(aiConversations.id, id), eq(aiConversations.userId, userId), isNull(aiConversations.deletedAt)));
 	if (!conv) throw ApiError.notFound("Percakapan tidak ditemukan");
 	return conv;
 };
@@ -125,6 +126,7 @@ const conversationOr404 = async (db: Db, id: string, userId: string) => {
 export type ChatActor = {
 	userId: string;
 	userName?: string;
+	userEmail?: string;
 	role?: string;
 	divisionId?: string;
 	divisionName?: string;
@@ -211,6 +213,17 @@ const aiLog = (db: Db, actor: ChatActor & { userEmail?: string }, convId: string
 		...e,
 	});
 
+const recordModelUsage = async (db: Db, actor: ChatActor, conversationId: string, usage: { input_tokens: number; output_tokens: number; reported?: boolean } | undefined, source: string, day: string) => {
+	const input = usage?.input_tokens ?? 0;
+	const output = usage?.output_tokens ?? 0;
+	await quotaRecord(db, actor.userId, day, { input_tokens: input, output_tokens: output }, 0);
+	await aiLog(db, actor, conversationId, {
+		eventType: "model_usage", level: !usage || usage.reported === false ? "warn" : "info",
+		message: !usage || usage.reported === false ? "Provider tidak melaporkan token lengkap" : `Pemakaian AI: ${input} input + ${output} output token`,
+		metadata: { source, input_tokens: input, output_tokens: output, usage_reported: !!usage && usage.reported !== false },
+	});
+};
+
 export const assistantService = {
 	// ---- Chat ---------------------------------------------------------------
 
@@ -225,24 +238,26 @@ export const assistantService = {
 		},
 		input: { conversation_id?: string; message: string },
 	) {
-		// Precheck keamanan SEBELUM LLM — tolak injeksi prompt & permintaan kode,
-		// hemat token, catat ke ai_events untuk oversight Ristek.
-		const pre = precheckUserMessage(input.message);
+		if (input.conversation_id) await conversationOr404(db, input.conversation_id, actor.userId);
+		const usageDay = quotaDay();
+		// Precheck keamanan SEBELUM LLM — aturan dari ai_guard_rules (tanpa hardcode).
+		const rules = await loadGuardRules(db);
+		const pre = precheckWithRules(input.message, rules);
 		if (pre.blocked) {
-			await aiLog(db, actor as any, null, {
+			await aiLog(db, actor, input.conversation_id, {
 				eventType: pre.reason === "injection" ? "injection_blocked" : "code_blocked",
 				level: "warn",
 				message: `Pesan diblokir: ${pre.signals.join(", ")}`,
-				metadata: { message_preview: input.message.slice(0, 200) },
+				metadata: { message: input.message, signals: pre.signals, refusal: pre.refusal },
 			});
-			return { reply: pre.refusal, proposal: null, message_id: null as string | null, conversation_id: null as string | null, blocked: pre.reason };
+			return { reply: pre.refusal, proposal: null, message_id: null as string | null, conversation_id: input.conversation_id ?? null, blocked: pre.reason };
 		}
 
 		try {
 			await quotaCheck(db, actor.userId, env);
 		} catch (e) {
 			if (e instanceof ApiError && e.statusCode === 429) {
-				await aiLog(db, actor as any, null, {
+				await aiLog(db, actor, null, {
 					eventType: "quota_exceeded",
 					level: "warn",
 					message: e.message,
@@ -266,6 +281,7 @@ export const assistantService = {
 			});
 		}
 
+		await quotaRecord(db, actor.userId, usageDay, { input_tokens: 0, output_tokens: 0 });
 		// 2. Simpan pesan user.
 		const userMsgId = uuidv7();
 		await db.insert(aiMessages).values({
@@ -276,6 +292,7 @@ export const assistantService = {
 			createdAt: new Date().toISOString(),
 		});
 
+		await aiLog(db, actor, convId, { eventType: "chat_request", level: "info", message: "Pesan diterima, Roro memproses", metadata: { message_id: userMsgId } });
 		// 3. Riwayat + memori.
 		const history = await db
 			.select()
@@ -283,7 +300,12 @@ export const assistantService = {
 			.where(eq(aiMessages.conversationId, convId))
 			.orderBy(desc(aiMessages.createdAt))
 			.limit(HISTORY_WINDOW);
-		const ordered = [...history].reverse();
+		const ordered = [...history].reverse().filter((m, i, all) => {
+			// Keep the audit transcript, but do not replay blocked instructions or their refusal.
+			if (m.role === "user") return !precheckWithRules(m.content, rules).blocked;
+			const previous = all[i - 1];
+			return !previous || previous.role !== "user" || !precheckWithRules(previous.content, rules).blocked;
+		});
 		const [memory] = await db.select().from(aiMemories).where(eq(aiMemories.userId, actor.userId));
 
 		const llmMessages: LlmMessage[] = ordered.map((m) => ({ role: m.role, content: m.content }));
@@ -319,20 +341,21 @@ export const assistantService = {
 				if (e instanceof LlmUnavailableError) {
 					replyText =
 						"Roro sedang tidak bisa dihubungi (layanan AI bermasalah). Coba lagi sebentar lagi — pesanmu sudah tersimpan di riwayat.";
-					await aiLog(db, actor as any, convId, {
+					await aiLog(db, actor, convId, {
 						eventType: "llm_unavailable",
 						level: "error",
 						message: e.message || "LLM unavailable",
 					});
 					break;
 				}
-				await aiLog(db, actor as any, convId, {
+				await aiLog(db, actor, convId, {
 					eventType: "error",
 					level: "error",
 					message: e instanceof Error ? e.message : String(e),
 				});
 				throw e;
 			}
+			await recordModelUsage(db, actor, convId, res.usage, "chat", usageDay);
 			totalIn += res.usage?.input_tokens ?? 0;
 			totalOut += res.usage?.output_tokens ?? 0;
 
@@ -346,16 +369,17 @@ export const assistantService = {
 			const results: LlmToolResult[] = [];
 			for (const tu of toolUses) {
 				const p = await handleToolUse(actor, toolCtx, tu, results);
+				await aiLog(db, actor, convId, { eventType: "tool_result", level: results.at(-1)?.is_error ? "warn" : "info", message: `Hasil tool ${tu.name}`, metadata: { tool: tu.name, input: tu.input, result: results.at(-1) } });
 				if (p) {
 					proposal = p;
-					await aiLog(db, actor as any, convId, {
+					await aiLog(db, actor, convId, {
 						eventType: "proposal",
 						level: "info",
 						message: `Proposal ${p.tool} dibuat`,
 						metadata: { tool: p.tool },
 					});
 				} else {
-					await aiLog(db, actor as any, convId, {
+					await aiLog(db, actor, convId, {
 						eventType: "tool_use",
 						level: "info",
 						message: `Tool ${tu.name} dipanggil`,
@@ -385,8 +409,7 @@ export const assistantService = {
 			.update(aiConversations)
 			.set({ updatedAt: new Date().toISOString() })
 			.where(eq(aiConversations.id, convId));
-		await quotaRecord(db, actor.userId, quotaDay(), { input_tokens: totalIn, output_tokens: totalOut });
-		await aiLog(db, actor as any, convId, {
+		await aiLog(db, actor, convId, {
 			eventType: "chat_turn",
 			level: "info",
 			message: `Balasan terkirim (${totalIn}/${totalOut} tok)${proposal ? ` · proposal ${proposal.tool}` : ""}`,
@@ -400,7 +423,9 @@ export const assistantService = {
 			.where(and(eq(aiMessages.conversationId, convId), eq(aiMessages.role, "user")));
 		const count = Number(userCount[0]?.n ?? 0);
 		if (count > 0 && count % MEMORY_EVERY === 0) {
-			await this.updateMemory(db, actor, env, convId).catch(() => {}); // memori gagal ≠ chat gagal
+			await this.updateMemory(db, actor, env, convId).catch(async () => {
+				await aiLog(db, actor, convId, { eventType: "error", level: "error", message: "Pembaruan memori Roro gagal" });
+			});
 		}
 
 		return {
@@ -428,17 +453,20 @@ export const assistantService = {
 		input: { conversation_id?: string; message: string },
 		emit: (event: Record<string, unknown>) => void,
 	) {
-		// Precheck keamanan SEBELUM LLM (sama dengan chat()) — hemat token, catat.
-		const pre = precheckUserMessage(input.message);
+		if (input.conversation_id) await conversationOr404(db, input.conversation_id, actor.userId);
+		const usageDay = quotaDay();
+		// Precheck keamanan SEBELUM LLM (sama dengan chat()) — aturan dari DB.
+		const rules = await loadGuardRules(db);
+		const pre = precheckWithRules(input.message, rules);
 		if (pre.blocked) {
-			await aiLog(db, actor as any, null, {
+			await aiLog(db, actor, input.conversation_id, {
 				eventType: pre.reason === "injection" ? "injection_blocked" : "code_blocked",
 				level: "warn",
 				message: `Pesan diblokir: ${pre.signals.join(", ")}`,
-				metadata: { message_preview: input.message.slice(0, 200) },
+				metadata: { message: input.message, signals: pre.signals, refusal: pre.refusal },
 			});
 			emit({ type: "text", text: pre.refusal });
-			emit({ type: "done", conversation_id: null, reply: pre.refusal, proposal: null, message_id: null, blocked: pre.reason });
+			emit({ type: "done", conversation_id: input.conversation_id ?? null, reply: pre.refusal, proposal: null, message_id: null, blocked: pre.reason });
 			return;
 		}
 
@@ -446,7 +474,7 @@ export const assistantService = {
 			await quotaCheck(db, actor.userId, env);
 		} catch (e) {
 			if (e instanceof ApiError && e.statusCode === 429) {
-				await aiLog(db, actor as any, null, { eventType: "quota_exceeded", level: "warn", message: e.message });
+				await aiLog(db, actor, null, { eventType: "quota_exceeded", level: "warn", message: e.message });
 			}
 			throw e;
 		}
@@ -466,6 +494,7 @@ export const assistantService = {
 			});
 		}
 
+		await quotaRecord(db, actor.userId, usageDay, { input_tokens: 0, output_tokens: 0 });
 		const userMsgId = uuidv7();
 		await db.insert(aiMessages).values({
 			id: userMsgId,
@@ -475,13 +504,19 @@ export const assistantService = {
 			createdAt: new Date().toISOString(),
 		});
 
+		await aiLog(db, actor, convId, { eventType: "chat_request", level: "info", message: "Pesan diterima, Roro memproses", metadata: { message_id: userMsgId } });
 		const history = await db
 			.select()
 			.from(aiMessages)
 			.where(eq(aiMessages.conversationId, convId))
 			.orderBy(desc(aiMessages.createdAt))
 			.limit(HISTORY_WINDOW);
-		const ordered = [...history].reverse();
+		const ordered = [...history].reverse().filter((m, i, all) => {
+			// Keep the audit transcript, but do not replay blocked instructions or their refusal.
+			if (m.role === "user") return !precheckWithRules(m.content, rules).blocked;
+			const previous = all[i - 1];
+			return !previous || previous.role !== "user" || !precheckWithRules(previous.content, rules).blocked;
+		});
 		const [memory] = await db.select().from(aiMemories).where(eq(aiMemories.userId, actor.userId));
 
 		const llmMessages: LlmMessage[] = ordered.map((m) => ({ role: m.role, content: m.content }));
@@ -499,7 +534,7 @@ export const assistantService = {
 		// divisi punya banyak form, ganti dengan tool yang dipanggil sistem.
 		const WANTS_INSIGHT = /insight|statistik|analitik|respons|responden|jawaban|isi form|rekap/i.test(input.message);
 		let formStatsMd: string | undefined;
-		if (WANTS_INSIGHT) {
+		if (WANTS_INSIGHT && canUseTool(actor.permissions, toolByName("get_form_stats")!, { isOwnDivision: true })) {
 			const { items } = await formService.listAdmin(db, { divisionId: actor.divisionId, perPage: 50 });
 			const withSubs = (items as Array<Record<string, unknown>>).filter((f) => Number(f.submission_count ?? 0) > 0).slice(0, 5);
 			if (withSubs.length) {
@@ -552,11 +587,17 @@ export const assistantService = {
 					messages: llmMessages,
 					tools: noTools ? [] : llmToolDefs(),
 				})) {
+					if (ev.type === "usage") {
+						totalIn += ev.usage.input_tokens;
+						totalOut += ev.usage.output_tokens;
+						await recordModelUsage(db, actor, convId!, ev.usage, "chat_stream", usageDay);
+						continue;
+					}
 					if (ev.type === "thinking") {
 						thinkingAll += ev.text;
 						// Emit thinking hanya sampai jawaban final mulai — setelah itu
 						// bubble berpindah ke mode jawaban.
-						if (!textBuf) emit({ type: "thinking", text: ev.text });
+						if (!textBuf && !thinkingSent) emit({ type: "thinking", text: "Menyiapkan jawaban untukmu…" });
 						thinkingSent = true;
 						continue;
 					}
@@ -577,18 +618,15 @@ export const assistantService = {
 					replyText =
 						"Roro sedang tidak bisa dihubungi (layanan AI bermasalah). Coba lagi sebentar lagi — pesanmu sudah tersimpan di riwayat.";
 					emit({ type: "text", text: replyText });
-					await aiLog(db, actor as any, convId, { eventType: "llm_unavailable", level: "error", message: e.message || "LLM unavailable" });
+					await aiLog(db, actor, convId, { eventType: "llm_unavailable", level: "error", message: e.message || "LLM unavailable" });
 					return false;
 				}
-				await aiLog(db, actor as any, convId, { eventType: "error", level: "error", message: e instanceof Error ? e.message : String(e) });
+				await aiLog(db, actor, convId, { eventType: "error", level: "error", message: e instanceof Error ? e.message : String(e) });
 				throw e;
 			}
 
 			replyText = stripDsml(replyText + textBuf);
-			// ponytail: token stream diabaikan (0), kuota per-request tetap jalan; pasang
-			// message_delta usage kalau butuh akurasi token.
-			totalIn += 0;
-			totalOut += 0;
+			// Token sudah dicatat per panggilan provider, termasuk ronde tool dan retry.
 
 			if (toolUses.length === 0) {
 				lastRoundUsedTool = false;
@@ -608,16 +646,17 @@ export const assistantService = {
 			const results: LlmToolResult[] = [];
 			for (const tu of toolUses) {
 				const p = await handleToolUse(actor, toolCtx, tu, results);
+				await aiLog(db, actor, convId, { eventType: "tool_result", level: results.at(-1)?.is_error ? "warn" : "info", message: `Hasil tool ${tu.name}`, metadata: { tool: tu.name, input: tu.input, result: results.at(-1) } });
 				if (p) {
 					proposal = p;
-					await aiLog(db, actor as any, convId, {
+					await aiLog(db, actor, convId, {
 						eventType: "proposal",
 						level: "info",
 						message: `Proposal ${p.tool} dibuat`,
 						metadata: { tool: p.tool },
 					});
 				} else {
-					await aiLog(db, actor as any, convId, { eventType: "tool_use", level: "info", message: `Tool ${tu.name} dipanggil` });
+					await aiLog(db, actor, convId, { eventType: "tool_use", level: "info", message: `Tool ${tu.name} dipanggil` });
 				}
 			}
 			llmMessages.push({ role: "user", content: results });
@@ -676,7 +715,7 @@ export const assistantService = {
 			if (rescued && canUseTool(actor.permissions, toolByName(rescued.tool)!, { isOwnDivision: true })) {
 				saved = rescued;
 				replyText = stripToolJson(replyText); // Buang blok tool-call; sisakan sapaan lain.
-				await aiLog(db, actor as any, convId, {
+				await aiLog(db, actor, convId, {
 					eventType: "rescue",
 					level: "warn",
 					message: `Tool call sebagai teks di-rescue menjadi ${rescued.tool}`,
@@ -685,7 +724,7 @@ export const assistantService = {
 			}
 		}
 		if (FAKE_CALL.test(replyText)) {
-			await aiLog(db, actor as any, convId, { eventType: "fake_call", level: "warn", message: "Panggilan tool palsu terdeteksi, paksa ronde ulang" });
+			await aiLog(db, actor, convId, { eventType: "fake_call", level: "warn", message: "Panggilan tool palsu terdeteksi, paksa ronde ulang" });
 			replyText = "";
 			llmMessages.push({
 				role: "user",
@@ -707,7 +746,7 @@ export const assistantService = {
 		const PROMISES_DRAFT =
 			/((aku|saya|sudah|akan|langsung|coba|tinggal)\s*(saja\s*)?(saya\s*)?(susun|buat|siapkan|usulkan|kirim)[^\n]{0,60}(draft|draf))|(berikut\s+(draft|draf)(\s+(form|event))-nya)|((draft|draf)\s+(ini\s+)?(form|event)?\s*(sudah|berstatus))/i;
 		if (!saved && !formStatsMd && PROMISES_DRAFT.test(replyText)) {
-			await aiLog(db, actor as any, convId, { eventType: "promise_without_tool", level: "warn", message: "Janji draft tanpa tool call, paksa ronde ulang" });
+			await aiLog(db, actor, convId, { eventType: "promise_without_tool", level: "warn", message: "Janji draft tanpa tool call, paksa ronde ulang" });
 			replyText = "";
 			llmMessages.push({
 				role: "user",
@@ -733,6 +772,7 @@ export const assistantService = {
 			if (!replyText.trim()) await streamRound(true);
 		}
 
+		saved = (proposal as Proposal | null) ?? saved;
 		// Path insight lewat guard klaim-kreate: teksnya ringkasan data, bukan
 		// klaim eksekusi — regex klaim sukses sering false-positive di sini.
 		if (!formStatsMd) replyText = sanitizeReply(replyText, !!saved);
@@ -750,12 +790,11 @@ export const assistantService = {
 			createdAt: new Date().toISOString(),
 		});
 		await db.update(aiConversations).set({ updatedAt: new Date().toISOString() }).where(eq(aiConversations.id, convId));
-		await quotaRecord(db, actor.userId, quotaDay(), { input_tokens: totalIn, output_tokens: totalOut });
-		await aiLog(db, actor as any, convId, {
+		await aiLog(db, actor, convId, {
 			eventType: "chat_turn",
 			level: "info",
 			message: `Balasan terkirim${saved ? ` · proposal ${saved.tool}` : ""}`,
-			metadata: { proposal: saved?.tool ?? null },
+			metadata: { proposal: saved?.tool ?? null, input_tokens: totalIn, output_tokens: totalOut },
 		});
 
 		// Memori: sama dengan chat() — jalur stream adalah jalur utama panel, tanpa
@@ -768,7 +807,9 @@ export const assistantService = {
 			.where(and(eq(aiMessages.conversationId, convId), eq(aiMessages.role, "user")));
 		const count = Number(userCount[0]?.n ?? 0);
 		if (count > 0 && count % MEMORY_EVERY === 0) {
-			await this.updateMemory(db, actor, env, convId).catch(() => {}); // memori gagal ≠ chat gagal
+			await this.updateMemory(db, actor, env, convId).catch(async () => {
+				await aiLog(db, actor, convId, { eventType: "error", level: "error", message: "Pembaruan memori Roro gagal" });
+			});
 		}
 
 		emit({
@@ -853,7 +894,7 @@ export const assistantService = {
 				conversation_id: input.conversation_id,
 			});
 
-			await aiLog(db, actor as any, input.conversation_id, {
+			await aiLog(db, actor, input.conversation_id, {
 				eventType: "confirm",
 				level: "info",
 				message: `Proposal ${proposal.tool} dikonfirmasi → ${resourceId}`,
@@ -865,7 +906,7 @@ export const assistantService = {
 				resource_id: resourceId,
 			};
 		} catch (error) {
-			await aiLog(db, actor as any, input.conversation_id, {
+			await aiLog(db, actor, input.conversation_id, {
 				eventType: "error",
 				level: "error",
 				message: `Confirm ${proposal.tool} gagal: ${error instanceof Error ? error.message : String(error)}`,
@@ -896,7 +937,7 @@ export const assistantService = {
 	async updateMemory(
 		db: Db,
 		actor: ChatActor,
-		env: Parameters<typeof quotaCheck>[2] & { RORO_API_KEY?: string },
+		env: Parameters<typeof quotaCheck>[2] & Parameters<typeof llmChat>[0],
 		conversationId: string,
 	) {
 		const history = await db
@@ -925,6 +966,7 @@ export const assistantService = {
 			tools: [],
 			max_tokens: 500,
 		});
+		await recordModelUsage(db, actor, conversationId, res.usage, "memory", quotaDay());
 		const text = res.content
 			.filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
 			.map((b) => b.text)
@@ -948,7 +990,7 @@ export const assistantService = {
 		const rows = await db
 			.select()
 			.from(aiConversations)
-			.where(eq(aiConversations.userId, userId))
+			.where(and(eq(aiConversations.userId, userId), isNull(aiConversations.deletedAt)))
 			.orderBy(desc(aiConversations.updatedAt))
 			.limit(50);
 		return rows;
@@ -967,7 +1009,8 @@ export const assistantService = {
 
 	async deleteConversation(db: Db, userId: string, id: string) {
 		await conversationOr404(db, id, userId);
-		await db.delete(aiConversations).where(eq(aiConversations.id, id));
+		await db.update(aiConversations).set({ deletedAt: new Date().toISOString() }).where(eq(aiConversations.id, id));
+		await logAiEvent({ db, conversationId: id, userId, eventType: "conversation_deleted", level: "info", message: "Percakapan dihapus dari riwayat pengguna; audit disimpan 90 hari" });
 	},
 };
 

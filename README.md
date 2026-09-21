@@ -76,3 +76,33 @@ Var penting: `CORS_ORIGIN` (allowlist), `DOCS_ALLOW_EMAILS` (akses Swagger),
 - `docs/RUNNING-GUIDE.md` — cara menjalankan
 - `docs/PANEL-UI.md` — UI panel
 - `docs/FE-INTEGRATION.md`, `docs/ACCOUNTS-ACCESS.md`, `docs/DIVISION-ACCOUNTS.md` — integrasi & akses
+
+## Roro launch audit (21 September 2026)
+
+Ristek can inspect conversations (including paginated long transcripts), per-call
+provider token usage, tool inputs/results, blocked messages, errors, and account
+rankings at **Oversight Roro**. Usage can be filtered by month and sorted by tokens
+or chat requests. Timestamps use WIB. Access remains restricted to the configured
+Ristek allowlist; ordinary division and BPH accounts cannot read this dashboard.
+
+Token accounting includes streaming, tool/retry rounds, and memory summarization.
+Input totals include provider cache-read/cache-creation tokens. Missing provider
+usage is explicitly logged as a warning. Historical streaming zeros cannot be
+reconstructed accurately and should not be interpreted as free usage.
+
+Operational logs are retained for 90 days. Deleting a conversation removes it
+from the user's history immediately; Ristek retains the audit copy for 90 days,
+then scheduled cleanup permanently removes it. Already-deleted old conversations
+cannot be recovered by this change.
+
+CI runs typecheck, backend tests, and panel lint before deploying. The footer
+shows **SGA Hub CMS v1.0**, workflow deployment sequence/attempt, and commit SHA.
+The sequence identifies deployment attempts, not a count of successful releases.
+Local builds are marked as local. Always verify the GitHub deployment result.
+
+Validation commands: `npm test`, `npm run typecheck`, `npm --prefix panel run lint`,
+`npm --prefix panel run build`, and `npm --prefix panel run test:ui`.
+Streaming usage follows the [provider-compatible cumulative SSE semantics](https://platform.claude.com/docs/en/build-with-claude/streaming).
+Security regressions cover cross-account access, false-positive guard recovery,
+stream interruption, token totals, monthly filtering, and paginated audit reads.
+Passing these checks is not a guarantee against every possible prompt injection.

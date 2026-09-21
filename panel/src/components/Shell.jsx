@@ -10,6 +10,7 @@ import { IconCalendar, IconClipboard, IconEye, IconEyeOff, IconGrid, IconLink, I
 
 // Logomark SGA Cakrawala — outline putih transparan (dari landing page).
 import logoSga from "/logo-sga.webp";
+import { ReleaseStamp } from "./ReleaseStamp.jsx";
 
 // Hash routing — panel di-host sebagai aset Worker, tanpa rewrite tambahan.
 export const href = (path) => `#${path}`;
@@ -39,8 +40,12 @@ export function Login({ onLogin, notice }) {
 		<main className="login-page">
 			<section className="login-story" aria-label="SGA CMS Hub">
 				<div className="login-wordmark"><img src={logoSga} alt="" /><span>SGA CAKRAWALA<small>Ruang kerja pengurus</small></span></div>
-				<div className="login-story-body"><span className="login-eyebrow">BERSAMA, BERGERAK.</span><h1>Ide baik.<br />Aksi nyata.<br /><em>Satu ruang kerja.</em></h1><p>Dari agenda kampus sampai suara mahasiswa. Kelola semuanya bersama tim SGA.</p>
-				<div className="login-features"><span><IconCalendar size={18} /> Agenda &amp; event</span><span><IconClipboard size={18} /> Aspirasi mahasiswa</span><span><IconUsers size={18} /> Evaluasi pengurus</span></div></div>
+				<div className="login-story-body login-roro-story">
+					<span className="login-eyebrow">TEMAN KERJA TIM SGA</span>
+					<div className="login-roro-stage"><span className="login-roro-greeting">Hai, aku Roro! <span aria-hidden>✦</span></span><img src="/roro.png" className="login-roro-mascot" alt="Roro, asisten SGA yang siap membantu" draggable={false} /><span className="login-roro-shadow" aria-hidden /></div>
+					<h1>Ide kamu.<br /><em>Kita wujudkan bareng.</em></h1>
+					<p>Dari agenda kampus sampai suara mahasiswa. Roro siap bantu kamu mulai.</p>
+				</div>
 				<span className="login-story-footer">Student Government Association · Cakrawala University</span>
 			</section>
 			<section className="login-form-panel">
@@ -61,7 +66,7 @@ export function Login({ onLogin, notice }) {
 					{err && <div className="login-error" role="alert">{err}</div>}
 					<button className="btn" type="submit" disabled={busy}>{busy ? "Memeriksa akun…" : <>Masuk <IconChevronRight size={18} /></>}</button>
 					<p className="login-help">Belum punya akses atau lupa password?<br />Hubungi admin BPH untuk bantuan akun.</p>
-					<div className="login-footnote">Akses sesuai peran dan divisi kamu.</div>
+					<div className="login-footnote">Akses sesuai peran dan divisi kamu.<ReleaseStamp /></div>
 				</form>
 			</section>
 		</main>
@@ -172,6 +177,7 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 				<button onClick={logout}>Keluar</button>
 				</div>
 			</div>
+			<ReleaseStamp />
 		</aside>
 	);
 

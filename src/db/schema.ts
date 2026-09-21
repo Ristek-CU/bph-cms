@@ -397,6 +397,7 @@ export const aiConversations = sqliteTable(
 		id: text("id").primaryKey(),
 		userId: text("user_id").notNull(),
 		title: text("title").notNull().default("Percakapan baru"),
+		deletedAt: text("deleted_at"),
 		createdAt: text("created_at").notNull(),
 		updatedAt: text("updated_at").notNull(),
 	},
@@ -473,6 +474,23 @@ export const aiEvents = sqliteTable(
 		index("ai_events_recent_idx").on(table.createdAt),
 		index("ai_events_conv_idx").on(table.conversationId, table.createdAt),
 	],
+);
+
+// Guard rules Roro (RORO-GUARD-ENGINE): aturan precheck injection/code di DB —
+// Ristek tambah/matikan pola tanpa deploy. Format pattern: "re:<regex>" (atau
+// "re:<a>||<b>" multi-regex) atau substring polos; case-insensitive. Engine di
+// src/modules/assistant/security.ts, cache in-memory 60 dtk.
+export const aiGuardRules = sqliteTable(
+	"ai_guard_rules",
+	{
+		id: text("id").primaryKey(),
+		category: text("category").notNull(), // injection | code
+		pattern: text("pattern").notNull(),
+		signal: text("signal").notNull(),
+		enabled: integer("enabled").notNull().default(1),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [index("ai_guard_rules_cat_idx").on(table.category, table.enabled)],
 );
 
 export const aiConversationsRelations = relations(aiConversations, ({ many }) => ({

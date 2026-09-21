@@ -42,7 +42,17 @@ export type LlmToolDef = {
 	input_schema: Record<string, unknown>;
 };
 
-export type LlmUsage = { input_tokens: number; output_tokens: number };
+export type LlmUsage = { input_tokens: number; output_tokens: number; reported?: boolean };
+
+// Provider usage is cumulative per request; cache tokens are also consumed input.
+export const normalizeUsage = (raw: Record<string, unknown> = {}): LlmUsage => {
+	const n = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0;
+	return {
+		input_tokens: n(raw.input_tokens) + n(raw.cache_creation_input_tokens) + n(raw.cache_read_input_tokens),
+		output_tokens: n(raw.output_tokens),
+		reported: typeof raw.input_tokens === "number" && typeof raw.output_tokens === "number",
+	};
+};
 
 export type LlmResponse = {
 	content: Array<LlmToolUse | LlmContent | LlmThinking>;
@@ -84,6 +94,7 @@ export const llmChat = async (
 	const base = (env.RORO_BASE_URL || "https://api.surplusintelligence.ai/anthropic").replace(/\/$/, "");
 	const res = await fetch(`${base}/v1/messages`, {
 		method: "POST",
+		signal: AbortSignal.timeout(120_000),
 		headers: {
 			"Content-Type": "application/json",
 			"x-api-key": env.RORO_API_KEY,
@@ -108,6 +119,7 @@ export const llmChat = async (
 	if (!Array.isArray(data.content)) {
 		throw new LlmUnavailableError("LLM membalas bentuk tak dikenal");
 	}
+	data.usage = normalizeUsage(data.usage);
 	return data;
 };
 
@@ -125,6 +137,7 @@ export type StreamEvent =
 	| { type: "text"; text: string } // delta jawaban final
 	| { type: "tool_use_start"; name: string } // model mulai memanggil tool
 	| { type: "tool_use"; id: string; name: string; input: unknown; stop_reason: string | null } // utuh, setelah stream selesai
+	| { type: "usage"; usage: LlmUsage }
 	| { type: "done" };
 
 export const llmChatStream = async function* (
@@ -161,6 +174,7 @@ export const llmChatStream = async function* (
 	const base = (env.RORO_BASE_URL || "https://api.surplusintelligence.ai/anthropic").replace(/\/$/, "");
 	const res = await fetch(`${base}/v1/messages`, {
 		method: "POST",
+		signal: AbortSignal.timeout(120_000),
 		headers: {
 			"Content-Type": "application/json",
 			"x-api-key": env.RORO_API_KEY,
@@ -189,14 +203,17 @@ export const llmChatStream = async function* (
 	let buf = "";
 	let done = false;
 	let stopReason: string | null = null;
+	let usage: Record<string, unknown> = {};
 	// Akumulasi tool_use: content_block_start memberi id+name, input_json_delta
 	// mengalirkan JSON-nya, content_block_stop menandai selesai.
 	const tools: Array<{ index: number; id: string; name: string; json: string }> = [];
 
+	try {
 	while (!done) {
 		const { value, done: eof } = await reader.read();
 		if (eof) break;
 		buf += decoder.decode(value, { stream: true });
+		buf = buf.replace(/\r\n/g, "\n");
 
 		let idx: number;
 		while ((idx = buf.indexOf("\n\n")) !== -1) {
@@ -212,6 +229,11 @@ export const llmChatStream = async function* (
 			}
 
 			switch (evt.type) {
+				case "message_start":
+					usage = { ...usage, ...evt.message?.usage };
+					break;
+				case "error":
+					throw new LlmUnavailableError("LLM stream error");
 				case "content_block_start":
 					if (evt.content_block?.type === "tool_use") {
 						tools.push({
@@ -234,6 +256,7 @@ export const llmChatStream = async function* (
 					}
 					break;
 				case "message_delta":
+					usage = { ...usage, ...evt.usage };
 					if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
 					break;
 				case "message_stop":
@@ -241,6 +264,13 @@ export const llmChatStream = async function* (
 					break;
 			}
 		}
+	}
+
+	if (!done) throw new LlmUnavailableError("LLM stream terputus sebelum selesai");
+	} finally {
+		yield { type: "usage", usage: normalizeUsage(usage) };
+		await reader.cancel().catch(() => {});
+		reader.releaseLock();
 	}
 
 	// Tool_use di-yield SETELAH stream selesai — urutan aman untuk loop service

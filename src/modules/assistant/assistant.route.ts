@@ -10,7 +10,7 @@ import { ApiError } from "../../shared/api-error";
 import { recordAuditLog } from "../audit/audit.service";
 import { d1RateLimiter } from "../../middlewares/rate-limiter";
 import { assistantService, quotaSummary, type ChatActor } from "./service";
-import { oversightService } from "./oversight.service";
+import { logAiEvent, oversightService } from "./oversight.service";
 
 const chatSchema = z.object({
 	conversation_id: z.string().min(1).optional(),
@@ -72,19 +72,26 @@ adminAssistantRouter.post("/chat/stream", chatLimiter, async (c) => {
 	const db = c.get("db");
 	const env = c.env;
 
+	let connected = true;
 	const sse = new ReadableStream({
+		cancel() { connected = false; },
 		async start(controller) {
 			const enc = new TextEncoder();
 			const emit = (event: Record<string, unknown>) => {
-				controller.enqueue(enc.encode(`data: ${JSON.stringify(event)}\n\n`));
+				if (connected) {
+					try { controller.enqueue(enc.encode(`data: ${JSON.stringify(event)}\n\n`)); } catch { connected = false; }
+				}
 			};
 			try {
 				await assistantService.chatStream(db, actor, env, parsed.data!, emit);
 			} catch (e) {
 				// Error di tengah stream: kirim sebagai event (client sudah menerima 200).
-				emit({ type: "error", message: e instanceof Error ? e.message : "Terjadi kesalahan" });
+				await logAiEvent({ db, userId: actor.userId, userEmail: actor.userEmail, divisionId: actor.divisionId,
+					eventType: "error", level: "error", message: e instanceof ApiError ? e.message : "Kesalahan internal saat streaming",
+					metadata: { request_id: c.get("requestId"), status: e instanceof ApiError ? e.statusCode : 500 } });
+				emit({ type: "error", message: e instanceof ApiError ? e.message : "Roro mengalami kendala. Coba lagi sebentar.", request_id: c.get("requestId") });
 			} finally {
-				controller.close();
+				if (connected) controller.close();
 			}
 		},
 	});
@@ -155,7 +162,7 @@ adminAssistantRouter.get("/oversight/conversations", requireOversightAccess, asy
 });
 
 adminAssistantRouter.get("/oversight/conversations/:id", requireOversightAccess, async (c) => {
-	const data = await oversightService.getConversation(c.get("db"), c.req.param("id"));
+	const data = await oversightService.getConversation(c.get("db"), c.req.param("id"), Number(c.req.query("page")) || 1);
 	if (!data) throw ApiError.notFound("Percakapan tidak ditemukan");
 	return ApiResponse.ok(c, "Isi percakapan + event", data);
 });
@@ -173,9 +180,11 @@ adminAssistantRouter.get("/oversight/events", requireOversightAccess, async (c) 
 	);
 });
 
-adminAssistantRouter.get("/oversight/usage", requireOversightAccess, async (c) =>
-	ApiResponse.ok(c, "Penggunaan Roro per user", await oversightService.usageBreakdown(c.get("db"), { month: c.req.query("month") || undefined })),
-);
+adminAssistantRouter.get("/oversight/usage", requireOversightAccess, async (c) => {
+	const month = c.req.query("month") || undefined;
+	if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw ApiError.validation("Bulan tidak valid", { month: ["Gunakan YYYY-MM"] });
+	return ApiResponse.ok(c, "Penggunaan Roro per user", await oversightService.usageBreakdown(c.get("db"), { month }));
+});
 
 const flagSchema = z.object({ note: z.string().trim().min(1).max(500) });
 

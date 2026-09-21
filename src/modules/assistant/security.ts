@@ -1,73 +1,98 @@
-// Pertahanan Roro terhadap prompt-injection + permintaan di luar tugas (RORO-OVERSIGHT).
-// Dipanggil SEBELUM LLM dipanggil untuk:
-//   (1) menolak upaya injeksi prompt (hemat token, catat ke ai_events),
-//   (2) menolak permintaan menulis/menjelaskan/mengerjakan kode program.
-// Tujuan: Roro hanya boleh bantu event & form CMS — tidak boleh jadi alat
-// coding, tidak boleh dipakai untuk task di luar nalar organisasi, dan tidak
-// boleh kena injeksi instruksi dari konten/teks user yang mencoba override
-// system prompt.
+// Guard engine Roro (RORO-GUARD-ENGINE): pertahanan terhadap prompt-injection
+// + permintaan di luar tugas, TANPA hardcode pola di kode. Aturan hidup di
+// tabel ai_guard_rules (drizzle/0012_roro_guard_rules.sql) — Ristek tambah/ubah/
+// matikan pola lewat DB tanpa deploy.
 //
-// Deteksi kasar tapi tegas: kumpulan sinyal (keyword + pola). False-positive
-// lebih aman daripada false-negative di sini — pesan yang ditolak tetap
-// diberi penjelasan ramah, dan Ristek bisa lihat upayanya di oversight.
+// Format pattern:
+//   diawali "re:"  → regex satu baris, flag "i", dipisah "||" untuk beberapa
+//   selain itu     → substring case-insensitive
+// Contoh: "re:\bjailbreak\b||\bDAN\s+mode\b", "kasih link download film"
+//
+// Kosong/tabel belum ada → engine tetap jalan pakai FALLBACK_RULES di bawah
+// (subset pola inti). Cache in-memory 60 dtk per isolate.
+//
+// Konteks aman: kalau pesan jelas soal event/form (EVENT_CONTEXT), aturan
+// kategori "code" dilewati — "buat form polling" bukan permintaan kode.
+
+import { eq } from "drizzle-orm";
+import { aiGuardRules } from "../../db/schema";
+import type { Db } from "../../db/connection";
 
 export type PrecheckResult =
 	| { blocked: false }
 	| { blocked: true; reason: "injection" | "code"; refusal: string; signals: string[] };
 
-// Sinyal injeksi prompt: instruksi yang mencoba override/abaikan system prompt,
-// menyamar sebagai instruksi sistem, atau meminta peran/kemampuan baru.
-const INJECTION_PATTERNS: Array<{ re: RegExp; signal: string }> = [
-	{ re: /ignore\s+(all\s+)?(previous|prior|above|system)\s+(instructions?|prompts?|rules?)/i, signal: "ignore-previous" },
-	{ re: /disregard\s+(all\s+)?(previous|prior|above|system)/i, signal: "disregard" },
-	{ re: /forget\s+(your|all|the)\s+(instructions?|rules?|prompt|system)/i, signal: "forget-instructions" },
-	{ re: /\b(system\s*prompt|prompt\s*sistem|instruksi\s*sistem|hidden\s*prompt)\b/i, signal: "system-prompt-ref" },
-	{ re: /\b(you\s+are\s+(now|actually)|kamu\s+sekarang\s+adalah|sekarang\s+kamu\s+adalah)\b/i, signal: "role-hijack" },
-	{ re: /\b(act\s+as|berperilaku\s+sebagai|bermain\s+sebagai)\s+(a\s+)?(developer|programmer|coder|hacker|admin|root|terminal|shell)/i, signal: "act-as-dev" },
-	{ re: /\b(jailbreak|dAN[\s\S]{0,4}|break\s+out|lewat\s+sini|keluar\s+dari\s+aturan)\b/i, signal: "jailbreak" },
-	{ re: /\b(reveal|show|tampilkan|tunjukkan|bocor)(kan)?\s+(your|kamu|the)?\s*(system\s*)?(prompt|instructions?|rules?|aturan)\b/i, signal: "reveal-prompt" },
-	{ re: /\b(override|timpa|lewati|abaikan)\s+(aturan|rules|instructions|prompt|batasan|constraints)\b/i, signal: "override-rules" },
-	{ re: /pretend\s+(you\s+(have|can|are)|that\s+there\s+are\s+no)/i, signal: "pretend-no-rules" },
-	{ re: /\b(no\s+restrictions?|tanpa\s+batas|tanpa\s+aturan|unrestricted|no\s+rules)\b/i, signal: "no-restrictions" },
-	{ re: /\b(exec(ute)?|run|jalankan|eval)\s+(arbitrary|code|perintah|command)\b/i, signal: "exec-code" },
-	// Pola "prompt orangajin" klasik Indonesia: instruksi panjang menyamar sebagai
-	// sistem yang menyuruh Roro melanggar aturan.
-	{ re: /\[?\(?(SYSTEM|SISTEM|ADMIN|DEV)\]?\)?[\s:]/i, signal: "fake-system-prefix" },
-	{ re: /sebagai\s+(sistem|admin|developer)\s+(kamu|harus|wajib|tolong|silakan)/i, signal: "fake-system-instr" },
-];
+export type GuardRule = { category: "injection" | "code"; pattern: string; signal: string; enabled: number };
 
-// Sinyal permintaan kode/teknis di luar tugas Roro. Roro tidak boleh:
-// menulis/menjelaskan/mengerjakan kode, skrip, query, atau task engineering.
-const CODE_PATTERNS: Array<{ re: RegExp; signal: string }> = [
-	{ re: /\b(tulis|buat|kerjakan|bikin|generate|berikan)\b[^\n]{0,40}\b(kode|code|program|skrip|script|function|fungsi|class|kelas|api|endpoint|component|komponen)\b/i, signal: "write-code" },
-	{ re: /\b(code|kode)\s+(untuk|buat|untuk\s+membuat|generate)/i, signal: "code-for" },
-	{ re: /\b(debug|perbaiki\s+(bug|error\s+kode|kodenya)|fix\s+the\s+(bug|code)|refactor)\b/i, signal: "debug-code" },
-	{ re: /\b(sql|query|database\s+schema|migrate|migrasi|migration)\s+(query|untuk|buat|generate|write)/i, signal: "sql-query" },
-	{ re: /\b(react|javascript|typescript|python|node\.?js|html|css|php|java|rust|go(?:lang)?)\b[^\n]{0,30}\b(kode|code|script|contoh|example|tutorial)/i, signal: "lang-code" },
-	{ re: /\b(hack|exploit|vulnerability|celah\s+keamanan|reverse\s+engineer|decompile)\b/i, signal: "security-attack" },
-	{ re: /\b(tuliskan\s+(saya\s+)?(?:sebuah|kode|code|program|fungsi|function))/i, signal: "write-code-id" },
-	{ re: /\b(jelaskan\s+(bagaimana|cara)\s+(cara\s+)?(menulis|membuat|mengeksekusi|menjalankan)\s+(kode|code|program|sql|script))/i, signal: "explain-code" },
-	{ re: /\b(explain\s+(how\s+to\s+write|the\s+code|this\s+(code|function)))\b/i, signal: "explain-code-en" },
-	{ re: /```[a-z]*/, signal: "code-fence-request" }, // user minta balasan dalam blok kode
-	{ re: /\b(kerjakan|selesaikan|bantu\s+task|bantu\s+kerjain)\s+(tugas|task|assignment|proyek|project)\b/i, signal: "do-assignment" },
+// Fallback kalau tabel kosong/gagal baca — subset pola inti, hasil audit
+// false-positive produksi 21 Sep (tanpa "dan" polos, "lewat sini", "system" polos).
+const FALLBACK_RULES: GuardRule[] = [
+	{ category: "injection", pattern: "re:\\b(ignore|disregard|forget)\\s+(all\\s+)?(previous|prior|above|system|your)?\\s*(instructions?|prompts?|rules?)\\b", signal: "ignore-previous", enabled: 1 },
+	{ category: "injection", pattern: "re:\\b(system\\s*prompt|prompt\\s*sistem|instruksi\\s*sistem|hidden\\s*prompt)\\b", signal: "system-prompt-ref", enabled: 1 },
+	{ category: "injection", pattern: "re:\\b(you\\s+are\\s+(now|actually)|kamu\\s+sekarang\\s+adalah|sekarang\\s+kamu\\s+adalah)\\b", signal: "role-hijack", enabled: 1 },
+	{ category: "injection", pattern: "re:\\b(jailbreak|do\\s+anything\\s+now|break\\s+out|keluar\\s+dari\\s+aturan)\\b", signal: "jailbreak", enabled: 1 },
+	{ category: "injection", pattern: "re:\\bDAN\\s+(?:mode|prompt|jailbreak)\\b", signal: "jailbreak-dan", enabled: 1 },
+	{ category: "injection", pattern: "re:\\b(reveal|show|tampilkan|tunjukkan|bocor)(kan)?\\s+(your|kamu|the)?\\s*(system\\s*|hidden\\s+)?(prompt|instructions?|system\\s+aturan|aturan\\s+sistem|instruksi\\s+sistem)\\b", signal: "reveal-prompt", enabled: 1 },
+	{ category: "injection", pattern: "re:\\b(override|timpa|lewati|abaikan)\\s+(aturan|rules|instructions|prompt|batasan|constraints)\\b", signal: "override-rules", enabled: 1 },
+	{ category: "injection", pattern: "re:\\b(no\\s+restrictions?|tanpa\\s+batas|tanpa\\s+aturan|unrestricted|no\\s+rules)\\b", signal: "no-restrictions", enabled: 1 },
+	{ category: "code", pattern: "re:\\b(m{0,2}buat(?:kan|in|ain)?|tulis|kerjakan|bikin|generate|berikan)\\b[^\\n]{0,40}\\b(kode|code|skrip|script|function|fungsi|python|javascript|typescript|php|java|html|css|react)\\b", signal: "write-code", enabled: 1 },
+	{ category: "code", pattern: "re:\\b(hack|exploit|vulnerability|celah\\s+keamanan|reverse\\s+engineer|decompile)\\b", signal: "security-attack", enabled: 1 },
+	{ category: "code", pattern: "re:```[a-z]*", signal: "code-fence-request", enabled: 1 },
 ];
-
-// Catatan: deteksi "buat event" tidak boleh tertelan oleh CODE_PATTERNS —
-// "buat" + "program" (acara) vs "program" (kode). Karena kita match "kode/code/
-// program/skrip" bersamaan dengan "tulis/buat/kerjakan", kata "program"
-// ambigu. Atasi: kalau konteks jelas event/form (ada "event"/"form"/"kegiatan"),
-// anggap bukan kode. Dicek di cekCode aman-konteks.
 
 const EVENT_CONTEXT = /\b(event|acara|kegiatan|formulir|form|pendaftaran|seminar|lomba|rapat|workshop|talk\s?show)\b/i;
 
-export const precheckUserMessage = (raw: string): PrecheckResult => {
-	const text = raw.slice(0, 8000);
+// ---- Loader + cache ---------------------------------------------------------
+
+type CompiledRule = { category: "injection" | "code"; re: RegExp; signal: string; raw: string };
+
+export const compileGuardRule = (r: { category: string; pattern: string; signal: string; enabled: number }): CompiledRule | null => {
+	if (!r.enabled || !r.pattern.trim() || !["code", "injection"].includes(r.category)) return null;
+	const cat = r.category === "code" ? "code" : "injection";
+	try {
+		if (r.pattern.startsWith("re:")) {
+			// Seluruh alternatif dalam satu aturan harus ikut diperiksa.
+			const re = new RegExp(r.pattern.slice(3).split("||").map((part) => `(?:${part})`).join("|"), "i");
+			return { category: cat, signal: r.signal, raw: r.pattern, re };
+		}
+		const esc = r.pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		return { category: cat, signal: r.signal, raw: r.pattern, re: new RegExp(esc, "i") };
+	} catch {
+		return null; // pola rusak dari DB — skip, jangan bikin chat 500
+	}
+};
+
+// ponytail: regex gabung tidak bisa — tiap rule perlu signal sendiri; tes berurutan.
+const matchAll = (rules: CompiledRule[], text: string): string[] =>
+	rules.filter((r) => r.re.test(text)).map((r) => r.signal);
+
+export const loadGuardRules = async (db: Db): Promise<CompiledRule[]> => {
+	const key = "__roro_guard_rules";
+	const cached = (globalThis as any)[key] as { rules: CompiledRule[]; at: number } | undefined;
+	if (cached && Date.now() - cached.at < 60_000) return cached.rules;
+	let rows: Array<{ category: string; pattern: string; signal: string; enabled: number }> = [];
+	try {
+		rows = await db
+			.select({ category: aiGuardRules.category, pattern: aiGuardRules.pattern, signal: aiGuardRules.signal, enabled: aiGuardRules.enabled })
+			.from(aiGuardRules)
+			.where(eq(aiGuardRules.enabled, 1));
+	} catch {
+		rows = []; // tabel belum ada (migrasi belum jalan) — fallback
+	}
+	let rules = rows.map(compileGuardRule).filter(Boolean) as CompiledRule[];
+	if (!rules.length) rules = FALLBACK_RULES.map(compileGuardRule).filter(Boolean) as CompiledRule[];
+	(globalThis as any)[key] = { rules, at: Date.now() };
+	return rules;
+};
+
+export const precheckWithRules = (raw: string, rules: CompiledRule[]): PrecheckResult => {
+	const text = raw.slice(0, 8000).normalize("NFKC").replace(/[\u200B-\u200D\uFEFF]/g, "");
 
 	// (1) Injeksi prompt — cek dulu, paling berbahaya.
-	const injSignals: string[] = [];
-	for (const p of INJECTION_PATTERNS) {
-		if (p.re.test(text)) injSignals.push(p.signal);
-	}
+	const injSignals = matchAll(
+		rules.filter((r) => r.category === "injection"),
+		text,
+	);
 	if (injSignals.length >= 1) {
 		return {
 			blocked: true,
@@ -82,10 +107,10 @@ export const precheckUserMessage = (raw: string): PrecheckResult => {
 
 	// (2) Permintaan kode/teknis — tolak, kecuali konteks jelas event/form.
 	if (!EVENT_CONTEXT.test(text)) {
-		const codeSignals: string[] = [];
-		for (const p of CODE_PATTERNS) {
-			if (p.re.test(text)) codeSignals.push(p.signal);
-		}
+		const codeSignals = matchAll(
+			rules.filter((r) => r.category === "code"),
+			text,
+		);
 		if (codeSignals.length >= 1) {
 			return {
 				blocked: true,
@@ -100,3 +125,6 @@ export const precheckUserMessage = (raw: string): PrecheckResult => {
 
 	return { blocked: false };
 };
+
+// Kompatibilitas: pemanggil lama tanpa DB — pakai fallback murni.
+export const precheckUserMessage = (raw: string): PrecheckResult => precheckWithRules(raw, FALLBACK_RULES.map(compileGuardRule).filter(Boolean) as CompiledRule[]);

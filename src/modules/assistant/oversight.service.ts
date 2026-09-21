@@ -34,6 +34,10 @@ const messageShape = (m: typeof aiMessages.$inferSelect) => ({
 
 export type AiEventLevel = "info" | "warn" | "error";
 export type AiEventType =
+	| "chat_request"
+	| "tool_result"
+	| "model_usage"
+	| "conversation_deleted"
 	| "chat_turn"
 	| "tool_use"
 	| "proposal"
@@ -128,6 +132,11 @@ const memberContext = async (db: Db, userIds: string[]) => {
 	return map;
 };
 
+const nextMonth = (month: string) => {
+	const [year, m] = month.split("-").map(Number);
+	return `${m === 12 ? year + 1 : year}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01`;
+};
+
 const monthOf = (day: string) => day.slice(0, 7);
 
 export const oversightService = {
@@ -162,13 +171,13 @@ export const oversightService = {
 				out: sql<number>`coalesce(sum(${aiUsage.outputTokens}),0)`,
 			})
 			.from(aiUsage)
-			.where(sql`${aiUsage.day} >= ${month + "-01"}`);
+			.where(sql`${aiUsage.day} >= ${month + "-01"} AND ${aiUsage.day} < ${nextMonth(month)}`);
 		// Event hari ini (untuk "real-time" feed terbaru) — satu nilai terikat
 		// ISO penuh, supaya placeholder ? tidak menempel ke literal "T...".
 		const [evToday] = await db
 			.select({ n: count() })
 			.from(aiEvents)
-			.where(sql`${aiEvents.createdAt} >= ${day + "T00:00:00.000Z"}`);
+			.where(sql`${aiEvents.createdAt} >= ${new Date(day + "T00:00:00+07:00").toISOString()}`);
 		return {
 			conversations: Number(cConv[0]?.n ?? 0),
 			messages: Number(cMsg[0]?.n ?? 0),
@@ -190,8 +199,8 @@ export const oversightService = {
 		db: Db,
 		opts: { divisionId?: string; search?: string; page?: number; perPage?: number } = {},
 	) {
-		const page = opts.page && opts.page >= 1 ? Math.floor(opts.page) : 1;
-		const perPage = opts.perPage ? Math.min(100, Math.max(1, Math.floor(opts.perPage))) : 25;
+		const page = Number.isFinite(opts.page) && opts.page! >= 1 ? Math.floor(opts.page!) : 1;
+		const perPage = Number.isFinite(opts.perPage) && opts.perPage ? Math.min(100, Math.max(1, Math.floor(opts.perPage))) : 25;
 		const offset = (page - 1) * perPage;
 
 		const conds = [];
@@ -205,7 +214,7 @@ export const oversightService = {
 			conds.push(
 				or(
 					like(aiConversations.title, term),
-					sql`EXISTS (SELECT 1 FROM cms_memberships m WHERE lower(m.user_email) LIKE lower(${term}))`,
+					sql`EXISTS (SELECT 1 FROM cms_memberships m WHERE m.user_id = ${aiConversations.userId} AND lower(m.user_email) LIKE lower(${term}))`,
 				),
 			);
 		}
@@ -258,6 +267,7 @@ export const oversightService = {
 				return {
 					id: r.id,
 					title: r.title,
+					deleted_at: r.deletedAt,
 					user_id: r.userId,
 					user_email: ctx?.email ?? null,
 					division_id: ctx?.divisionId ?? null,
@@ -276,26 +286,28 @@ export const oversightService = {
 
 	// ---- Isi satu percakapan lintas divisi + event-nya ---------------------
 
-	async getConversation(db: Db, id: string) {
+	async getConversation(db: Db, id: string, page = 1) {
+		page = Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1;
 		const [conv] = await db.select().from(aiConversations).where(eq(aiConversations.id, id));
 		if (!conv) return null;
 		const messages = await db
 			.select()
 			.from(aiMessages)
 			.where(eq(aiMessages.conversationId, id))
-			.orderBy(asc(aiMessages.createdAt))
-			.limit(200);
+			.orderBy(asc(aiMessages.createdAt), asc(aiMessages.id))
+			.limit(101).offset((page - 1) * 100);
 		const events = await db
 			.select()
 			.from(aiEvents)
 			.where(eq(aiEvents.conversationId, id))
-			.orderBy(desc(aiEvents.createdAt))
-			.limit(200);
+			.orderBy(desc(aiEvents.createdAt), desc(aiEvents.id))
+			.limit(101).offset((page - 1) * 100);
 		const ctx = (await memberContext(db, [conv.userId])).get(conv.userId);
 		return {
 			conversation: {
 				id: conv.id,
 				title: conv.title,
+				deleted_at: conv.deletedAt,
 				user_id: conv.userId,
 				user_email: ctx?.email ?? null,
 				division_id: ctx?.divisionId ?? null,
@@ -303,8 +315,9 @@ export const oversightService = {
 				created_at: conv.createdAt,
 				updated_at: conv.updatedAt,
 			},
-			messages: messages.map(messageShape),
-			events: events.map((e) => eventShape(e, { email: ctx?.email ?? null, divisionName: ctx?.divisionName ?? null })),
+			meta: { page, has_more_messages: messages.length > 100, has_more_events: events.length > 100 },
+			messages: messages.slice(0, 100).map(messageShape),
+			events: events.slice(0, 100).map((e) => eventShape(e, { email: ctx?.email ?? null, divisionName: ctx?.divisionName ?? null })),
 		};
 	},
 
@@ -314,8 +327,8 @@ export const oversightService = {
 		db: Db,
 		opts: { type?: string; level?: string; since?: string; limit?: number; page?: number } = {},
 	) {
-		const limit = opts.limit ? Math.min(200, Math.max(1, Math.floor(opts.limit))) : 50;
-		const page = opts.page && opts.page >= 1 ? Math.floor(opts.page) : 1;
+		const limit = Number.isFinite(opts.limit) && opts.limit ? Math.min(200, Math.max(1, Math.floor(opts.limit))) : 50;
+		const page = Number.isFinite(opts.page) && opts.page! >= 1 ? Math.floor(opts.page!) : 1;
 		const conds = [];
 		if (opts.type) conds.push(eq(aiEvents.eventType, opts.type));
 		if (opts.level) conds.push(eq(aiEvents.level, opts.level));
@@ -348,7 +361,7 @@ export const oversightService = {
 				outputTokens: sql<number>`coalesce(sum(${aiUsage.outputTokens}),0)`,
 			})
 			.from(aiUsage)
-			.where(sql`${aiUsage.day} >= ${month + "-01"}`)
+			.where(sql`${aiUsage.day} >= ${month + "-01"} AND ${aiUsage.day} < ${nextMonth(month)}`)
 			.groupBy(aiUsage.userId)) as Array<{ userId: string; requests: number; inputTokens: number; outputTokens: number }>;
 		const memberMap = await memberContext(db, rows.map((r) => r.userId));
 		return rows

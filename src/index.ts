@@ -28,7 +28,7 @@ import { adminAuth } from "./middlewares/admin-auth";
 import { d1RateLimiter } from "./middlewares/rate-limiter";
 import { getDb } from "./db/connection";
 import { purgeExpiredRateLimits } from "./db/rate-limit";
-import { auditLogs, aiEvents } from "./db/schema";
+import { auditLogs, aiEvents, aiConversations } from "./db/schema";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -301,6 +301,7 @@ export default {
 				// Jejak event Roro (oversight Ristek) ikut dipangkas 90 hari —
 				// sama dengan audit log, tabel tidak tumbuh tanpa batas.
 				await db.delete(aiEvents).where(lt(aiEvents.createdAt, cutoff));
+				await db.delete(aiConversations).where(lt(aiConversations.deletedAt, cutoff));
 			})(),
 		);
 	},

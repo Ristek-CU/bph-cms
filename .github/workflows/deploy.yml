@@ -5,6 +5,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -29,6 +36,10 @@ jobs:
 
       - name: Install panel dependencies
         run: npm ci --legacy-peer-deps
+        working-directory: panel
+
+      - name: Lint admin panel
+        run: npm run lint
         working-directory: panel
 
       - name: Build admin panel

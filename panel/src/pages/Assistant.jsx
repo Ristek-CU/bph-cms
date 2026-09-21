@@ -329,7 +329,7 @@ export default function Assistant() {
 					return [
 						...cleaned,
 						{
-							id: final.message_id,
+							id: final.message_id || `blocked-${Date.now()}`,
 							role: "assistant",
 							content: final.reply,
 							proposal_json: final.proposal,
@@ -468,7 +468,7 @@ export default function Assistant() {
 				</form>
 			</div>
 		</div>
-		<Confirm open={!!deleteId} title="Hapus percakapan?" danger confirmLabel="Hapus percakapan" onCancel={() => setDeleteId(null)} onConfirm={() => removeConversation(deleteId)}>Percakapan ini akan dihapus permanen. Event atau form yang sudah dibuat tetap tersimpan.</Confirm>
+		<Confirm open={!!deleteId} title="Hapus percakapan?" danger confirmLabel="Hapus percakapan" onCancel={() => setDeleteId(null)} onConfirm={() => removeConversation(deleteId)}>Percakapan dihapus dari riwayatmu. Salinan audit dapat dibaca Ristek selama 90 hari sebelum dihapus permanen. Event atau form yang sudah dibuat tetap tersimpan.</Confirm>
 		</>
 	);
 }

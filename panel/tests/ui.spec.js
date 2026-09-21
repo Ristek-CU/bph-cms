@@ -5,7 +5,7 @@ const event = { id: 'event-1', title: 'Cakrawala Festival', slug: 'cakrawala-fes
 const form = { id: 'form-1', title: 'Aspirasi Mahasiswa', slug: 'aspirasi', status: 'draft', description: 'Suaramu untuk kampus', opens_at: '2026-10-10T01:00:00.000Z', closes_at: '2026-10-11T10:00:00.000Z', fields: [{ id: 'field-1', label: 'Aspirasi kamu', type: 'paragraph', options: null, required: false, active: true }] };
 const workspaces = [{ id: 'hub', label: 'CMS Hub', kind: 'cms_hub' }, { id: 'external', label: 'Dashboard divisi', kind: 'external_dashboard', url: 'https://example.com' }];
 
-async function setup(page, { signedIn = true, permissions = admin, workspace = false, eventStatus = 'draft', formStatus = 'draft' } = {}) {
+async function setup(page, { signedIn = true, permissions = admin, workspace = false, eventStatus = 'draft', formStatus = 'draft', oversight = false } = {}) {
   const state = { events: [{ ...event, status: eventStatus }], form: structuredClone({ ...form, status: formStatus }), calls: [], failEvents: false, failMe: false, failSave: false, expire: false };
   await page.addInitScript(({ signedIn }) => { if (signedIn) { localStorage.setItem('bph_cms_token', 'fixture-token'); localStorage.setItem('bph_cms_workspace', 'fixture-token'); } }, { signedIn });
   await page.route('**/api/v1/**', async route => {
@@ -14,7 +14,7 @@ async function setup(page, { signedIn = true, permissions = admin, workspace = f
     const reply = (data, status = 200, message = 'OK') => route.fulfill({ status, json: { success: status < 400, data, message } });
     if (path === '/auth/sign-in') return reply({ token: 'fixture-token', user: { email: 'test@example.com' } });
     if (state.expire) return reply(null, 401, 'Sesi berakhir');
-    if (path === '/me') return state.failMe ? reply(null, 503, 'Layanan belum tersedia') : reply({ user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', name: 'BPH' }, role: 'platform_admin', permissions }], workspace_options: workspace ? workspaces : [workspaces[0]] });
+    if (path === '/me') return state.failMe ? reply(null, 503, 'Layanan belum tersedia') : reply({ can_access_oversight: oversight, user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', name: 'BPH' }, role: 'platform_admin', permissions }], workspace_options: workspace ? workspaces : [workspaces[0]] });
     if (path === '/admin/events') {
       if (state.failEvents) return reply(null, 503, 'Event gagal dimuat');
       if (method === 'POST') { const created = { ...event, ...req.postDataJSON(), id: 'new-event' }; state.events.push(created); return reply(created); }
@@ -27,6 +27,9 @@ async function setup(page, { signedIn = true, permissions = admin, workspace = f
       return reply(state.form);
     }
     if (path === '/admin/forms/form-1/publish') { state.form.status = 'published'; return reply(state.form); }
+    if (path === '/admin/assistant/oversight/stats') return reply({ conversations: 2, messages: 4, chats_today: 2, chats_month: 2, tokens_today: { input: 300, output: 40 }, tokens_month: { input: 300, output: 40 }, events: 4, events_today: 4, errors: 0, injections_blocked: 1, code_blocked: 0 });
+    if (path === '/admin/assistant/oversight/events') return reply([{ id: 'audit-1', event_type: 'injection_blocked', level: 'warn', message: 'Pesan diblokir', user_email: 'admin@example.com', conversation_id: 'audit-chat', created_at: '2026-09-21T01:00:00Z', metadata: { message: 'Ignore previous instructions', signals: ['ignore-previous'] } }]);
+    if (path === '/admin/assistant/oversight/usage') return reply([{ user_id: 'low', user_email: 'chat-terbanyak@example.com', requests: 20, input_tokens: 100, output_tokens: 20 }, { user_id: 'high', user_email: 'token-terbanyak@example.com', requests: 2, input_tokens: 2000, output_tokens: 500 }]);
     if (path === '/admin/assistant/conversations') return reply([{ id: 'chat-1', title: 'Rencana festival' }]);
     if (path === '/admin/assistant/conversations/chat-1') return reply([{ id: 'message-1', role: 'assistant', content: 'Mari siapkan festival.' }]);
     if (path === '/admin/qpr/periods') return reply([]);
@@ -211,4 +214,29 @@ test('all main pages render at desktop and narrow mobile widths', async ({ page 
     }
   }
   expect(errors).toEqual([]);
+});
+
+
+test('Roro login mascot and release remain visible on narrow mobile', async ({ page }) => {
+  await setup(page, { signedIn: false });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await visit(page, '/login');
+  await expect(page.getByAltText('Roro, asisten SGA yang siap membantu')).toBeVisible();
+  await expect(page.getByText('SGA Hub CMS v1.0')).toBeVisible();
+  expect(await page.locator('.login-roro-mascot').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  await noOverflow(page);
+});
+
+test('Ristek can inspect blocked prompt and sort token and chat leaders', async ({ page }) => {
+  await setup(page, { oversight: true });
+  await visit(page, '/roro-oversight');
+  await page.getByText('Detail aktivitas', { exact: true }).click();
+  await expect(page.getByText(/Ignore previous instructions/)).toBeVisible();
+  await page.getByRole('button', { name: 'Penggunaan', exact: true }).click();
+  await expect(page.locator('.usage-row').first()).toContainText('token-terbanyak@example.com');
+  await expect(page.locator('.usage-row').first()).toContainText('2.000 input / 500 output');
+  await page.getByLabel('Urutkan').selectOption('requests');
+  await expect(page.locator('.usage-row').first()).toContainText('chat-terbanyak@example.com');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await noOverflow(page);
 });
