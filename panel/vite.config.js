@@ -4,7 +4,7 @@ import { defineConfig } from 'vite'
 
 let commit = process.env.GITHUB_SHA?.slice(0, 7);
 if (!commit) { try { commit = execFileSync('git', ['rev-parse', '--short', 'HEAD']).toString().trim(); } catch { commit = 'dev'; } }
-const release = { version: '1.0', commit, deployment: process.env.GITHUB_RUN_NUMBER ? `${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null, builtAt: new Date().toISOString() };
+const release = { version: process.env.GITHUB_RUN_NUMBER ? `1.0.${process.env.GITHUB_RUN_NUMBER}` : '1.0', commit, deployment: process.env.GITHUB_RUN_NUMBER ? `${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT || '1'}` : null, builtAt: new Date().toISOString() };
 
 export default defineConfig({
   define: { __APP_RELEASE__: JSON.stringify(release) },

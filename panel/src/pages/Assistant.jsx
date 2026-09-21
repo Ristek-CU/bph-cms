@@ -204,6 +204,17 @@ export default function Assistant() {
 	const historyRef = useFocusTrap(listOpen);
 	useEscape(() => setListOpen(false));
 	useEffect(() => () => { requestVersion.current++; streamController.current?.abort(); }, []);
+	useEffect(() => {
+		const field = inputRef.current;
+		if (!field) return;
+		const resize = () => {
+			field.style.height = "auto";
+			field.style.height = `${Math.min(field.scrollHeight + 2, 180)}px`;
+		};
+		resize();
+		window.addEventListener("resize", resize);
+		return () => window.removeEventListener("resize", resize);
+	}, [input]);
 
 	// Balik ke Roro: kalau ada percakapan tersimpan, buka langsung. Daftar
 	// percakapan di-load tiap mount — pindah halaman lalu balik tetap ada isinya.
@@ -454,8 +465,10 @@ export default function Assistant() {
 						send();
 					}}
 				>
-					<input
+					<textarea
 						ref={inputRef}
+						rows={1}
+						wrap="soft"
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
 						placeholder="Tanya Roro…"

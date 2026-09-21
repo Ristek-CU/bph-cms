@@ -18,7 +18,7 @@ The guard no longer treats ordinary Indonesian “dan” as DAN jailbreak. Block
 
 Tokens are recorded per provider call for normal replies, tool/retry rounds, and memory summaries. Streaming errors cannot expose internal exceptions. Ristek can inspect tool inputs/results, blocked messages, token breakdowns, archived conversations, and account rankings by month. Missing provider usage is flagged rather than represented as verified zero consumption.
 
-The login shows an animated Roro mascot with reduced-motion support. Login and sidebar footers show SGA Hub CMS v1.0, deployment workflow sequence/attempt, and source commit. The sequence includes deployment attempts; successful deployments are verified separately in GitHub Actions.
+The login shows a 1254×1254 animated Roro mascot with reduced-motion support, sufficient for its displayed size on 3× density screens. Login and sidebar footers show only SGA Hub CMS v1.0.N, where N is the deployment workflow sequence; commit and deployment labels are hidden. Successful deployments are verified separately in GitHub Actions. Roro's composer supports Enter for new lines, grows vertically up to 180px, and wraps long text in both the composer and sent messages.
 
 Authentication failures no longer forward upstream bodies containing submitted email/password. Published credential text was removed from current account documentation. Worker observability is enabled with full sampling as a fallback to database event logs.
 

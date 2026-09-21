@@ -222,8 +222,48 @@ test('Roro login mascot and release remain visible on narrow mobile', async ({ p
   await page.setViewportSize({ width: 375, height: 812 });
   await visit(page, '/login');
   await expect(page.getByAltText('Roro, asisten SGA yang siap membantu')).toBeVisible();
-  await expect(page.getByText('SGA Hub CMS v1.0')).toBeVisible();
+  await expect(page.locator('.release-stamp')).toHaveText(/^SGA Hub CMS v1\.0(?:\.\d+)?$/);
   expect(await page.locator('.login-roro-mascot').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+  await noOverflow(page);
+});
+
+test('Roro login image has enough resolution for a 3x display', async ({ browser }, testInfo) => {
+  const context = await browser.newContext({ deviceScaleFactor: 3, viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
+  const page = await context.newPage();
+  try {
+    await setup(page, { signedIn: false });
+    await visit(page, '/login');
+    const mascot = page.getByAltText('Roro, asisten SGA yang siap membantu');
+    await expect.poll(() => mascot.evaluate(el => el.complete && el.naturalWidth > 0)).toBe(true);
+    expect(await mascot.evaluate(el => el.naturalWidth >= el.clientWidth * devicePixelRatio && el.naturalHeight >= el.clientHeight * devicePixelRatio)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath('login-retina.png'), fullPage: true });
+  } finally { await context.close(); }
+});
+
+test('Roro Enter creates new lines and long messages wrap on mobile', async ({ page }) => {
+  const state = await setup(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await visit(page, '/');
+  const input = page.getByRole('textbox', { name: 'Pesan untuk Roro' });
+  const initialHeight = await input.evaluate(el => el.clientHeight);
+  await input.fill('Baris pertama');
+  await input.press('Enter');
+  await input.pressSequentially('Baris kedua');
+  await expect(input).toHaveValue('Baris pertama\nBaris kedua');
+  expect(state.calls.filter(c => c.path.includes('/chat/stream'))).toHaveLength(0);
+  expect(await input.evaluate(el => el.clientHeight)).toBeGreaterThan(initialHeight);
+  const message = 'Baris pertama\nBaris kedua\n' + 'panjang'.repeat(150);
+  await input.fill(message);
+  expect(await input.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  expect(await input.evaluate(el => el.getBoundingClientRect().height)).toBeLessThanOrEqual(180);
+  await page.route('**/admin/assistant/chat/stream', route => {
+    expect(route.request().postDataJSON().message).toBe(message);
+    return route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify({ type: 'done', conversation_id: 'chat-1', message_id: 'reply-1', reply: 'Pesan diterima.' })}\n\n` });
+  });
+  await page.getByRole('button', { name: 'Kirim pesan', exact: true }).click();
+  await expect(page.locator('.roro-msg.user .roro-bubble')).toHaveText(message);
+  expect(await page.locator('.roro-msg.user .roro-bubble').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await expect(input).toHaveValue('');
   await noOverflow(page);
 });
 

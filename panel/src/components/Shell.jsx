@@ -42,7 +42,7 @@ export function Login({ onLogin, notice }) {
 				<div className="login-wordmark"><img src={logoSga} alt="" /><span>SGA CAKRAWALA<small>Ruang kerja pengurus</small></span></div>
 				<div className="login-story-body login-roro-story">
 					<span className="login-eyebrow">TEMAN KERJA TIM SGA</span>
-					<div className="login-roro-stage"><span className="login-roro-greeting">Hai, aku Roro! <span aria-hidden>✦</span></span><img src="/roro.png" className="login-roro-mascot" alt="Roro, asisten SGA yang siap membantu" draggable={false} /><span className="login-roro-shadow" aria-hidden /></div>
+					<div className="login-roro-stage"><span className="login-roro-greeting">Hai, aku Roro! <span aria-hidden>✦</span></span><img src="/roro-login-hd.png" width={1254} height={1254} fetchPriority="high" className="login-roro-mascot" alt="Roro, asisten SGA yang siap membantu" draggable={false} /><span className="login-roro-shadow" aria-hidden /></div>
 					<h1>Ide kamu.<br /><em>Kita wujudkan bareng.</em></h1>
 					<p>Dari agenda kampus sampai suara mahasiswa. Roro siap bantu kamu mulai.</p>
 				</div>
