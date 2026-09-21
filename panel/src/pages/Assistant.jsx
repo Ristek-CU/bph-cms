@@ -146,13 +146,11 @@ function ChatView({ messages, onConfirm, busyConfirm, streaming }) {
 				<img src="/roro.png" alt="" aria-hidden className="roro-welcome-logo" draggable={false} />
 				<h2>Hai, aku Roro</h2>
 				<p>Bisa bantu apa hari ini?</p>
-				<div className="roro-suggest">
-					<button className="btn ghost" onClick={() => window.dispatchEvent(new CustomEvent("roro:prompt", { detail: "Bantu aku buat event lomba futsal" }))}>
-						Buat event futsal
-					</button>
-					<button className="btn ghost" onClick={() => window.dispatchEvent(new CustomEvent("roro:prompt", { detail: "Buat form pendaftaran panitia" }))}>
-						Buat form pendaftaran
-					</button>
+				{/* Tips cara pakai — teks biasa, bukan tombol. Contoh dicontoh user langsung. */}
+				<div className="roro-tips">
+					<p><em>Contoh:</em> "Buat event lomba futsal minggu depan"</p>
+					<p><em>Contoh:</em> "Buat form pendaftaran panitia"</p>
+					<p><em>Contoh:</em> "Lihat event apa saja bulan ini"</p>
 				</div>
 			</div>
 		);

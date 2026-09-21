@@ -587,7 +587,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .builder-card .section { padding: 16px 20px 20px; }
 
 /* Daftar pertanyaan ala advo form-builder */
-.builder-fields { display: flex; flex-direction: column; gap: 10px; }
+.builder-fields { display: flex; flex-direction: column; gap: 10px; padding-bottom: 24px; }
 .builder-fields-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .builder-fields-head h2 { font-size: 17px; margin-bottom: 2px; }
 .builder-fields-head p { margin: 0; display: flex; align-items: center; gap: 4px; }
@@ -891,6 +891,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .roro-welcome h2 { margin: 0; }
 .roro-welcome-logo { width: 110px; height: 110px; object-fit: contain; margin-bottom: 6px; }
 .roro-suggest { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+/* Tips welcome: tulisan contoh cara pakai, bukan tombol */
+.roro-tips { margin-top: 12px; display: grid; gap: 4px; color: var(--muted); font-size: 13.5px; }
+.roro-tips p { margin: 0; }
 @media (max-width: 900px) {
 	.roro-layout { position: relative; }
 	.roro-sidebar {

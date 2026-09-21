@@ -33,9 +33,10 @@ export default function Overview({ events, onEdit, capabilities, user }) {
 		{ total: 0, draft: 0, ongoing: 0, upcoming: 0, past: 0 },
 	);
 
-	// 5 event terdekat: berlangsung dulu, lalu akan datang terdekat.
-	const soonest = [...events]
-		.filter((e) => e.status !== "draft" && displayStatus(e) !== "past")
+	// 5 event terdekat — sumber sama dengan kalender semua divisi (allEvents),
+	// bukan cuma event divisi sendiri; urut waktu, berlangsung + akan datang.
+	const soonest = [...(allEvents || [])]
+		.filter((e) => displayStatus(e) !== "past")
 		.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
 		.slice(0, 5);
 
@@ -104,28 +105,26 @@ export default function Overview({ events, onEdit, capabilities, user }) {
 							</p>
 						) : (
 							<div className="tbl-wrap">
-								<div className="tbl-wrap">
-									<table className="tbl">
-									<thead>
-										<tr><th>Event</th><th>Waktu (WIB)</th><th>Status</th><th /></tr>
-									</thead>
-									<tbody>
-										{soonest.map((e) => (
-											<tr key={e.id}>
-												<td><strong>{e.title}</strong><br /><span className="slug muted small">/{e.slug}</span></td>
-												<td>{fmtRange(e.starts_at, e.ends_at)}</td>
-												<td><span className={`badge ${displayStatus(e)}`}>{LABEL[displayStatus(e)]}</span></td>
-												<td>
-													<button className="btn sec sm" onClick={() => copyLink(e)}>Salin link</button>{" "}
-													{capabilities?.canEditEvent?.(e) && (
-														<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
-													)}
-												</td>
-											</tr>
-										))}
-									</tbody>
-									</table>
-								</div>
+								<table className="tbl">
+								<thead>
+									<tr><th>Event</th><th>Waktu (WIB)</th><th>Status</th><th /></tr>
+								</thead>
+								<tbody>
+									{soonest.map((e) => (
+										<tr key={e.id}>
+											<td><strong>{e.title}</strong><br /><span className="slug muted small">/{e.slug}</span></td>
+											<td>{fmtRange(e.starts_at, e.ends_at)}</td>
+											<td><span className={`badge ${displayStatus(e)}`}>{LABEL[displayStatus(e)]}</span></td>
+											<td>
+												<button className="btn sec sm" onClick={() => copyLink(e)}>Salin link</button>{" "}
+												{capabilities?.canEditEvent?.(e) && (
+													<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
+												)}
+											</td>
+										</tr>
+									))}
+								</tbody>
+								</table>
 							</div>
 						)}
 					</div>

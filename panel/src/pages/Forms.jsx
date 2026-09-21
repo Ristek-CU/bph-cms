@@ -698,7 +698,7 @@ function Editor({ form, canManage, canPublish, canDelete, canSeeSubmissions, toa
 				)}
 
 				<p className="editor-save-status" role="status">{busy ? "Menyimpan…" : editingId !== null ? "Selesaikan edit pertanyaan terlebih dahulu." : snapshot !== savedSnapshot ? "Ada perubahan yang belum disimpan" : "Semua perubahan tersimpan"}</p>
-				<div className="sticky-bar">
+				<div className="sticky-bar" style={{ position: "static", margin: "16px 0 0", boxShadow: "none" }}>
 					<button className="btn" disabled={busy || editingId !== null || !canManage || !title.trim()} onClick={save}>{busy ? "Menyimpan…" : "Simpan"}</button>
 					{canPublish && form.status === "draft" && (
 						<button className="btn gold" disabled={busy || editingId !== null || !title.trim()} onClick={publish}>Simpan &amp; terbitkan</button>
