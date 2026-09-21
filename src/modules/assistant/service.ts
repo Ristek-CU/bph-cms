@@ -15,6 +15,8 @@ import {
 import { LlmUnavailableError, llmChat, llmChatStream, stripThinking, type LlmMessage, type LlmToolResult, type StreamEvent } from "./llm";
 import { TOOLS, canUseTool, llmToolDefs, toolByName, type ToolContext } from "./tools";
 import { buildSystem, nowWib, todayWib } from "./prompt";
+import { logAiEvent, type LogAiEventParams } from "./oversight.service";
+import { precheckUserMessage } from "./security";
 import { eventService } from "../events/event.service";
 import { formService } from "../forms/form.service";
 import { recordAuditLog } from "../audit/audit.service";
@@ -195,6 +197,20 @@ export const handleToolUse = async (
 	return null;
 };
 
+// Logger ai_events untuk oversight Ristek — dipanggil dari chat() & chatStream().
+// Email diambil dari actor (disediakan route via userEmail), bukan dari sesi
+// Ristek yang membaca — jadi jejak menunjuk ke user yang memakai Roro.
+type AiLogInput = Omit<LogAiEventParams, "db">;
+const aiLog = (db: Db, actor: ChatActor & { userEmail?: string }, convId: string | null | undefined, e: AiLogInput) =>
+	logAiEvent({
+		db,
+		conversationId: convId ?? e.conversationId ?? null,
+		userId: actor.userId,
+		userEmail: actor.userEmail ?? e.userEmail ?? null,
+		divisionId: actor.divisionId ?? e.divisionId ?? null,
+		...e,
+	});
+
 export const assistantService = {
 	// ---- Chat ---------------------------------------------------------------
 
@@ -209,7 +225,31 @@ export const assistantService = {
 		},
 		input: { conversation_id?: string; message: string },
 	) {
-		await quotaCheck(db, actor.userId, env);
+		// Precheck keamanan SEBELUM LLM — tolak injeksi prompt & permintaan kode,
+		// hemat token, catat ke ai_events untuk oversight Ristek.
+		const pre = precheckUserMessage(input.message);
+		if (pre.blocked) {
+			await aiLog(db, actor as any, null, {
+				eventType: pre.reason === "injection" ? "injection_blocked" : "code_blocked",
+				level: "warn",
+				message: `Pesan diblokir: ${pre.signals.join(", ")}`,
+				metadata: { message_preview: input.message.slice(0, 200) },
+			});
+			return { reply: pre.refusal, proposal: null, message_id: null as string | null, conversation_id: null as string | null, blocked: pre.reason };
+		}
+
+		try {
+			await quotaCheck(db, actor.userId, env);
+		} catch (e) {
+			if (e instanceof ApiError && e.statusCode === 429) {
+				await aiLog(db, actor as any, null, {
+					eventType: "quota_exceeded",
+					level: "warn",
+					message: e.message,
+				});
+			}
+			throw e;
+		}
 
 		// 1. Conversation: lanjut atau buat baru.
 		let convId = input.conversation_id;
@@ -279,8 +319,18 @@ export const assistantService = {
 				if (e instanceof LlmUnavailableError) {
 					replyText =
 						"Roro sedang tidak bisa dihubungi (layanan AI bermasalah). Coba lagi sebentar lagi — pesanmu sudah tersimpan di riwayat.";
+					await aiLog(db, actor as any, convId, {
+						eventType: "llm_unavailable",
+						level: "error",
+						message: e.message || "LLM unavailable",
+					});
 					break;
 				}
+				await aiLog(db, actor as any, convId, {
+					eventType: "error",
+					level: "error",
+					message: e instanceof Error ? e.message : String(e),
+				});
 				throw e;
 			}
 			totalIn += res.usage?.input_tokens ?? 0;
@@ -296,7 +346,21 @@ export const assistantService = {
 			const results: LlmToolResult[] = [];
 			for (const tu of toolUses) {
 				const p = await handleToolUse(actor, toolCtx, tu, results);
-				if (p) proposal = p;
+				if (p) {
+					proposal = p;
+					await aiLog(db, actor as any, convId, {
+						eventType: "proposal",
+						level: "info",
+						message: `Proposal ${p.tool} dibuat`,
+						metadata: { tool: p.tool },
+					});
+				} else {
+					await aiLog(db, actor as any, convId, {
+						eventType: "tool_use",
+						level: "info",
+						message: `Tool ${tu.name} dipanggil`,
+					});
+				}
 			}
 			llmMessages.push({ role: "assistant", content: stripThinking(res.content) });
 			llmMessages.push({ role: "user", content: results });
@@ -322,6 +386,12 @@ export const assistantService = {
 			.set({ updatedAt: new Date().toISOString() })
 			.where(eq(aiConversations.id, convId));
 		await quotaRecord(db, actor.userId, quotaDay(), { input_tokens: totalIn, output_tokens: totalOut });
+		await aiLog(db, actor as any, convId, {
+			eventType: "chat_turn",
+			level: "info",
+			message: `Balasan terkirim (${totalIn}/${totalOut} tok)${proposal ? ` · proposal ${proposal.tool}` : ""}`,
+			metadata: { input_tokens: totalIn, output_tokens: totalOut, proposal: proposal?.tool ?? null },
+		});
 
 		// 6. Memori: perbarui tiap MEMORY_EVERY pesan user (panggilan LLM murah).
 		const userCount = await db
@@ -358,7 +428,28 @@ export const assistantService = {
 		input: { conversation_id?: string; message: string },
 		emit: (event: Record<string, unknown>) => void,
 	) {
-		await quotaCheck(db, actor.userId, env);
+		// Precheck keamanan SEBELUM LLM (sama dengan chat()) — hemat token, catat.
+		const pre = precheckUserMessage(input.message);
+		if (pre.blocked) {
+			await aiLog(db, actor as any, null, {
+				eventType: pre.reason === "injection" ? "injection_blocked" : "code_blocked",
+				level: "warn",
+				message: `Pesan diblokir: ${pre.signals.join(", ")}`,
+				metadata: { message_preview: input.message.slice(0, 200) },
+			});
+			emit({ type: "text", text: pre.refusal });
+			emit({ type: "done", conversation_id: null, reply: pre.refusal, proposal: null, message_id: null, blocked: pre.reason });
+			return;
+		}
+
+		try {
+			await quotaCheck(db, actor.userId, env);
+		} catch (e) {
+			if (e instanceof ApiError && e.statusCode === 429) {
+				await aiLog(db, actor as any, null, { eventType: "quota_exceeded", level: "warn", message: e.message });
+			}
+			throw e;
+		}
 
 		// 1. Conversation: lanjut atau buat baru (sama dengan chat()).
 		let convId = input.conversation_id;
@@ -486,8 +577,10 @@ export const assistantService = {
 					replyText =
 						"Roro sedang tidak bisa dihubungi (layanan AI bermasalah). Coba lagi sebentar lagi — pesanmu sudah tersimpan di riwayat.";
 					emit({ type: "text", text: replyText });
+					await aiLog(db, actor as any, convId, { eventType: "llm_unavailable", level: "error", message: e.message || "LLM unavailable" });
 					return false;
 				}
+				await aiLog(db, actor as any, convId, { eventType: "error", level: "error", message: e instanceof Error ? e.message : String(e) });
 				throw e;
 			}
 
@@ -515,7 +608,17 @@ export const assistantService = {
 			const results: LlmToolResult[] = [];
 			for (const tu of toolUses) {
 				const p = await handleToolUse(actor, toolCtx, tu, results);
-				if (p) proposal = p;
+				if (p) {
+					proposal = p;
+					await aiLog(db, actor as any, convId, {
+						eventType: "proposal",
+						level: "info",
+						message: `Proposal ${p.tool} dibuat`,
+						metadata: { tool: p.tool },
+					});
+				} else {
+					await aiLog(db, actor as any, convId, { eventType: "tool_use", level: "info", message: `Tool ${tu.name} dipanggil` });
+				}
 			}
 			llmMessages.push({ role: "user", content: results });
 			return true;
@@ -573,9 +676,16 @@ export const assistantService = {
 			if (rescued && canUseTool(actor.permissions, toolByName(rescued.tool)!, { isOwnDivision: true })) {
 				saved = rescued;
 				replyText = stripToolJson(replyText); // Buang blok tool-call; sisakan sapaan lain.
+				await aiLog(db, actor as any, convId, {
+					eventType: "rescue",
+					level: "warn",
+					message: `Tool call sebagai teks di-rescue menjadi ${rescued.tool}`,
+					metadata: { tool: rescued.tool },
+				});
 			}
 		}
 		if (FAKE_CALL.test(replyText)) {
+			await aiLog(db, actor as any, convId, { eventType: "fake_call", level: "warn", message: "Panggilan tool palsu terdeteksi, paksa ronde ulang" });
 			replyText = "";
 			llmMessages.push({
 				role: "user",
@@ -597,6 +707,7 @@ export const assistantService = {
 		const PROMISES_DRAFT =
 			/((aku|saya|sudah|akan|langsung|coba|tinggal)\s*(saja\s*)?(saya\s*)?(susun|buat|siapkan|usulkan|kirim)[^\n]{0,60}(draft|draf))|(berikut\s+(draft|draf)(\s+(form|event))-nya)|((draft|draf)\s+(ini\s+)?(form|event)?\s*(sudah|berstatus))/i;
 		if (!saved && !formStatsMd && PROMISES_DRAFT.test(replyText)) {
+			await aiLog(db, actor as any, convId, { eventType: "promise_without_tool", level: "warn", message: "Janji draft tanpa tool call, paksa ronde ulang" });
 			replyText = "";
 			llmMessages.push({
 				role: "user",
@@ -640,6 +751,12 @@ export const assistantService = {
 		});
 		await db.update(aiConversations).set({ updatedAt: new Date().toISOString() }).where(eq(aiConversations.id, convId));
 		await quotaRecord(db, actor.userId, quotaDay(), { input_tokens: totalIn, output_tokens: totalOut });
+		await aiLog(db, actor as any, convId, {
+			eventType: "chat_turn",
+			level: "info",
+			message: `Balasan terkirim${saved ? ` · proposal ${saved.tool}` : ""}`,
+			metadata: { proposal: saved?.tool ?? null },
+		});
 
 		// Memori: sama dengan chat() — jalur stream adalah jalur utama panel, tanpa
 		// ini memori tidak pernah diperbarui di produksi.
@@ -736,11 +853,24 @@ export const assistantService = {
 				conversation_id: input.conversation_id,
 			});
 
+			await aiLog(db, actor as any, input.conversation_id, {
+				eventType: "confirm",
+				level: "info",
+				message: `Proposal ${proposal.tool} dikonfirmasi → ${resourceId}`,
+				metadata: { tool: proposal.tool, resource_id: resourceId },
+			});
+
 			return {
 				tool: proposal.tool,
 				resource_id: resourceId,
 			};
 		} catch (error) {
+			await aiLog(db, actor as any, input.conversation_id, {
+				eventType: "error",
+				level: "error",
+				message: `Confirm ${proposal.tool} gagal: ${error instanceof Error ? error.message : String(error)}`,
+				metadata: { tool: proposal.tool },
+			});
 			if (resourceId) {
 				// Resource sudah jadi: simpan ID agar retry bisa mengembalikan hasil
 				// yang sama tanpa membuat duplikat.

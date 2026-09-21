@@ -30,6 +30,8 @@ export type Bindings = {
 	API_BASE_URL: string;
 	CORS_ORIGIN: string;
 	DOCS_ALLOW_EMAILS: string;
+	/** Allowlist email akun Ristek untuk oversight Roro (baca percakapan lintas divisi). */
+	RORO_OVERSIGHT_EMAILS?: string;
 	/** Email yang boleh jadi platform_admin tanpa baris cms_memberships. */
 	PLATFORM_BOOTSTRAP_EMAILS?: string;
 	/** Shared secret untuk endpoint internal handoff (wrangler secret, jangan di-commit). */

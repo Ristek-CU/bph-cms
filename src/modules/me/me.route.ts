@@ -57,21 +57,29 @@ meRouter.get(
 			userWorkspaces = [{ id: null, label: "SGA CMS Hub", kind: "cms_hub", url: null }];
 		}
 
-		// Link "Dokumentasi API" di panel hanya tampil untuk email di allowlist
-		// (sumber kebenaran sama dengan gate /api/v1/openapi di index.ts).
-		const docsAllow = (c.env.DOCS_ALLOW_EMAILS ?? "")
-			.split(",")
-			.map((e) => e.trim().toLowerCase())
-			.filter(Boolean);
+	// Link "Dokumentasi API" di panel hanya tampil untuk email di allowlist
+	// (sumber kebenaran sama dengan gate /api/v1/openapi di index.ts).
+	const docsAllow = (c.env.DOCS_ALLOW_EMAILS ?? "")
+		.split(",")
+		.map((e) => e.trim().toLowerCase())
+		.filter(Boolean);
 
-		return ApiResponse.ok(c, "OK", {
-			user: {
-				id: userId,
-				email: userEmail,
-				name: userName || userEmail.split("@")[0] || "User",
-				role: userRole,
-			},
-			can_access_docs: docsAllow.includes(userEmail.toLowerCase()),
+	// Link "Oversight Roro" hanya tampil untuk akun Ristek di allowlist
+	// RORO_OVERSIGHT_EMAILS (pola sama dengan docs). Default kosong = mati.
+	const oversightAllow = (c.env.RORO_OVERSIGHT_EMAILS ?? "")
+		.split(",")
+		.map((e) => e.trim().toLowerCase())
+		.filter(Boolean);
+
+	return ApiResponse.ok(c, "OK", {
+		user: {
+			id: userId,
+			email: userEmail,
+			name: userName || userEmail.split("@")[0] || "User",
+			role: userRole,
+		},
+		can_access_docs: docsAllow.includes(userEmail.toLowerCase()),
+		can_access_oversight: oversightAllow.includes(userEmail.toLowerCase()),
 			active_division_id: activeDivisionId,
 			memberships: memberships.map((m) => ({
 				division: m.division,

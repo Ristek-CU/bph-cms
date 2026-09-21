@@ -1109,3 +1109,53 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 @media (prefers-reduced-motion: reduce) {
 	*, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* ---- Oversight Roro (dashboard Ristek) ---- */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.stat-card .stat-value { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.stat-card .stat-label { color: var(--muted, #6b7280); font-size: .82rem; }
+.stat-card.tone-info { border-left: 3px solid #3b82f6; }
+.stat-card.tone-warn { border-left: 3px solid #f59e0b; }
+.stat-card.tone-err { border-left: 3px solid #ef4444; }
+.events-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.events-toolbar h3 { margin: 0; margin-right: auto; }
+.events-toolbar input, .events-toolbar select { flex: 0 1 200px; }
+.event-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.event-list.compact { font-size: .82rem; }
+.event-row { display: grid; grid-template-columns: 92px 1fr auto; gap: 10px; align-items: start; padding: 7px 8px; border-radius: 8px; border: 1px solid transparent; }
+.event-row.level-error { background: #fef2f2; border-color: #fecaca; }
+.event-row.level-warn { background: #fffbeb; border-color: #fde68a; }
+.event-row.level-info { background: #f8fafc; border-color: #e2e8f0; }
+.event-row .event-time { color: #6b7280; font-size: .74rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.event-row .event-body { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.event-row .event-msg { word-break: break-word; }
+.event-row .event-actor { white-space: nowrap; }
+.event-row .event-rel { color: #9ca3af; font-size: .72rem; white-space: nowrap; }
+.badge.ok { background: #dcfce7; color: #166534; }
+.badge.warn { background: #fef3c7; color: #92400e; }
+.badge.err { background: #fee2e2; color: #991b1b; }
+.conv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.conv-row { display: block; width: 100%; text-align: left; background: transparent; border: 1px solid #e5e7eb; border-radius: 8px; padding: 9px 11px; cursor: pointer; }
+.conv-row:hover { background: #f9fafb; }
+.conv-row.active { border-color: #3b82f6; background: #eff6ff; }
+.conv-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.conv-messages { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; padding-right: 4px; }
+.msg { padding: 8px 11px; border-radius: 10px; border: 1px solid #e5e7eb; }
+.msg-user { background: #f0f9ff; border-color: #bae6fd; }
+.msg-assistant { background: #f8fafc; }
+.msg-role { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; margin-bottom: 3px; }
+.msg-content { white-space: pre-wrap; word-break: break-word; }
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.usage-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.usage-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 12px; align-items: center; }
+.usage-meta { display: flex; flex-direction: column; min-width: 0; }
+.usage-bar { height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+.usage-bar-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+.usage-nums { display: flex; flex-direction: column; align-items: flex-end; font-size: .8rem; }
+@media (max-width: 720px) {
+	.event-row { grid-template-columns: 1fr; }
+	.event-row .event-rel { display: none; }
+	.usage-row { grid-template-columns: 1fr; }
+}

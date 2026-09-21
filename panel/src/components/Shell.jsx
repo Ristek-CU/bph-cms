@@ -131,6 +131,12 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 				</NavLink>
 			)}
 			<div className="nav-sep" />
+			{/* Oversight Roro — khusus akun Ristek (allowlist RORO_OVERSIGHT_EMAILS). */}
+			{user?.canAccessOversight && (
+				<NavLink to="/roro-oversight" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
+					<span className="icon" aria-hidden><IconBarChart size={18} /></span> Oversight Roro
+				</NavLink>
+			)}
 			{/* Dokumentasi API khusus Ristek (allowlist server DOCS_ALLOW_EMAILS) —
 			    divisi lain tidak diperlihatkan linknya sama sekali. */}
 			{user?.canAccessDocs && (

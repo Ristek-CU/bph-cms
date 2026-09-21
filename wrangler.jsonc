@@ -33,6 +33,9 @@
 		"API_BASE_URL": "https://cms.sga-cakrawala.org/api/v1",
 		"CORS_ORIGIN": "https://sga-cakrawala.org,https://cms.sga-cakrawala.org,http://localhost:5173",
 		"DOCS_ALLOW_EMAILS": "ristek@cakrawala.com",
+		// Oversight Roro: baca percakapan + jejak error/aktivitas lintas divisi,
+		// khusus akun Ristek (pola allowlist sama dengan DOCS_ALLOW_EMAILS).
+		"RORO_OVERSIGHT_EMAILS": "ristek@cakrawala.com",
 		// Jalur bootstrap platform_admin MATI total (string kosong = nonaktif, tanpa
 		// default tersembunyi): BPH dan Ristek kini punya baris cms_memberships
 		// eksplisit di D1 production (platform_admin dan division_admin, 11 Sep 2026).

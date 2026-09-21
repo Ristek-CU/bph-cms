@@ -13,6 +13,7 @@ import EventEditor from "./pages/EventEditor.jsx";
 import Forms, { FormBuilderRoute, FormAnalyticsRoute } from "./pages/Forms.jsx";
 import Qpr, { PublicFill } from "./pages/Qpr.jsx";
 import Accounts from "./pages/Accounts.jsx";
+import RoroOversight from "./pages/RoroOversight.jsx";
 
 const hasScopedPermission = (permissions, base) =>
 	permissions.includes(`${base}.all`) || permissions.includes(`${base}.own_division`);
@@ -59,13 +60,14 @@ function App() {
 			const me = await api("/me");
 			if (generation !== authGeneration.current) return;
 			const activeMembership = me.memberships?.find((m) => m.division.id === me.active_division_id) || me.memberships?.[0];
-			setUser({
-				...me.user,
-				division: activeMembership?.division,
-				role: activeMembership?.role,
-				permissions: activeMembership?.permissions || [],
-				canAccessDocs: !!me.can_access_docs,
-			});
+				setUser({
+					...me.user,
+					division: activeMembership?.division,
+					role: activeMembership?.role,
+					permissions: activeMembership?.permissions || [],
+					canAccessDocs: !!me.can_access_docs,
+					canAccessOversight: !!me.can_access_oversight,
+				});
 			if (me.workspace_options && me.workspace_options.length > 1) {
 				setWorkspaces(me.workspace_options);
 				// Root-cause fix: dulu modal selalu muncul tiap /me balas —
@@ -366,6 +368,16 @@ function App() {
 						) : (
 							<NoAccess />
 						)}
+					</Shell>
+				}
+			/>
+			{/* Oversight Roro — khusus akun Ristek (allowlist RORO_OVERSIGHT_EMAILS).
+			    Baca percakapan + jejak event lintas divisi. */}
+			<Route
+				path="/roro-oversight"
+				element={
+					<Shell {...shellProps} title="Oversight Roro" crumb={[{ label: "Modul", to: "/" }, { label: "Oversight Roro" }]}>
+						{user?.canAccessOversight ? <RoroOversight /> : <NoAccess />}
 					</Shell>
 				}
 			/>

@@ -445,3 +445,41 @@ export const aiUsage = sqliteTable(
 	},
 	(table) => [primaryKey({ columns: [table.userId, table.day] })],
 );
+
+// Jejak aktivitas/error Roro untuk oversight Ristek (lintas divisi). Tiap giliran
+// chat, tool call, error LLM, kuota habis, upaya injeksi prompt yang diblokir,
+// dsb. Dipangkas 90 hari oleh cron (sama dengan audit_logs).
+export const aiEvents = sqliteTable(
+	"ai_events",
+	{
+		id: text("id").primaryKey(),
+		conversationId: text("conversation_id"),
+		userId: text("user_id"),
+		userEmail: text("user_email"),
+		divisionId: text("division_id"),
+		// chat_turn | tool_use | proposal | confirm | error | llm_unavailable |
+		// injection_blocked | code_blocked | quota_exceeded | rescue | fake_call |
+		// promise_without_tool | flag
+		eventType: text("event_type").notNull(),
+		// info | warn | error
+		level: text("level").notNull(),
+		message: text("message").notNull(),
+		metadata: text("metadata"),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [
+		index("ai_events_user_idx").on(table.userId, table.createdAt),
+		index("ai_events_type_idx").on(table.eventType, table.createdAt),
+		index("ai_events_recent_idx").on(table.createdAt),
+		index("ai_events_conv_idx").on(table.conversationId, table.createdAt),
+	],
+);
+
+export const aiConversationsRelations = relations(aiConversations, ({ many }) => ({
+	messages: many(aiMessages),
+	events: many(aiEvents),
+}));
+
+export const aiEventsRelations = relations(aiEvents, ({ one }) => ({
+	conversation: one(aiConversations, { fields: [aiEvents.conversationId], references: [aiConversations.id] }),
+}));

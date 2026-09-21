@@ -4,11 +4,13 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppContext } from "../../types";
 import { adminAuth } from "../../middlewares/admin-auth";
+import { requireOversightAccess } from "../../middlewares/oversight-access";
 import { ApiResponse } from "../../shared/api-response";
 import { ApiError } from "../../shared/api-error";
 import { recordAuditLog } from "../audit/audit.service";
 import { d1RateLimiter } from "../../middlewares/rate-limiter";
 import { assistantService, quotaSummary, type ChatActor } from "./service";
+import { oversightService } from "./oversight.service";
 
 const chatSchema = z.object({
 	conversation_id: z.string().min(1).optional(),
@@ -29,6 +31,7 @@ const actorFrom = (c: any): ChatActor =>
 	({
 		userId: c.get("userId"),
 		userName: c.get("userName"),
+		userEmail: c.get("userEmail"),
 		role: c.get("userRole"),
 		divisionId: c.get("activeDivisionId"),
 		divisionName: undefined,
@@ -129,3 +132,74 @@ adminAssistantRouter.get("/memory", async (c) =>
 adminAssistantRouter.get("/usage", async (c) =>
 	ApiResponse.ok(c, "Kuota Roro", await quotaSummary(c.get("db"), actorFrom(c).userId, c.env)),
 );
+
+// ---- Oversight (khusus akun Ristek) ----------------------------------------
+// Baca percakapan + jejak error/aktivitas Roro lintas divisi. Di-gate
+// requireOversightAccess (allowlist email RORO_OVERSIGHT_EMAILS), terpisah
+// dari RBAC biasa — role divisi lain tidak boleh bisa baca percakapan user lain.
+
+adminAssistantRouter.get("/oversight/stats", requireOversightAccess, async (c) =>
+	ApiResponse.ok(c, "Statistik oversight Roro", await oversightService.stats(c.get("db"))),
+);
+
+adminAssistantRouter.get("/oversight/conversations", requireOversightAccess, async (c) => {
+	const page = Number(c.req.query("page"));
+	const perPage = Number(c.req.query("per_page"));
+	const divisionId = c.req.query("division_id") || undefined;
+	const search = c.req.query("q") || undefined;
+	return ApiResponse.ok(
+		c,
+		"Daftar percakapan lintas divisi",
+		await oversightService.listConversations(c.get("db"), { divisionId, search, page, perPage }),
+	);
+});
+
+adminAssistantRouter.get("/oversight/conversations/:id", requireOversightAccess, async (c) => {
+	const data = await oversightService.getConversation(c.get("db"), c.req.param("id"));
+	if (!data) throw ApiError.notFound("Percakapan tidak ditemukan");
+	return ApiResponse.ok(c, "Isi percakapan + event", data);
+});
+
+adminAssistantRouter.get("/oversight/events", requireOversightAccess, async (c) => {
+	const type = c.req.query("type") || undefined;
+	const level = c.req.query("level") || undefined;
+	const since = c.req.query("since") || undefined;
+	const limit = Number(c.req.query("limit"));
+	const page = Number(c.req.query("page"));
+	return ApiResponse.ok(
+		c,
+		"Jejak aktivitas & error Roro",
+		await oversightService.listEvents(c.get("db"), { type, level, since, limit, page }),
+	);
+});
+
+adminAssistantRouter.get("/oversight/usage", requireOversightAccess, async (c) =>
+	ApiResponse.ok(c, "Penggunaan Roro per user", await oversightService.usageBreakdown(c.get("db"), { month: c.req.query("month") || undefined })),
+);
+
+const flagSchema = z.object({ note: z.string().trim().min(1).max(500) });
+
+adminAssistantRouter.post("/oversight/conversations/:id/flag", requireOversightAccess, async (c) => {
+	const parsed = flagSchema.safeParse(await c.req.json().catch(() => null));
+	if (!parsed.success) {
+		throw ApiError.validation("Body tidak valid", { note: ["Wajib: { note (1–500 karakter) }"] });
+	}
+	const db = c.get("db");
+	// Pastikan percakapan ada sebelum menandai — flag tanpa target tidak berguna.
+	const exists = await oversightService.getConversation(db, c.req.param("id"));
+	if (!exists) throw ApiError.notFound("Percakapan tidak ditemukan");
+	await oversightService.flagConversation(db, {
+		conversationId: c.req.param("id"),
+		userId: c.get("userId"),
+		userEmail: c.get("userEmail"),
+		divisionId: c.get("activeDivisionId"),
+		note: parsed.data.note,
+	});
+	await recordAuditLog(c, {
+		action: "roro.oversight_flag",
+		resourceType: "ai_conversation",
+		resourceId: c.req.param("id"),
+		metadata: { note: parsed.data.note.slice(0, 200) },
+	});
+	return ApiResponse.ok(c, "Percakapan ditandai", null);
+});
