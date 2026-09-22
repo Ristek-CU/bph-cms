@@ -305,7 +305,7 @@ function App() {
 						title="Kalender Lintas Divisi"
 						crumb={[{ label: "Modul", to: "/" }, { label: "Kalender Lintas Divisi" }]}
 					>
-						{permissions.includes("events.read.all") ? <CrossDivisionCalendar /> : <NoAccess />}
+						{hasScopedPermission(permissions, "events.read") ? <CrossDivisionCalendar /> : <NoAccess />}
 					</Shell>
 				}
 			/>
