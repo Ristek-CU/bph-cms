@@ -130,7 +130,9 @@ export function displayStatus(ev) {
 }
 
 // Tombol "Tambah ke Google Calendar" (template URL resmi, tanpa backend).
-export function gcalUrl(ev) {
+// detailUrl bisa diganti: internal event tidak punya halaman publik, jadi ia
+// menunjuk ke panel (lihat utils/internal-event.js).
+export function gcalUrl(ev, detailUrl = publicLink(ev)) {
 	const fmt = (iso) =>
 		new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
 	const params = new URLSearchParams({
@@ -138,7 +140,7 @@ export function gcalUrl(ev) {
 		text: ev.title,
 		dates: `${fmt(ev.starts_at)}/${fmt(ev.ends_at)}`,
 		details: (ev.description || "").slice(0, 500) +
-			`\n\nDetail: https://sga-cakrawala.org/events/${ev.slug}`,
+			(detailUrl ? `\n\nDetail: ${detailUrl}` : ""),
 		location: ev.location || "",
 	});
 	return `https://calendar.google.com/calendar/render?${params}`;

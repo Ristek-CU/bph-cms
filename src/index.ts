@@ -13,6 +13,8 @@ import { dbMiddleware } from "./db/connection";
 import type { AppContext, Bindings, Variables } from "./types";
 
 import { adminEventRouter } from "./modules/events/event.route";
+import { adminInternalEventRouter } from "./modules/internal-events/internal-event.route";
+import { internalMediaRouter } from "./modules/internal-events/internal-media.route";
 import { publicEventRouter } from "./modules/events/event.public.route";
 import { adminFormRouter, adminFormSubmissionRouter } from "./modules/forms/form.route";
 import { internalFormRouter } from "./modules/forms/form.internal.route";
@@ -100,6 +102,9 @@ v1.get("/storage/*", d1RateLimiter({ prefix: "public:storage", limit: 120, windo
 
 v1.route("/events", publicEventRouter);
 v1.route("/admin/events", adminEventRouter);
+// Internal Event (D-AK) — prefix sendiri, TIDAK di bawah /events, supaya tidak ada
+// satu pun jalur publik yang bisa menjangkau agenda internal organisasi.
+v1.route("/admin/internal-events", adminInternalEventRouter);
 // Submissions sebelum /forms/:id supaya /forms/submissions/:id tidak tertelan.
 v1.route("/admin/forms/submissions", adminFormSubmissionRouter);
 v1.route("/admin/forms", adminFormRouter);
@@ -107,6 +112,9 @@ v1.route("/admin/qpr", adminQprRouter);
 v1.route("/qpr", publicQprRouter);
 v1.route("/forms", publicFormRouter);
 v1.route("/admin/media", mediaRouter);
+// Cover internal event (K-6) — prefix R2 terpisah + servis ber-auth, berbeda dari
+// /storage/covers/* yang publik. Lihat modules/internal-events/internal-media.route.ts.
+v1.route("/admin/internal-media", internalMediaRouter);
 v1.route("/admin", adminAccountRouter);
 v1.route("/admin/assistant", adminAssistantRouter);
 v1.route("/admin", adminHandoffRouter);

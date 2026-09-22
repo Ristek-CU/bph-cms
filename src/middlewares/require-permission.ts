@@ -2,12 +2,26 @@ import type { MiddlewareHandler } from "hono";
 import { eq } from "drizzle-orm";
 import { ApiError } from "../shared/api-error";
 import { hasPermission } from "../shared/permissions";
-import { eventSessions, events, forms, formSubmissions } from "../db/schema";
+import {
+	eventSessions,
+	events,
+	forms,
+	formSubmissions,
+	internalEvents,
+	internalEventSessions,
+} from "../db/schema";
 import type { AppContext } from "../types";
 
 export type PermissionOptions = {
 	scope?: "own_division" | "all";
-	resourceType?: "event" | "session" | "division" | "form" | "submission";
+	resourceType?:
+		| "event"
+		| "session"
+		| "division"
+		| "form"
+		| "submission"
+		| "internal_event"
+		| "internal_session";
 };
 
 /**
@@ -73,6 +87,54 @@ export const requirePermission = (
 				const isOwnDivision = Boolean(activeDivisionId && session.divisionId === activeDivisionId);
 				if (!hasPermission(userPermissions, requiredPermission, { isOwnDivision, resourceStatus: session.status })) {
 					throw ApiError.forbidden("Forbidden: tidak memiliki akses ke sesi event divisi ini");
+				}
+				return next();
+			}
+		}
+
+		// Internal event (D-AK) memakai permission events.* yang sama dengan
+		// student event, tetapi resource-nya di tabel terpisah. Baca lintas divisi
+		// diputuskan service (K-2); di sini hanya tulis yang dijaga own-division.
+		if (options.resourceType === "internal_event") {
+			const resourceId = c.req.param("id");
+			if (resourceId) {
+				const db = c.get("db");
+				const [event] = await db
+					.select({ divisionId: internalEvents.divisionId, status: internalEvents.status })
+					.from(internalEvents)
+					.where(eq(internalEvents.id, resourceId))
+					.limit(1);
+
+				if (!event) {
+					throw ApiError.notFound("Internal event tidak ditemukan");
+				}
+
+				const isOwnDivision = Boolean(activeDivisionId && event.divisionId === activeDivisionId);
+				if (!hasPermission(userPermissions, requiredPermission, { isOwnDivision, resourceStatus: event.status })) {
+					throw ApiError.forbidden("Forbidden: tidak memiliki akses ke internal event divisi ini");
+				}
+				return next();
+			}
+		}
+
+		if (options.resourceType === "internal_session") {
+			const resourceId = c.req.param("id");
+			if (resourceId) {
+				const db = c.get("db");
+				const [session] = await db
+					.select({ divisionId: internalEvents.divisionId, status: internalEvents.status })
+					.from(internalEventSessions)
+					.innerJoin(internalEvents, eq(internalEventSessions.internalEventId, internalEvents.id))
+					.where(eq(internalEventSessions.id, resourceId))
+					.limit(1);
+
+				if (!session) {
+					throw ApiError.notFound("Session tidak ditemukan");
+				}
+
+				const isOwnDivision = Boolean(activeDivisionId && session.divisionId === activeDivisionId);
+				if (!hasPermission(userPermissions, requiredPermission, { isOwnDivision, resourceStatus: session.status })) {
+					throw ApiError.forbidden("Forbidden: tidak memiliki akses ke sesi internal event divisi ini");
 				}
 				return next();
 			}

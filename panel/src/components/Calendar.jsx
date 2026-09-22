@@ -1,8 +1,19 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { displayStatus, fmtDateLong, fmtRange, fmtTime, gcalUrl, publicLink } from "../api.js";
 import { Confirm } from "./ui.jsx";
 import { IconCalendar, IconChevronLeft, IconChevronRight, IconClock, IconMapPin, IconPlus } from "./Icons.jsx";
+
+// Perilaku bawaan = student event: buat di /events/baru, punya halaman publik,
+// Google Calendar menunjuk ke situs mahasiswa. Kalender internal event mengganti
+// semuanya lewat prop `links` (panel/src/utils/internal-event.js).
+const PUBLIC_LINKS = {
+	newPath: "/events/baru",
+	gcalHref: gcalUrl,
+	publicHref: publicLink,
+	detailHref: null,
+	canWrite: null,
+};
 
 const DOW = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
 
@@ -51,7 +62,9 @@ function sessionsOnDay(ev, dayKey) {
 // Panel agenda: detail hari terpilih — event + sesi per jam + aksi.
 // ownDivisionId: kalender lintas divisi — aksi edit hanya untuk event divisi
 // sendiri; event divisi lain read-only (tampil badge nama divisinya).
-function DayAgenda({ dayKey, events, onEdit, onNew, capabilities, ownDivisionId }) {
+// `links.canWrite` menggantikan tebakan itu bila disediakan: "divisi berbeda =
+// bukan milikku" salah untuk platform_admin yang memang boleh menulis di mana pun.
+function DayAgenda({ dayKey, events, onEdit, onNew, capabilities, ownDivisionId, links }) {
 	return (
 		<div className="card agenda-card">
 			<div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
@@ -72,13 +85,16 @@ function DayAgenda({ dayKey, events, onEdit, onNew, capabilities, ownDivisionId 
 				events.map((e) => {
 					const st = displayStatus(e);
 					const sess = sessionsOnDay(e, dayKey);
-					const own = !ownDivisionId || !e.division_id || e.division_id === ownDivisionId;
+					// Badge divisi murni soal "milik divisi lain" — tidak dicampur
+					// dengan boleh/tidaknya menulis.
+					const otherDiv = Boolean(ownDivisionId && e.division_id && e.division_id !== ownDivisionId);
+					const writable = links.canWrite ? links.canWrite(e) : !otherDiv;
 					return (
 						<div key={e.id} className="agenda-ev">
 							<div className="agenda-ev-head">
 								<div style={{ minWidth: 0 }}>
 									<strong>{e.title}</strong>
-									{!own && <span className="badge div" style={{ marginLeft: 8 }}>{e.division_name}</span>}
+									{otherDiv && <span className="badge div" style={{ marginLeft: 8 }}>{e.division_name}</span>}
 									{e.status === "draft" && <span className="badge draft" style={{ marginLeft: 8 }}>Draft</span>}
 									<div className="muted small meta" style={{ marginTop: 4 }}>
 										<span className="meta-item"><IconClock size={13} /> {fmtRange(e.starts_at, e.ends_at)}</span>
@@ -102,13 +118,16 @@ function DayAgenda({ dayKey, events, onEdit, onNew, capabilities, ownDivisionId 
 								</ul>
 							)}
 							<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-								{own && capabilities?.canEditEvent?.(e) && (
+								{writable && capabilities?.canEditEvent?.(e) && (
 									<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
 								)}
-								{own && e.status !== "draft" && (
-									<a className="btn ghost sm" href={publicLink(e)} target="_blank" rel="noreferrer">Lihat publik</a>
+								{links.detailHref && (
+									<Link className="btn ghost sm" to={links.detailHref(e)}>Lihat detail</Link>
 								)}
-								<a className="btn ghost sm" href={gcalUrl(e)} target="_blank" rel="noreferrer">
+								{writable && links.publicHref && e.status !== "draft" && (
+									<a className="btn ghost sm" href={links.publicHref(e)} target="_blank" rel="noreferrer">Lihat publik</a>
+								)}
+								<a className="btn ghost sm" href={links.gcalHref(e)} target="_blank" rel="noreferrer">
 									<IconCalendar size={13} /> Google Calendar
 								</a>
 							</div>
@@ -124,7 +143,8 @@ function DayAgenda({ dayKey, events, onEdit, onNew, capabilities, ownDivisionId 
  * Kalender bulanan lengkap + agenda hari terpilih.
  * Dipakai di /events/kalender (penuh) dan Ringkasan (compact).
  */
-export default function Calendar({ events, onEdit, compact = false, capabilities, ownDivisionId = null }) {
+export default function Calendar({ events, onEdit, compact = false, capabilities, ownDivisionId = null, links: linksProp = null }) {
+	const links = { ...PUBLIC_LINKS, ...linksProp };
 	const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
 	const [ym, setYm] = useState({ y: now.getFullYear(), m: now.getMonth() });
 	const [picked, setPicked] = useState(null);
@@ -234,6 +254,7 @@ export default function Calendar({ events, onEdit, compact = false, capabilities
 					onNew={setAskNew}
 					capabilities={capabilities}
 					ownDivisionId={ownDivisionId}
+					links={links}
 				/>
 			)}
 
@@ -243,7 +264,7 @@ export default function Calendar({ events, onEdit, compact = false, capabilities
 				confirmLabel="Ya, buat"
 				onCancel={() => setAskNew(null)}
 				onConfirm={() => {
-					navigate(`/events/baru?date=${askNew}`);
+					navigate(`${links.newPath}?date=${askNew}`);
 					setAskNew(null);
 				}}
 			>

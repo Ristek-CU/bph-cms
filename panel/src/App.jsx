@@ -10,6 +10,10 @@ import Assistant from "./pages/Assistant.jsx";
 import EventList from "./pages/EventList.jsx";
 import EventCalendar from "./pages/EventCalendar.jsx";
 import EventEditor from "./pages/EventEditor.jsx";
+import InternalEventList from "./pages/InternalEventList.jsx";
+import InternalEventCalendar from "./pages/InternalEventCalendar.jsx";
+import InternalEventDetail from "./pages/InternalEventDetail.jsx";
+import { InternalEventEditRoute, InternalEventNewRoute } from "./pages/InternalEventEditor.jsx";
 import Forms, { FormBuilderRoute, FormAnalyticsRoute } from "./pages/Forms.jsx";
 import Qpr, { PublicFill } from "./pages/Qpr.jsx";
 import Accounts from "./pages/Accounts.jsx";
@@ -219,6 +223,13 @@ function App() {
 		[user, workspaces.length, handleLogout, openWorkspacePicker],
 	);
 
+	// Tombol "← Kembali" di topbar selalu menunjuk induk hierarki yang sudah
+	// ditampilkan breadcrumb. Bukan navigate(-1): riwayat bisa kosong saat
+	// halaman dibuka lewat link langsung, di-refresh, atau tepat setelah login,
+	// dan tombol yang tidak melakukan apa-apa lebih membingungkan daripada tidak
+	// ada tombol sama sekali.
+	const backTo = (path) => () => navigate(path);
+
 	if (!token) {
 		// QPR isi tetap bisa dibuka tanpa akun (model no-login).
 		if (window.location.hash.startsWith("#/qpr/")) return <PublicQprRoute token={token} />;
@@ -329,6 +340,109 @@ function App() {
 					</Shell>
 				}
 			/>
+			{/* Internal Event (D-AK) — agenda internal organisasi. Baca terbuka untuk
+			    semua pengurus lintas divisi (K-2), tulis hanya divisi pemilik.
+			    Halaman-halaman ini memuat datanya sendiri; App tidak menyimpan
+			    state internal event. */}
+			<Route
+				path="/internal-events"
+				element={
+					<Shell
+						{...shellProps}
+						title="Event Internal"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal" }]}
+						actions={
+							<>
+								<Link className="btn ghost" to="/internal-events/kalender">
+									<IconCalendar size={16} /> Kalender
+								</Link>
+								{capabilities.canCreateEvent && (
+									<Link className="btn gold" to="/internal-events/baru">
+										<IconPlus size={16} /> Event internal baru
+									</Link>
+								)}
+							</>
+						}
+					>
+						{hasScopedPermission(permissions, "events.read") ? (
+							<InternalEventList user={user} capabilities={capabilities} />
+						) : (
+							<NoAccess to="/internal-events" label="Kembali ke daftar internal event" />
+						)}
+					</Shell>
+				}
+			/>
+			<Route
+				path="/internal-events/kalender"
+				element={
+					<Shell
+						{...shellProps}
+						title="Kalender Internal"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal", to: "/internal-events" }, { label: "Kalender" }]}
+						onBack={backTo("/internal-events")}
+						actions={
+							capabilities.canCreateEvent ? (
+								<Link className="btn gold" to="/internal-events/baru">
+									<IconPlus size={16} /> Event internal baru
+								</Link>
+							) : null
+						}
+					>
+						{hasScopedPermission(permissions, "events.read") ? (
+							<InternalEventCalendar user={user} capabilities={capabilities} />
+						) : (
+							<NoAccess to="/internal-events" label="Kembali ke daftar internal event" />
+						)}
+					</Shell>
+				}
+			/>
+			<Route
+				path="/internal-events/baru"
+				element={
+					<Shell
+						{...shellProps}
+						title="Event Internal Baru"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal", to: "/internal-events" }, { label: "Baru" }]}
+						onBack={backTo("/internal-events")}
+					>
+						<InternalEventNewRoute capabilities={capabilities} />
+					</Shell>
+				}
+			/>
+			<Route
+				path="/internal-events/:id/edit"
+				element={
+					<Shell
+						{...shellProps}
+						title="Edit Event Internal"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal", to: "/internal-events" }, { label: "Edit" }]}
+						onBack={backTo("/internal-events")}
+					>
+						{hasScopedPermission(permissions, "events.read") ? (
+							<InternalEventEditRoute user={user} capabilities={capabilities} />
+						) : (
+							<NoAccess to="/internal-events" label="Kembali ke daftar internal event" />
+						)}
+					</Shell>
+				}
+			/>
+			<Route
+				path="/internal-events/:id"
+				element={
+					<Shell
+						{...shellProps}
+						title="Detail Event Internal"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal", to: "/internal-events" }, { label: "Detail" }]}
+						onBack={backTo("/internal-events")}
+					>
+						{hasScopedPermission(permissions, "events.read") ? (
+							<InternalEventDetail user={user} capabilities={capabilities} />
+						) : (
+							<NoAccess to="/internal-events" label="Kembali ke daftar internal event" />
+						)}
+					</Shell>
+				}
+			/>
 			<Route
 				path="/forms"
 				element={
@@ -422,11 +536,13 @@ function NavigateDocs() {
 	return null;
 }
 
-function NoAccess() {
+// Tujuan "kembali" bisa diisi karena NoAccess dipakai beberapa modul — default
+// /events hanya benar untuk modul Event.
+function NoAccess({ to = "/events", label = "Kembali ke daftar event" }) {
 	return (
 		<div className="empty-state">
 			<p>Akun ini tidak punya akses untuk aksi tersebut.</p>
-			<Link className="btn" to="/events">Kembali ke daftar event</Link>
+			<Link className="btn" to={to}>{label}</Link>
 		</div>
 	);
 }

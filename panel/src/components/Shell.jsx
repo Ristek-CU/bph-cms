@@ -6,7 +6,7 @@ import { IconChevronRight, IconBarChart } from "./Icons.jsx";
 
 const hasScoped = (permissions, base) =>
 	permissions?.includes(`${base}.all`) || permissions?.includes(`${base}.own_division`);
-import { IconCalendar, IconClipboard, IconEye, IconEyeOff, IconGrid, IconLink, IconMenu, IconUsers } from "./Icons.jsx";
+import { IconCalendar, IconClipboard, IconEye, IconEyeOff, IconGrid, IconLink, IconLock, IconMenu, IconUsers } from "./Icons.jsx";
 
 // Logomark SGA Cakrawala — outline putih transparan (dari landing page).
 import logoSga from "/logo-sga.webp";
@@ -133,6 +133,14 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 			<NavLink to="/events" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconCalendar /></span> Event
 			</NavLink>
+			{/* Event Internal (D-AK) — agenda internal organisasi, tidak pernah tampil
+			    di situs publik. Gate-nya events.read, sama dengan Kalender Lintas
+			    Divisi: semua pengurus boleh membaca (K-2). */}
+			{hasScoped(permissions, "events.read") && (
+				<NavLink to="/internal-events" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
+					<span className="icon" aria-hidden><IconLock /></span> Event Internal
+				</NavLink>
+			)}
 			{hasScoped(permissions, "events.read") && (
 				<NavLink to="/calendar" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 					<span className="icon" aria-hidden><IconCalendar /></span> Kalender Lintas Divisi

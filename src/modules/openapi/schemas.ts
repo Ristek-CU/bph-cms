@@ -84,6 +84,29 @@ export const adminEventSchema = z.object({
 	sessions: z.array(adminSessionSchema),
 });
 
+// ---- Internal Event (D-AK) — agenda internal organisasi, tidak pernah publik ----
+
+// Bentuk admin identik student event, ditambah identitas divisi: panel
+// membutuhkannya untuk badge divisi dan untuk memutuskan apakah aksi tulis boleh
+// muncul (K-2 — baca lintas divisi, tulis hanya divisi sendiri).
+export const adminInternalEventSchema = adminEventSchema.extend({
+	division_id: z.string(),
+	division_name: z.string().nullable(),
+});
+
+export const internalCalendarItemSchema = z.object({
+	id: z.string(),
+	slug: z.string(),
+	title: z.string(),
+	description: z.string().nullable(),
+	starts_at: z.string(),
+	ends_at: z.string(),
+	location: z.string(),
+	organizer: z.string().nullable(),
+	division_id: z.string(),
+	division_name: z.string().nullable(),
+});
+
 export const mediaUploadSchema = z.object({
 	url: z.string().url().describe("Simpan ke cover_image_url"),
 });

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { api, getToken, isoToInput, toIsoWib } from "../api.js";
-import { Confirm, useToast, Field, useUnsavedChanges } from "../components/ui.jsx";
-// Kartu sesi + pratinjau dan helper tanggal dipakai bersama dengan
-// InternalEventEditor — lihat components/event-form.jsx & utils/event-form.js.
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { api, errText, getToken, isoToInput, toIsoWib } from "../api.js";
+import { Confirm, ErrorState, Field, SkeletonCard, useToast, useUnsavedChanges } from "../components/ui.jsx";
+import AuthImage from "../components/AuthImage.jsx";
 import { Preview, SessionCard } from "../components/event-form.jsx";
 import {
 	hasSessionDraft,
@@ -12,10 +11,18 @@ import {
 	translateErrors,
 	withKeys,
 } from "../utils/event-form.js";
+import { internalCaps } from "../utils/internal-event.js";
 
-const notifyEventsChanged = () => window.dispatchEvent(new Event("bph:events-changed"));
-
-export default function EventEditor({ event, prefillDate, canPublish = false, canDelete = false }) {
+// Editor internal event. Struktur, urutan section, dan aturan validasinya
+// sengaja identik dengan EventEditor (student event) — komponen sesi dan
+// pratinjau diimpor dari satu sumber yang sama supaya keduanya tidak drift.
+//
+// Yang berbeda hanya tiga hal:
+//  1. endpoint (/admin/internal-events, /admin/internal-media)
+//  2. cover dirender lewat AuthImage karena disimpan di prefix R2 ber-auth (K-6)
+//  3. semua kalimat yang menyebut "portal SGA" / "mahasiswa" — internal event
+//     tidak pernah tampil di sana, dan menyebutnya akan menyesatkan pengurus
+export default function InternalEventEditor({ event, prefillDate, canPublish = false, canDelete = false }) {
 	const navigate = useNavigate();
 	const toast = useToast();
 	const editing = !!event?.id;
@@ -56,10 +63,8 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 		prevSessionsLen.current = sessions.length;
 	}, [sessions.length]);
 
-
-	const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
-	// Patch sesi berdasarkan urutan tampil (sortedSessions), konsisten dengan render.
-	const setSess = (i, patch) => setSessions(sortedSessions.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+	// Dideklarasikan sebelum setSess: setSess membaca urutan tampil, dan kalau
+	// useMemo-nya di bawah, React Compiler tidak bisa mempertahankan memo-nya.
 	const sortedSessions = useMemo(
 		() => [...sessions]
 			.map((s, i) => ({ session: s, index: i }))
@@ -73,22 +78,38 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 		[sessions],
 	);
 
+	const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+	// Patch sesi berdasarkan urutan tampil (sortedSessions), konsisten dengan render.
+	const setSess = (i, patch) => setSessions(sortedSessions.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+
 	async function upload(file) {
 		if (uploading || saving) return;
-		if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
-			toast("Pilih gambar JPG, PNG, atau WebP dengan ukuran maksimal 5 MB.", "err"); return;
+		if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+			toast("Pilih gambar JPG, PNG, atau WebP dengan ukuran maksimal 5 MB.", "err");
+			return;
 		}
 		setUploading(true);
 		try {
-			const fd = new FormData(); fd.append("file", file);
-			const res = await fetch("/api/v1/admin/media", { method: "POST", headers: { Authorization: `Bearer ${getToken()}` }, body: fd, signal: AbortSignal.timeout(60000) });
+			const fd = new FormData();
+			fd.append("file", file);
+			// Endpoint internal: objek masuk prefix internal-covers/ dan hanya bisa
+			// dibaca dengan Bearer token (K-6).
+			const res = await fetch("/api/v1/admin/internal-media", {
+				method: "POST",
+				headers: { Authorization: `Bearer ${getToken()}` },
+				body: fd,
+				signal: AbortSignal.timeout(60000),
+			});
 			const b = await res.json().catch(() => ({}));
 			if (res.status === 401) window.dispatchEvent(new Event("bph:unauthorized"));
 			if (!res.ok || b.success === false) throw new Error(b.message || "Upload gagal. Silakan coba lagi.");
 			setCover(b.data.url);
 			toast("Cover terunggah. Simpan event untuk menerapkan.");
-		} catch (e) { toast(e.message || "Upload gagal. Periksa koneksi internet.", "err"); }
-		finally { setUploading(false); }
+		} catch (e) {
+			toast(e.message || "Upload gagal. Periksa koneksi internet.", "err");
+		} finally {
+			setUploading(false);
+		}
 	}
 
 	function payload() {
@@ -125,10 +146,10 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 		if (!form.title.trim()) errs.title = "Nama event wajib diisi.";
 		if (!form.starts_at) errs.starts_at = "Jam mulai wajib diisi.";
 		if (!form.ends_at) errs.ends_at = "Jam selesai wajib diisi.";
-		if (form.starts_at && form.ends_at && form.ends_at <= form.starts_at)
+		if (form.starts_at && form.ends_at && form.ends_at <= form.starts_at) {
 			errs.ends_at = "Jam selesai harus setelah jam mulai.";
+		}
 		if (!form.location.trim()) errs.location = "Lokasi wajib diisi.";
-		// Sesi kosong boleh diabaikan; sesi yang mulai diisi wajib lengkap.
 		sortedSessions.forEach((s, i) => {
 			if (!hasSessionDraft(s)) return;
 			if (!s.name.trim()) errs[`sessions.${i}.name`] = "Nama sesi wajib diisi.";
@@ -157,7 +178,7 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 			const body = payload();
 			let id = savedId;
 			if (editing || savedId) {
-				await api(`/admin/events/${id}`, { method: "PUT", json: body });
+				await api(`/admin/internal-events/${id}`, { method: "PUT", json: body });
 			} else {
 				const slug = form.slug
 					.trim()
@@ -166,7 +187,7 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 					.replace(/[\s_]+/g, "-")
 					.replace(/-+/g, "-")
 					.replace(/^-|-$/g, "");
-				const created = await api("/admin/events", {
+				const created = await api("/admin/internal-events", {
 					method: "POST",
 					json: { ...body, slug: slug || undefined, status: "draft" },
 				});
@@ -175,14 +196,15 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 			}
 			setSavedSnapshot(snapshot);
 			if (publishAfter) {
-				await api(`/admin/events/${id}/publish`, { method: "POST" });
+				await api(`/admin/internal-events/${id}/publish`, { method: "POST" });
 				setPublished(true);
-				toast("Event diterbitkan — langsung tampil di portal SGA.");
+				toast("Internal event diterbitkan — terlihat semua pengurus SGA.");
 			} else {
-				toast(published ? "Perubahan event tersimpan dan tampil di portal." : "Event tersimpan sebagai draft.");
+				toast(published
+					? "Perubahan tersimpan dan tetap terlihat semua pengurus."
+					: "Internal event tersimpan sebagai draft divisi kamu.");
 			}
-			notifyEventsChanged();
-			navigate(`/events/${id}/edit`);
+			navigate(`/internal-events/${id}/edit`);
 		} catch (e) {
 			const translated = translateErrors(e?.errors);
 			if (Object.keys(translated).length) setErrors(translated);
@@ -196,13 +218,14 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 		if (saving) return;
 		setSaving(true);
 		try {
-			await api(`/admin/events/${savedId}/unpublish`, { method: "POST" });
+			await api(`/admin/internal-events/${savedId}/unpublish`, { method: "POST" });
 			setPublished(false);
-			notifyEventsChanged();
-			toast("Event ditarik — tidak terlihat publik.");
+			toast("Internal event ditarik — kembali jadi draft divisi kamu.");
 		} catch (e) {
 			toast(e?.message || "Gagal menarik event.", "err");
-		} finally { setSaving(false); }
+		} finally {
+			setSaving(false);
+		}
 	}
 
 	async function del() {
@@ -210,38 +233,44 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 		setSaving(true);
 		setAskDelete(false);
 		try {
-			await api(`/admin/events/${savedId}`, { method: "DELETE" });
-			notifyEventsChanged();
-			toast("Event dihapus permanen.");
-			navigate("/events");
+			await api(`/admin/internal-events/${savedId}`, { method: "DELETE" });
+			toast("Internal event dihapus permanen.");
+			navigate("/internal-events");
 		} catch (e) {
 			toast(e?.message || "Gagal menghapus.", "err");
-		} finally { setSaving(false); }
+		} finally {
+			setSaving(false);
+		}
 	}
 
 	return (
 		<>
+			<div className="internal-notice" role="note">
+				<strong>Internal event</strong> — hanya terlihat oleh pengurus SGA yang login.
+				Tidak pernah tampil di situs publik maupun landing page.
+			</div>
+
 			<div className="card">
 				<div className="section">
 					<div className="section-head">
 						<div className="section-num">1</div>
 						<div>
 							<h2>Informasi Utama</h2>
-							<p>Identitas event yang dilihat mahasiswa di portal dan link share.</p>
+							<p>Identitas agenda yang dilihat pengurus lain di dalam CMS Hub.</p>
 						</div>
 					</div>
 					<Field label="Nama event" required error={errors.title}>
-						<input type="text" value={form.title} onChange={set("title")} placeholder="Cakrawala Festival 2026" />
+						<input type="text" value={form.title} onChange={set("title")} placeholder="Rapat Koordinasi Persiapan Cakfest" />
 					</Field>
 					{!editing && !savedId && (
-						<Field label="Alamat link (slug)" help="Kosongkan = dibuat otomatis dari nama. Contoh: cakrawala-festival-2026" error={errors.slug}>
+						<Field label="Alamat link (slug)" help="Kosongkan = dibuat otomatis dari nama. Dipakai sebagai penanda internal, bukan URL publik." error={errors.slug}>
 							<input type="text" value={form.slug} onChange={set("slug")} placeholder="otomatis dari judul" />
 						</Field>
 					)}
-					<Field label="Deskripsi" help="Ceritakan event-nya. Tampil di halaman detail.">
+					<Field label="Deskripsi" help="Agenda, latar belakang, atau hal yang perlu disiapkan peserta.">
 						<textarea rows={4} value={form.description} onChange={set("description")} />
 					</Field>
-					<Field label="Foto cover" help="JPG/PNG/WebP, maks 5MB. Rasio disarankan 16:9. Ini foto utama yang dilihat mahasiswa.">
+					<Field label="Foto cover" help="JPG/PNG/WebP, maks 5MB. Rasio disarankan 16:9. Disimpan terpisah dan hanya bisa dibuka pengurus yang login.">
 						<div className="upload-hint">
 							<input
 								type="file"
@@ -251,10 +280,17 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 								onChange={(e) => e.target.files[0] && upload(e.target.files[0])}
 							/>
 							{uploading && <p role="status">Mengunggah cover…</p>}
-							{cover && <img className="cover-preview" src={cover} alt="Pratinjau cover" />}
+							{cover && (
+								<AuthImage
+									src={cover}
+									alt="Pratinjau cover"
+									className="cover-preview"
+									fallback={<p className="field-help">Cover tersimpan, tapi belum bisa ditampilkan.</p>}
+								/>
+							)}
 						</div>
 					</Field>
-					<Field label="Penyelenggara" help="Contoh: BPH SGA, BEM.">
+					<Field label="Penyelenggara / PIC" help="Contoh: BPH SGA, Divisi Media.">
 						<input type="text" value={form.organizer} onChange={set("organizer")} />
 					</Field>
 				</div>
@@ -276,9 +312,9 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 						</Field>
 					</div>
 					<Field label="Lokasi" required error={errors.location}>
-						<input type="text" value={form.location} onChange={set("location")} placeholder="Auditorium Lt. 2, Kampus Kemang" />
+						<input type="text" value={form.location} onChange={set("location")} placeholder="Ruang Rapat Lt. 2 / Zoom" />
 					</Field>
-					<Field label="Link Google Maps" help="Tempel link Maps agar tombol 'Lihat Lokasi' muncul di halaman publik." error={errors.location_url}>
+					<Field label="Link lokasi / meeting" help="Link Google Maps atau tautan ruang meeting online." error={errors.location_url}>
 						<input type="url" value={form.location_url} onChange={set("location_url")} placeholder="https://maps.app.goo.gl/…" />
 					</Field>
 				</div>
@@ -287,23 +323,23 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 					<div className="section-head">
 						<div className="section-num">3</div>
 						<div>
-							<h2>Pendaftaran</h2>
-							<p>Ke mana mahasiswa diarahkan untuk mendaftar.</p>
+							<h2>Konfirmasi Kehadiran</h2>
+							<p>Ke mana pengurus diarahkan untuk mengonfirmasi kehadiran.</p>
 						</div>
 					</div>
-					<Field label="Link pendaftaran" help="Link Google Form / WhatsApp tempat mahasiswa mendaftar." error={errors.registration_url}>
+					<Field label="Link konfirmasi / absensi" help="Link Google Form, WhatsApp, atau form internal untuk mendata peserta." error={errors.registration_url}>
 						<input type="url" value={form.registration_url} onChange={set("registration_url")} placeholder="https://forms.gle/…" />
 					</Field>
 					<div className="check-row">
 						<input
 							type="checkbox"
-							id="reg-open"
+							id="internal-reg-open"
 							checked={form.registration_open}
 							onChange={(e) => setForm({ ...form, registration_open: e.target.checked })}
 						/>
-						<label htmlFor="reg-open" className="field-label" style={{ margin: 0 }}>
-							Pendaftaran dibuka
-							<span className="field-help" style={{ display: "inline" }}> — kalau mati, tombol Daftar tidak muncul di halaman publik.</span>
+						<label htmlFor="internal-reg-open" className="field-label" style={{ margin: 0 }}>
+							Konfirmasi kehadiran dibuka
+							<span className="field-help" style={{ display: "inline" }}> — kalau mati, link di atas tidak ditawarkan di halaman detail.</span>
 						</label>
 					</div>
 				</div>
@@ -313,7 +349,7 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 						<div className="section-num">4</div>
 						<div>
 							<h2>Runsheet (Timeline Sesi)</h2>
-							<p>Jadwal rinci per jam yang dilihat mahasiswa. Boleh dikosongkan dulu — bisa diisi nanti. Sesi otomatis diurutkan per jam saat disimpan.</p>
+							<p>Susunan acara per jam. Boleh dikosongkan dulu — bisa diisi nanti. Sesi otomatis diurutkan per jam saat disimpan.</p>
 						</div>
 					</div>
 					{sortedSessions.map((s, i) => (
@@ -323,7 +359,7 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 							i={i}
 							err={{
 								name: errors[`sessions.${i}.name`],
-							date: errors[`sessions.${i}.date`],
+								date: errors[`sessions.${i}.date`],
 								starts_at: errors[`sessions.${i}.starts_at`],
 								ends_at: errors[`sessions.${i}.ends_at`],
 								range: errors[`sessions.${i}`],
@@ -333,7 +369,11 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 						/>
 					))}
 					<div ref={sessionsEndRef} />
-					<button className="btn sec" type="button" onClick={() => setSessions([...sessions, newSession(sortedSessions[sortedSessions.length - 1] || { _date: form.starts_at.slice(0, 10), _end: form.starts_at.slice(11, 16) || "08:00" })])}>
+					<button
+						className="btn sec"
+						type="button"
+						onClick={() => setSessions([...sessions, newSession(sortedSessions[sortedSessions.length - 1] || { _date: form.starts_at.slice(0, 10), _end: form.starts_at.slice(11, 16) || "08:00" })])}
+					>
 						+ Tambah sesi
 					</button>
 					{errors["sessions"] && <div className="field-err">{errors["sessions"]}</div>}
@@ -342,16 +382,24 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 
 			{showPreview && (
 				<div className="card preview-card">
-					<h2 style={{ fontSize: 15, marginBottom: 10 }}>Pratinjau halaman (perkiraan)</h2>
+					<h2 style={{ fontSize: 15, marginBottom: 10 }}>Pratinjau halaman detail (perkiraan)</h2>
 					<Preview
 						form={form}
 						sessions={sortedSessions}
-						coverImage={cover ? <img src={cover} alt="" /> : null}
+						coverImage={cover ? <AuthImage src={cover} alt="" /> : null}
+						note="Internal event — hanya terlihat oleh pengurus SGA yang login."
+						ariaLabel="Pratinjau halaman internal event"
 					/>
 				</div>
 			)}
 
-			<div className="editor-save-status" role="status">{saving ? "Menyimpan perubahan…" : uploading ? "Mengunggah cover…" : dirty ? "Ada perubahan yang belum disimpan" : savedId ? "Semua perubahan tersimpan" : "Mulai isi detail event. Kolom bertanda * wajib diisi."}</div>
+			<div className="editor-save-status" role="status">
+				{saving ? "Menyimpan perubahan…"
+					: uploading ? "Mengunggah cover…"
+					: dirty ? "Ada perubahan yang belum disimpan"
+					: savedId ? "Semua perubahan tersimpan"
+					: "Mulai isi detail agenda. Kolom bertanda * wajib diisi."}
+			</div>
 			<div className="sticky-bar">
 				{!editing && !savedId ? (
 					<>
@@ -369,11 +417,14 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 						<button className="btn" onClick={() => save(false)} disabled={saving || uploading}>
 							{saving ? "Menyimpan…" : "Simpan Perubahan"}
 						</button>
+						{savedId && (
+							<Link className="btn ghost" to={`/internal-events/${savedId}`}>Lihat detail</Link>
+						)}
 						{canPublish && (
 							published ? (
 								<button className="btn sec" disabled={saving || uploading} onClick={unpublish}>Tarik (kembali ke draft)</button>
 							) : (
-								<button className="btn gold" disabled={saving || uploading} onClick={() => setAskPublish(true)}>Terbitkan</button>
+								<button className="btn gold" disabled={saving || uploading} onClick={() => setAskPublish(true)}>Terbitkan internal</button>
 							)
 						)}
 					</>
@@ -386,20 +437,19 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 						Hapus Permanen
 					</button>
 				)}
-				{savedId && published && (
-					<span className="badge published">Terbit</span>
-				)}
+				{savedId && published && <span className="badge published">Terbit internal</span>}
 				{savedId && !published && <span className="badge draft">Draft</span>}
 			</div>
 
 			<Confirm
 				open={askPublish}
-				title="Terbitkan event?"
+				title="Terbitkan internal event?"
 				confirmLabel="Ya, terbitkan"
 				onCancel={() => setAskPublish(false)}
 				onConfirm={() => { setAskPublish(false); save(true); }}
 			>
-				Event langsung tampil di portal SGA dan bisa disebar lewat link publik.
+				Agenda akan terlihat oleh semua pengurus SGA yang login, dari divisi mana pun.
+				Tetap tidak muncul di situs publik.
 			</Confirm>
 
 			<Confirm
@@ -410,8 +460,76 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 				onCancel={() => setAskDelete(false)}
 				onConfirm={del}
 			>
-				Event "{form.title}" beserta semua sesi akan dihapus selamanya. Tidak bisa dibatalkan.
+				Internal event "{form.title}" beserta semua sesi akan dihapus selamanya. Tidak bisa dibatalkan.
 			</Confirm>
 		</>
+	);
+}
+
+/** /internal-events/baru — ambil ?date= dari hash untuk prefill dari kalender. */
+export function InternalEventNewRoute({ capabilities }) {
+	const sp = new URLSearchParams(window.location.hash.split("?")[1] || "");
+	if (!capabilities?.canCreateEvent) return <NoAccessInternal />;
+	return (
+		<InternalEventEditor
+			prefillDate={sp.get("date")}
+			canPublish={Boolean(capabilities?.canPublishEvent)}
+			canDelete={false}
+		/>
+	);
+}
+
+/** /internal-events/:id/edit — muat eventnya sendiri (App tidak menyimpan state internal event). */
+export function InternalEventEditRoute({ user, capabilities }) {
+	const { id } = useParams();
+	const [event, setEvent] = useState(undefined); // undefined = loading, null = tidak ada
+	const [error, setError] = useState("");
+	const [attempt, setAttempt] = useState(0);
+	const caps = internalCaps(user, capabilities);
+
+	useEffect(() => {
+		let cancelled = false;
+		api(`/admin/internal-events/${id}`)
+			.then((d) => { if (!cancelled) { setEvent(d); setError(""); } })
+			.catch((e) => {
+				if (!cancelled) {
+					// 404 bisa berarti "tidak ada" ATAU "draft divisi lain" — keduanya
+					// memang dibalas 404 oleh backend supaya keberadaannya tidak bocor.
+					setEvent(null);
+					setError(e?.statusCode === 404 ? "" : errText(e));
+				}
+			});
+		return () => { cancelled = true; };
+	}, [id, attempt]);
+
+	if (error) {
+		return <ErrorState message={error} onRetry={() => { setError(""); setAttempt((n) => n + 1); }} />;
+	}
+	if (event === undefined) return <SkeletonCard lines={5} />;
+	if (event === null) {
+		return (
+			<div className="empty-state">
+				<p>Internal event tidak ditemukan — mungkin sudah dihapus, atau masih draft milik divisi lain.</p>
+				<Link className="btn" to="/internal-events">Kembali ke daftar internal event</Link>
+			</div>
+		);
+	}
+	if (!caps.canEdit(event)) return <NoAccessInternal />;
+	return (
+		<InternalEventEditor
+			key={event.id}
+			event={event}
+			canPublish={caps.canPublish(event)}
+			canDelete={caps.canDelete(event)}
+		/>
+	);
+}
+
+function NoAccessInternal() {
+	return (
+		<div className="empty-state">
+			<p>Internal event ini milik divisi lain. Hanya divisi pemilik dan BPH yang boleh mengubahnya.</p>
+			<Link className="btn" to="/internal-events">Kembali ke daftar internal event</Link>
+		</div>
 	);
 }

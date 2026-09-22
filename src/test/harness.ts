@@ -251,6 +251,62 @@ export const startHarness = async (
 	return { req, sql, d1: db, dispose: () => mf.dispose() };
 };
 
+/** Internal event helper (D-AK) — division_id NOT NULL, beda dari seedEvent. */
+export const seedInternalEvent = async (
+	h: Harness,
+	opts: {
+		id: string;
+		slug: string;
+		title: string;
+		divisionId: string;
+		status?: "draft" | "published";
+		startsAt?: string;
+		endsAt?: string;
+	},
+) => {
+	const startsAt = opts.startsAt ?? "2026-09-10T08:00:00+07:00";
+	const endsAt = opts.endsAt ?? "2026-09-11T17:00:00+07:00";
+	const now = new Date().toISOString();
+	await h.sql(
+		`INSERT INTO internal_events
+		   (id, slug, title, starts_at, ends_at, starts_at_ms, ends_at_ms,
+		    location, registration_open, status, division_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'Ruang Rapat', 1, ?, ?, ?, ?)`,
+		opts.id,
+		opts.slug,
+		opts.title,
+		startsAt,
+		endsAt,
+		Date.parse(startsAt),
+		Date.parse(endsAt),
+		opts.status ?? "draft",
+		opts.divisionId,
+		now,
+		now,
+	);
+};
+
+/** Internal event session helper. */
+export const seedInternalSession = async (
+	h: Harness,
+	opts: { id: string; eventId: string; name: string; startsAt?: string; endsAt?: string },
+) => {
+	const startsAt = opts.startsAt ?? "2026-09-10T08:00:00+07:00";
+	const endsAt = opts.endsAt ?? "2026-09-10T09:00:00+07:00";
+	await h.sql(
+		`INSERT INTO internal_event_sessions
+		   (id, internal_event_id, name, starts_at, ends_at, starts_at_ms, ends_at_ms, sort_order)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+		opts.id,
+		opts.eventId,
+		opts.name,
+		startsAt,
+		endsAt,
+		Date.parse(startsAt),
+		Date.parse(endsAt),
+	);
+};
+
 /** Event helper: ISO WIB + kolom ms, sama seperti yang ditulis service. */
 export const seedEvent = async (
 	h: Harness,

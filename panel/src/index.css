@@ -338,6 +338,50 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 	text-align: center; color: var(--muted);
 }
 
+/* ---- Internal Event (D-AK) ---- */
+/* Banner penanda "tidak tampil di situs publik". Dipasang di tiap halaman modul
+   internal event supaya pengurus tidak mengira agenda ini terbuka untuk umum.
+   Kontras teks #123b45 di atas #fdf8ec ≈ 10.4:1; ikon/teks kecil #7a5f18 ≈ 5.7:1. */
+.internal-notice {
+	display: flex; align-items: flex-start; gap: 10px;
+	background: #fdf8ec; border: 1px solid #ead9ae; border-left: 3px solid var(--gold);
+	border-radius: 10px; padding: 10px 14px; margin-bottom: 16px;
+	font-size: 13px; color: var(--text); line-height: 1.45;
+}
+.internal-notice .icon-svg { flex-shrink: 0; margin-top: 2px; color: #7a5f18; }
+
+/* Aksen kartu dibedakan dari student event (navy→teal→gold) supaya dua modul
+   yang bentuknya identik tidak tertukar saat discroll berdampingan. */
+.event-card.internal .accent { background: linear-gradient(90deg, var(--gold), var(--navy)); }
+
+/* Placeholder AuthImage saat blob cover belum tiba. aspect-ratio menjaga tinggi
+   supaya layout tidak melompat — kelas ini menumpang .cover-preview /
+   .detail-cover yang aslinya dibuat untuk elemen <img>. */
+.auth-img-loading {
+	aspect-ratio: 16 / 9; border-radius: 10px;
+	background: linear-gradient(90deg, var(--line) 25%, #f4f8f5 50%, var(--line) 75%);
+	background-size: 200% 100%;
+	animation: shimmer 1.4s linear infinite;
+}
+
+.internal-detail .title-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.internal-detail h2 { font-size: 22px; letter-spacing: -0.015em; }
+.internal-detail .detail-cover {
+	width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block;
+	border-radius: 12px; border: 1px solid var(--border); background: var(--bg-2);
+	margin-bottom: 16px;
+}
+/* .p-meta halaman detail — selector .preview .p-body .p-meta yang sudah ada tidak
+   menjangkau sini, jadi didefinisikan ulang dengan aturan visual yang sama. */
+.internal-detail .p-meta { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
+.internal-detail .p-meta a { color: var(--navy); }
+
+/* Baris penanda di dalam pratinjau (components/event-form.jsx → Preview). */
+.preview-note {
+	font-size: 12px; color: #7a5f18; background: #fdf8ec;
+	border: 1px solid #ead9ae; border-radius: 8px; padding: 6px 10px; margin: 0 0 10px;
+}
+
 /* ---- Kalender ---- */
 .cal-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .cal-nav h2 { font-size: 18px; min-width: 190px; }

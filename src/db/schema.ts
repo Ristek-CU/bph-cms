@@ -172,10 +172,89 @@ export const eventSessions = sqliteTable(
 	(table) => [index("event_sessions_event_idx").on(table.eventId, table.startsAt)],
 );
 
+// ---- Internal Event (D-AK) — agenda internal organisasi, tidak pernah publik. ----
+//
+// Tabel terpisah dari `events`, BUKAN kolom visibility di tabel yang sama.
+// `events` dibaca tiga jalur publik (publicEventService.list / getBySlug /
+// calendar) yang dikonsumsi sga-cakrawala.org; satu filter kelewat berarti
+// agenda internal tampil ke mahasiswa. Tabel terpisah membuat kebocoran itu
+// mustahil secara struktur, bukan hanya mengandalkan disiplin.
+//
+// Paritas kolom penuh dengan `events`, dengan satu perbedaan disengaja:
+// divisionId NOT NULL. Di `events` kolomnya nullable + ON DELETE SET NULL, dan
+// kalender lintas divisi memakai INNER JOIN ke divisions — event yatim hilang
+// diam-diam tanpa error.
+
+export const internalEvents = sqliteTable(
+	"internal_events",
+	{
+		id: text("id").primaryKey(),
+		slug: text("slug").notNull().unique(),
+		title: text("title").notNull(),
+		description: text("description"),
+		coverImageUrl: text("cover_image_url"),
+		startsAt: text("starts_at").notNull(),
+		endsAt: text("ends_at").notNull(),
+		startsAtMs: integer("starts_at_ms").notNull(),
+		endsAtMs: integer("ends_at_ms").notNull(),
+		location: text("location").notNull(),
+		locationUrl: text("location_url"),
+		registrationUrl: text("registration_url"),
+		registrationOpen: integer("registration_open", { mode: "boolean" })
+			.notNull()
+			.default(true),
+		organizer: text("organizer"),
+		// draft = privat divisi pemilik; published = terbaca semua pengurus SGA.
+		// "published" di sini TIDAK pernah berarti tampil di situs publik.
+		status: text("status", { enum: ["draft", "published"] })
+			.notNull()
+			.default("draft"),
+		divisionId: text("division_id")
+			.notNull()
+			.references(() => divisions.id, { onDelete: "restrict" }),
+		createdByUserId: text("created_by_user_id"),
+		updatedByUserId: text("updated_by_user_id"),
+		createdAt: text("created_at").notNull(),
+		updatedAt: text("updated_at").notNull(),
+	},
+	(table) => [
+		index("internal_events_division_status_starts_idx").on(
+			table.divisionId,
+			table.status,
+			table.startsAtMs,
+		),
+		index("internal_events_status_starts_idx").on(table.status, table.startsAtMs),
+		index("internal_events_starts_at_idx").on(table.startsAt),
+	],
+);
+
+export const internalEventSessions = sqliteTable(
+	"internal_event_sessions",
+	{
+		id: text("id").primaryKey(),
+		internalEventId: text("internal_event_id")
+			.notNull()
+			.references(() => internalEvents.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		startsAt: text("starts_at").notNull(),
+		endsAt: text("ends_at").notNull(),
+		startsAtMs: integer("starts_at_ms").notNull(),
+		endsAtMs: integer("ends_at_ms").notNull(),
+		speaker: text("speaker"),
+		location: text("location"),
+		description: text("description"),
+		sortOrder: integer("sort_order").notNull().default(0),
+	},
+	(table) => [
+		index("internal_event_sessions_event_idx").on(table.internalEventId, table.startsAt),
+	],
+);
+
 export const divisionsRelations = relations(divisions, ({ many }) => ({
 	memberships: many(cmsMemberships),
 	workspaceOptions: many(workspaceOptions),
 	events: many(events),
+	internalEvents: many(internalEvents),
 }));
 
 export const cmsMembershipsRelations = relations(cmsMemberships, ({ one }) => ({
@@ -193,6 +272,18 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
 
 export const eventSessionsRelations = relations(eventSessions, ({ one }) => ({
 	event: one(events, { fields: [eventSessions.eventId], references: [events.id] }),
+}));
+
+export const internalEventsRelations = relations(internalEvents, ({ one, many }) => ({
+	sessions: many(internalEventSessions),
+	division: one(divisions, { fields: [internalEvents.divisionId], references: [divisions.id] }),
+}));
+
+export const internalEventSessionsRelations = relations(internalEventSessions, ({ one }) => ({
+	event: one(internalEvents, {
+		fields: [internalEventSessions.internalEventId],
+		references: [internalEvents.id],
+	}),
 }));
 
 // ---- Form builder (multi-divisi) — kontrak publik identik dengan campaign
