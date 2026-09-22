@@ -133,6 +133,11 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 			<NavLink to="/events" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 				<span className="icon" aria-hidden><IconCalendar /></span> Event
 			</NavLink>
+			{permissions.includes("events.read.all") && (
+				<NavLink to="/calendar" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
+					<span className="icon" aria-hidden><IconCalendar /></span> Kalender Lintas Divisi
+				</NavLink>
+			)}
 			{canSeeForms && (
 				<NavLink to="/forms" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 					<span className="icon" aria-hidden><IconClipboard /></span> Form

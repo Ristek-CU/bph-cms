@@ -13,6 +13,7 @@ import EventEditor from "./pages/EventEditor.jsx";
 import Forms, { FormBuilderRoute, FormAnalyticsRoute } from "./pages/Forms.jsx";
 import Qpr, { PublicFill } from "./pages/Qpr.jsx";
 import Accounts from "./pages/Accounts.jsx";
+import CrossDivisionCalendar from "./pages/CrossDivisionCalendar.jsx";
 import RoroOversight from "./pages/RoroOversight.jsx";
 
 const hasScopedPermission = (permissions, base) =>
@@ -293,6 +294,18 @@ function App() {
 						}
 					>
 						{eventContent(<EventCalendar events={events} onEdit={onEdit} capabilities={capabilities} />)}
+					</Shell>
+				}
+			/>
+			<Route
+				path="/calendar"
+				 element={
+					<Shell
+						{...shellProps}
+						title="Kalender Lintas Divisi"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Kalender Lintas Divisi" }]}
+					>
+						{permissions.includes("events.read.all") ? <CrossDivisionCalendar /> : <NoAccess />}
 					</Shell>
 				}
 			/>

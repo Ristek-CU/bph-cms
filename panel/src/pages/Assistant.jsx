@@ -151,6 +151,7 @@ function ChatView({ messages, onConfirm, busyConfirm, streaming }) {
 					<p><em>Contoh:</em> "Buat event lomba futsal minggu depan"</p>
 					<p><em>Contoh:</em> "Buat form pendaftaran panitia"</p>
 					<p><em>Contoh:</em> "Lihat event apa saja bulan ini"</p>
+					<p><em>Contoh:</em> "Buat event internal untuk koordinasi BPH"</p>
 				</div>
 			</div>
 		);

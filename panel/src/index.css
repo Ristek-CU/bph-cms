@@ -1214,3 +1214,39 @@ main.page:has(.roro-layout) { display: flex; flex-direction: column; overflow: h
  .usage-nums { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { .login-roro-mascot { animation: none; } }
+
+/* ---- Kalender Lintas Divisi ---- */
+.cross-calendar { display: flex; flex-direction: column; gap: 16px; }
+.cross-calendar-header { max-width: 720px; }
+.cross-calendar-header h2 { margin-bottom: 6px; }
+.cross-calendar-controls {
+	display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.cross-calendar-nav { display: flex; align-items: center; gap: 10px; }
+.cross-calendar-nav h3 { font-size: 18px; margin: 0; min-width: 170px; text-align: center; }
+.cross-calendar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cross-calendar-list { display: flex; flex-direction: column; gap: 10px; }
+.cross-calendar-item {
+	border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+	background: #fbfdfa; display: flex; flex-direction: column; gap: 6px;
+}
+.cross-calendar-item h4 { margin: 0; font-size: 16px; }
+.cross-calendar-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.cross-calendar-desc { color: var(--muted); margin: 0; line-height: 1.5; }
+.cross-calendar-preview { margin-top: 12px; }
+.cross-calendar-preview-header {
+	display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.cross-calendar-preview-header h4 { margin: 0; }
+.cross-calendar-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.cross-calendar-message {
+	white-space: pre-wrap; background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+	padding: 14px; font-size: 13px; line-height: 1.6; max-height: 320px; overflow: auto; margin: 0;
+}
+@media (max-width: 640px) {
+	.cross-calendar-controls { flex-direction: column; align-items: flex-start; }
+	.cross-calendar-nav { width: 100%; justify-content: space-between; }
+	.cross-calendar-actions { width: 100%; }
+	.cross-calendar-actions .btn { flex: 1; }
+	.cross-calendar-preview-header { flex-direction: column; align-items: flex-start; }
+}

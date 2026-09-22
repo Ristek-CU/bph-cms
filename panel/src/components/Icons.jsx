@@ -336,6 +336,35 @@ export function IconTypeFile({ className = "icon-svg", size = 16 }) {
 		</svg>
 	);
 }
+export function IconCopy({ className = "icon-svg", size = 16 }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+			<rect width="14" height="14" x="8" y="8" rx="2" />
+			<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+		</svg>
+	);
+}
+
+export function IconShare({ className = "icon-svg", size = 16 }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+			<circle cx="18" cy="5" r="3" />
+			<circle cx="6" cy="12" r="3" />
+			<circle cx="18" cy="19" r="3" />
+			<line x1="8.59" x2="15.42" y1="13.51" y2="16.49" />
+			<line x1="15.41" x2="8.59" y1="10.51" y2="7.49" />
+		</svg>
+	);
+}
+
+export function IconWhatsapp({ className = "icon-svg", size = 16 }) {
+	return (
+		<svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+			<path d="M17.472 14.556c-.301-.15-1.767-.87-2.04-.969-.273-.1-.471-.15-.67.15-.198.3-.771.968-.944 1.168-.173.2-.346.223-.646.074-.301-.149-1.274-.47-2.426-1.495-.896-.8-1.5-1.787-1.677-2.088-.174-.301-.018-.463.132-.613.134-.134.3-.348.449-.523.149-.174.198-.298.298-.497.1-.199.05-.374-.025-.523-.075-.149-.67-1.611-.917-2.208-.242-.584-.488-.502-.67-.51-.173-.007-.371-.01-.57-.01-.198 0-.522.074-.796.374-.273.3-1.045 1.021-1.045 2.488 0 1.468 1.073 2.884 1.223 3.082.149.199 2.096 3.2 5.08 4.487.706.304 1.257.486 1.687.621.71.226 1.34.194 1.844.12.565-.084 1.767-.722 2.016-1.42.249-.699.249-1.297.174-1.42-.075-.124-.273-.198-.572-.348zM12.003 2C6.478 2 2.003 6.475 2.003 12c0 1.89.525 3.66 1.433 5.19L2.003 22l4.945-1.403A9.934 9.934 0 0 0 12.003 22c5.523 0 10-4.477 10-10s-4.477-10-10-10z" />
+		</svg>
+	);
+}
+
 export function IconDuplicate({ className = "icon-svg", size = 16 }) {
 	return (
 		<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
