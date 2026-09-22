@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
 	api, getToken, isoToInput, toIsoWib, fmtTime, fmtDateLong,
@@ -199,13 +199,30 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 	const [savedSnapshot, setSavedSnapshot] = useState(snapshot);
 	const dirty = snapshot !== savedSnapshot;
 	useUnsavedChanges(dirty);
+	const sessionsEndRef = useRef(null);
+	const prevSessionsLen = useRef(sessions.length);
+
+	useEffect(() => {
+		if (sessions.length > prevSessionsLen.current) {
+			sessionsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+		}
+		prevSessionsLen.current = sessions.length;
+	}, [sessions.length]);
 
 
 	const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 	// Patch sesi berdasarkan urutan tampil (sortedSessions), konsisten dengan render.
 	const setSess = (i, patch) => setSessions(sortedSessions.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 	const sortedSessions = useMemo(
-		() => [...sessions].sort((a, b) => `${a._date}T${a._start}`.localeCompare(`${b._date}T${b._start}`)),
+		() => [...sessions]
+			.map((s, i) => ({ session: s, index: i }))
+			.sort((a, b) => {
+				const aDt = `${a.session._date}T${a.session._start}`;
+				const bDt = `${b.session._date}T${b.session._start}`;
+				if (aDt !== bDt) return aDt.localeCompare(bDt);
+				return a.index - b.index;
+			})
+			.map((x) => x.session),
 		[sessions],
 	);
 
@@ -304,7 +321,7 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 					.replace(/^-|-$/g, "");
 				const created = await api("/admin/events", {
 					method: "POST",
-					json: { ...body, slug: slug || undefined },
+					json: { ...body, slug: slug || undefined, status: "draft" },
 				});
 				id = created.id;
 				setSavedId(id);
@@ -468,6 +485,7 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 							onRemove={() => setSessions(sessions.filter((x) => x !== s))}
 						/>
 					))}
+					<div ref={sessionsEndRef} />
 					<button className="btn sec" type="button" onClick={() => setSessions([...sessions, newSession(sortedSessions[sortedSessions.length - 1] || { _date: form.starts_at.slice(0, 10), _end: form.starts_at.slice(11, 16) || "08:00" })])}>
 						+ Tambah sesi
 					</button>

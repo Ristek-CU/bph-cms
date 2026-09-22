@@ -155,7 +155,8 @@ input, textarea, select { font: inherit; }
 .crumb-item a { color: var(--muted); text-decoration: none; }
 .crumb-item a:hover { color: var(--teal); text-decoration: underline; }
 .topbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-main.page { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px 28px 96px; max-width: 1280px; width: 100%; margin: 0 auto; animation: subtle-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.back-btn { margin-right: -4px; }
+main.page { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px 28px 160px; max-width: 1280px; width: 100%; margin: 0 auto; animation: subtle-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
 /* Animasi identik advo globals.css */
 @keyframes subtle-fade-up {
 	from { opacity: 0; transform: translateY(12px); }
@@ -297,7 +298,7 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 
 /* Bar aksi melekat — nempel bawah viewport, sejajar tepi konten halaman. */
 .sticky-bar {
-	position: sticky; bottom: 0; z-index: 5; margin: 20px calc(-1 * 28px) 0;
+	position: sticky; bottom: 0; z-index: 50; margin: 20px calc(-1 * 28px) 0;
 	background: rgba(255, 255, 255, 0.97); backdrop-filter: blur(6px);
 	border-top: 1px solid var(--border);
 	padding: 12px 28px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
@@ -403,6 +404,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .tbl th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
 .tbl td { word-break: break-word; }
 .tbl tr:hover td { background: #f4f8f5; }
+/* Event terdekat: tombol aksi tidak wrap per huruf dan slug tidak terpotong */
+.tbl td:last-child { white-space: nowrap; min-width: 150px; }
+.tbl td:last-child .btn { white-space: nowrap; }
+.tbl td .slug { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* HP: tabel ringkasan jadi susunan baris — tanpa scroll horizontal */
 @media (max-width: 640px) {
@@ -804,7 +809,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 	.sidebar-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 40; }
 	.menu-btn { display: inline-flex; }
 @media (min-width: 901px) { .menu-btn { display: none; } }
-	main.page { padding: 16px 14px 88px; }
+	main.page { padding: 16px 14px 120px; }
 	.topbar { padding: 12px 14px; }
 	.grid-2 { grid-template-columns: 1fr; }
 	.sticky-bar { margin: 16px calc(-1 * 14px) 0; padding: 10px 14px; }
@@ -1005,7 +1010,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 
 /* Login: editorial SGA identity, with a quiet and focused sign-in panel. */
 .login-page { display: grid; grid-template-columns: 1.05fr 1fr; min-height: 100dvh; padding: 0; background: #fafbf7; }
-.login-story { position: relative; overflow: hidden; min-height: 100dvh; padding: 48px 58px; background: #06455b; color: #fff; display: flex; flex-direction: column; justify-content: space-between; }
+.login-story { position: relative; overflow: hidden; min-height: 100dvh; padding: 24px 58px 48px; background: #06455b; color: #fff; display: flex; flex-direction: column; justify-content: space-between; }
 .login-story::after { content: ""; position: absolute; width: 540px; height: 540px; right: -280px; bottom: -190px; border: 1px solid rgba(235, 192, 95, .28); border-radius: 50%; box-shadow: 0 0 0 55px rgba(235, 192, 95, .045), 0 0 0 110px rgba(235, 192, 95, .04), 0 0 0 165px rgba(235, 192, 95, .03); pointer-events: none; }
 .login-wordmark { display: flex; align-items: center; gap: 14px; font-size: 13px; font-weight: 800; letter-spacing: .12em; }
 .login-wordmark img { width: 46px; height: 46px; object-fit: contain; }
@@ -1182,7 +1187,7 @@ main.page:has(.roro-layout) { display: flex; flex-direction: column; overflow: h
 }
 
 /* Roro welcomes the team. Keep the mascot readable at every viewport. */
-.login-roro-story { margin-block: 24px; }
+.login-roro-story { margin-block: 0 24px; }
 .login-roro-stage { position: relative; display: grid; place-items: center; height: clamp(250px, 34vh, 380px); margin: 18px 0 12px; }
 .login-roro-mascot { width: min(92%, 360px); height: 100%; object-fit: contain; z-index: 1; filter: drop-shadow(0 18px 24px #002a3950); animation: roro-welcome-float 4s ease-in-out infinite; }
 .login-roro-greeting { position: absolute; top: 0; right: 0; z-index: 2; color: #163a42; background: #f4d282; border-radius: 18px 18px 18px 3px; padding: 12px 18px; font-size: 14px; font-weight: 650; transform: rotate(5deg); }

@@ -74,7 +74,7 @@ export function Login({ onLogin, notice }) {
 
 }
 
-export function Shell({ user, children, title, crumb, actions, onSwitchDashboard, onLogout }) {
+export function Shell({ user, children, title, crumb, actions, onBack, onSwitchDashboard, onLogout }) {
 	const [drawer, setDrawer] = useState(false);
 	const shellRef = useRef(null);
 	useEffect(() => {
@@ -204,6 +204,11 @@ export function Shell({ user, children, title, crumb, actions, onSwitchDashboard
 						<button className="menu-btn" aria-label="Buka menu" aria-expanded={drawer} aria-controls="main-navigation" onClick={() => setDrawer(true)}>
 							<IconMenu />
 						</button>
+						{onBack && (
+							<button className="btn ghost sm back-btn" onClick={onBack} type="button">
+								← Kembali
+							</button>
+						)}
 						<div style={{ minWidth: 0 }}>
 							<h1>{title}</h1>
 							{crumb && (

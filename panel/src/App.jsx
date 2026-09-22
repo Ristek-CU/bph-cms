@@ -259,6 +259,7 @@ function App() {
 						{...shellProps}
 						title="Event"
 						crumb={[{ label: "Modul", to: "/" }, { label: "Event" }]}
+						onBack={() => navigate(-1)}
 						actions={
 							<>
 								<Link className="btn ghost" to="/events/kalender">

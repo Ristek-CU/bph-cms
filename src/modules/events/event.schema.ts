@@ -38,6 +38,7 @@ export const createEventSchema = z
 			.min(3)
 			.max(120)
 			.optional(),
+		status: z.enum(["draft", "published"]).optional().default("draft"),
 		title: z.string().trim().min(1).max(200),
 		description: z.string().max(10000).nullish(),
 		cover_image_url: urlField.nullish(),

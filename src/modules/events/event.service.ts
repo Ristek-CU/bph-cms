@@ -113,6 +113,7 @@ export const eventService = {
 			.values({
 				id: uuidv7(),
 				slug,
+				status: "draft",
 				title: input.title,
 				description: input.description ?? null,
 				coverImageUrl: input.cover_image_url ?? null,
