@@ -230,6 +230,14 @@ function App() {
 	// ada tombol sama sekali.
 	const backTo = (path) => () => navigate(path);
 
+	// Induk hierarki dari URL saat ini — dipakai bila segmen induknya dinamis
+	// (mis. /forms/:formId/analytics → /forms/:formId) sehingga tidak bisa
+	// dituliskan sebagai path literal di sini.
+	const parentOf = (drop = 1) => {
+		const parts = location.pathname.split("/").filter(Boolean);
+		return `/${parts.slice(0, Math.max(0, parts.length - drop)).join("/")}`;
+	};
+
 	if (!token) {
 		// QPR isi tetap bisa dibuka tanpa akun (model no-login).
 		if (window.location.hash.startsWith("#/qpr/")) return <PublicQprRoute token={token} />;
@@ -271,7 +279,6 @@ function App() {
 						{...shellProps}
 						title="Event"
 						crumb={[{ label: "Modul", to: "/" }, { label: "Event" }]}
-						onBack={() => navigate(-1)}
 						actions={
 							<>
 								<Link className="btn ghost" to="/events/kalender">
@@ -296,6 +303,7 @@ function App() {
 						{...shellProps}
 						title="Kalender Event"
 						crumb={[{ label: "Modul", to: "/" }, { label: "Event", to: "/events" }, { label: "Kalender" }]}
+						onBack={backTo("/events")}
 						actions={
 							capabilities.canCreateEvent ? (
 								<Link className="btn gold" to="/events/baru">
@@ -323,7 +331,7 @@ function App() {
 			<Route
 				path="/events/baru"
 				element={
-					<Shell {...shellProps} title="Event Baru" crumb={[{ label: "Modul", to: "/" }, { label: "Event", to: "/events" }, { label: "Baru" }]}>
+					<Shell {...shellProps} title="Event Baru" crumb={[{ label: "Modul", to: "/" }, { label: "Event", to: "/events" }, { label: "Baru" }]} onBack={backTo("/events")}>
 						{capabilities.canCreateEvent ? (
 							<NewEventRoute canPublish={capabilities.canPublishEvent} />
 						) : (
@@ -335,7 +343,7 @@ function App() {
 			<Route
 				path="/events/:id/edit"
 				element={
-					<Shell {...shellProps} title="Edit Event" crumb={[{ label: "Modul", to: "/" }, { label: "Event", to: "/events" }, { label: "Edit" }]}>
+					<Shell {...shellProps} title="Edit Event" crumb={[{ label: "Modul", to: "/" }, { label: "Event", to: "/events" }, { label: "Edit" }]} onBack={backTo("/events")}>
 						<EditEventRoute events={events} onEdit={onEdit} capabilities={capabilities} />
 					</Shell>
 				}
@@ -458,7 +466,7 @@ function App() {
 			<Route
 				path="/forms/:formId"
 				element={
-					<Shell {...shellProps} title="Form Builder" crumb={[{ label: "Modul", to: "/" }, { label: "Form", to: "/forms" }, { label: "Builder" }]}>
+					<Shell {...shellProps} title="Form Builder" crumb={[{ label: "Modul", to: "/" }, { label: "Form", to: "/forms" }, { label: "Builder" }]} onBack={backTo("/forms")}>
 						{canSeeForms(permissions) ? (
 							<FormBuilderRoute user={user} />
 						) : (
@@ -467,10 +475,17 @@ function App() {
 					</Shell>
 				}
 			/>
+			{/* Induk Analitik = halaman builder form yang sama. formId dinamis, jadi
+			    path-nya diambil dari URL lewat parentOf(), bukan dituliskan literal. */}
 			<Route
 				path="/forms/:formId/analytics"
 				element={
-					<Shell {...shellProps} title="Analitik Form" crumb={[{ label: "Modul", to: "/" }, { label: "Form", to: "/forms" }, { label: "Analitik" }]}>
+					<Shell
+						{...shellProps}
+						title="Analitik Form"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Form", to: "/forms" }, { label: "Analitik" }]}
+						onBack={backTo(parentOf())}
+					>
 						{canSeeForms(permissions) ? (
 							<FormAnalyticsRoute user={user} />
 						) : (
@@ -550,12 +565,13 @@ function NoAccess({ to = "/events", label = "Kembali ke daftar event" }) {
 // #/qpr/:periodId — halaman isi QPR. User login dapat Shell + sidebar (L2);
 // tamu tetap standalone (model QPR no-login).
 function PublicQprRoute({ token, shellProps }) {
+	const navigate = useNavigate();
 	const periodId = window.location.hash.match(/qpr\/([^/?#]+)/)?.[1];
 	const fill = <PublicFill key={periodId} periodId={periodId} />;
 	if (!token) return <main className="public-page"><div className="public-brand">SGA Cakrawala <span>Penilaian QPR</span></div>{fill}</main>;
 	return (
 		<Shell {...shellProps} title="Isi QPR" crumb={[{ label: "Modul", to: "/" }, { label: "QPR", to: "/qpr" }, { label: "Isi" }]}
-			actions={<Link className="btn ghost" to="/qpr">Kembali ke panel</Link>}>
+			onBack={() => navigate("/qpr")}>
 			{fill}
 		</Shell>
 	);

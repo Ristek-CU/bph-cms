@@ -156,6 +156,15 @@ input, textarea, select { font: inherit; }
 .crumb-item a:hover { color: var(--teal); text-decoration: underline; }
 .topbar-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .back-btn { margin-right: -4px; }
+/* Tombol Kembali sekarang ada di semua halaman bertingkat (10 route), dan topbar
+   mobile berbagi satu baris dengan menu-btn + judul yang bisa panjang (mis.
+   "Detail Event Internal"). Di layar sempit cukup panahnya; nama aksesibel tetap
+   lengkap lewat aria-label di Shell.jsx, jadi pembaca layar tidak kehilangan konteks.
+   min-width 44px menjaga tap target tetap kotak sesuai WCAG 2.5.5. */
+@media (max-width: 480px) {
+	.back-btn-label { display: none; }
+	.back-btn { min-width: 44px; padding-inline: 10px; }
+}
 main.page { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px 28px 160px; max-width: 1280px; width: 100%; margin: 0 auto; animation: subtle-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
 /* Animasi identik advo globals.css */
 @keyframes subtle-fade-up {

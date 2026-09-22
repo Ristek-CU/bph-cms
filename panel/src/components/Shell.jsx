@@ -218,8 +218,14 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 							<IconMenu />
 						</button>
 						{onBack && (
-							<button className="btn ghost sm back-btn" onClick={onBack} type="button">
-								← Kembali
+							<button
+								className="btn ghost sm back-btn"
+								onClick={onBack}
+								type="button"
+								aria-label="Kembali ke halaman sebelumnya"
+							>
+								<span aria-hidden="true">←</span>
+								<span className="back-btn-label">Kembali</span>
 							</button>
 						)}
 						<div style={{ minWidth: 0 }}>
