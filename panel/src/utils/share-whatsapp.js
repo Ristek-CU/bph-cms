@@ -1,54 +1,67 @@
 import { fmtRange } from "../api.js";
 
 /**
- * Format agenda internal lintas divisi menjadi pesan WhatsApp yang casual-formal.
- * events: array dari /admin/internal-events/calendar (internal event published,
- * semua divisi).
+ * Format SATU internal event menjadi pesan WhatsApp, dalam salah satu gaya:
+ *   - formal  : baku, cocok untuk pengumuman resmi / perintah kehadiran
+ *   - santai  : casual untuk grup chat sehari-hari
+ *   - ringkas : tiga baris, untuk sekadar mengingatkan
  *
- * Kata "internal" sengaja disebut eksplisit di header dan intro: pesan ini
- * disebar ke grup WhatsApp, dan penerimanya harus tahu ini agenda kepengurusan —
- * bukan kegiatan untuk mahasiswa umum.
+ * events: satu objek dari /admin/internal-events/calendar (published).
  */
-export function formatWhatsAppMessage(events, { monthLabel } = {}) {
-	if (!events?.length) {
-		return "Belum ada agenda internal untuk periode ini.";
+export function formatEventMessage(ev, mode = "formal") {
+	if (!ev) return "Belum ada agenda yang dipilih.";
+
+	const time = fmtRange(ev.starts_at, ev.ends_at);
+	const division = ev.division_name || "-";
+	const location = ev.location || "-";
+
+	if (mode === "ringkas") {
+		return [
+			`📅 *${ev.title}*`,
+			`🗓️ ${time} (WIB)`,
+			`📍 ${location} · 🏢 ${division}`,
+		].join("\n");
 	}
 
-	// Urutkan berdasarkan waktu mulai.
-	const sorted = [...events].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+	if (mode === "santai") {
+		const lines = [
+			"Halo tim! 👋",
+			"",
+			`Ada agenda bareng *${ev.title}* nih:`,
+			`🗓️ ${time} (WIB)`,
+			`🏢 Divisi ${division}`,
+			`📍 ${location}`,
+		];
+		if (ev.organizer) lines.push(`🤝 Diselenggarakan sama: ${ev.organizer}`);
+		if (ev.description) lines.push(`📝 ${ev.description.replace(/\n/g, " ")}`);
+		if (ev.registration_url) lines.push(`🔗 ${ev.registration_url}`);
+		lines.push("", "Ditunggu ya, jangan sampai kelewat! 😄");
+		return lines.join("\n");
+	}
 
-	const header = monthLabel
-		? `📅 Jadwal Internal Lintas Divisi SGA Cakrawala — ${monthLabel}`
-		: "📅 Jadwal Internal Lintas Divisi SGA Cakrawala";
-
-	const intro = "Halo, teman-teman pengurus! 👋\nBerikut agenda internal lintas divisi yang sudah disusun. Khusus kepengurusan, bukan untuk disebar ke mahasiswa umum. Semoga membantu kita koordinasi dan merencanakan aktivitas masing-masing.";
-
-	const body = sorted
-		.map((ev, index) => {
-			const timeRange = fmtRange(ev.starts_at, ev.ends_at);
-			const lines = [
-				`${index + 1}. *${ev.title}*`,
-				`   🗓️ Waktu: ${timeRange}`,
-				`   🏢 Divisi: ${ev.division_name || "-"}`,
-				`   📍 Lokasi: ${ev.location || "-"}`,
-			];
-			if (ev.organizer) {
-				lines.push(`   🤝 Penyelenggara: ${ev.organizer}`);
-			}
-			if (ev.description) {
-				lines.push(`   📝 Deskripsi: ${ev.description.replace(/\n/g, " ")}`);
-			}
-			if (ev.registration_url) {
-				lines.push(`   🔗 Link pendaftaran: ${ev.registration_url}`);
-			}
-			return lines.join("\n");
-		})
-		.join("\n\n");
-
-	const outro = "Semoga jadwalnya bermanfaat dan tidak ada yang bertabrakan ya. Jika ada perubahan, akan kami update lagi. Terima kasih! 🙏";
-
-	return [header, "", intro, "", body, "", outro].join("\n");
+	// formal
+	const lines = [
+		`📅 *${ev.title}*`,
+		"",
+		`🗓️ Waktu : ${time} (WIB)`,
+		`🏢 Divisi : ${division}`,
+		`📍 Lokasi : ${location}`,
+	];
+	if (ev.organizer) lines.push(`🤝 Penyelenggara : ${ev.organizer}`);
+	if (ev.description) lines.push(`📝 Keterangan : ${ev.description.replace(/\n/g, " ")}`);
+	if (ev.registration_url) lines.push(`🔗 Pendaftaran : ${ev.registration_url}`);
+	lines.push(
+		"",
+		`Mohon jadwal ini dicatat dan diprioritaskan. Pesan ini khusus pengurus SGA Cakrawala — mohon tidak diteruskan ke luar kepengurusan. Terima kasih. 🙏`,
+	);
+	return lines.join("\n");
 }
+
+export const WA_MODES = [
+	{ key: "formal", label: "Formal" },
+	{ key: "santai", label: "Santai" },
+	{ key: "ringkas", label: "Ringkas" },
+];
 
 /**
  * Buka share native (jika tersedia) atau fallback ke clipboard.
@@ -57,7 +70,7 @@ export async function shareWhatsApp(text) {
 	const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
 	if (navigator.share) {
 		try {
-			await navigator.share({ title: "Jadwal Internal Lintas Divisi", text });
+			await navigator.share({ title: "Agenda Internal SGA", text });
 			return;
 		} catch (e) {
 			if (e.name === "AbortError") return;
@@ -68,12 +81,4 @@ export async function shareWhatsApp(text) {
 	} else {
 		window.open(url, "_blank");
 	}
-}
-
-export function getMonthLabel(y, m) {
-	const MONTHS = [
-		"Januari", "Februari", "Maret", "April", "Mei", "Juni",
-		"Juli", "Agustus", "September", "Oktober", "November", "Desember",
-	];
-	return `${MONTHS[m]} ${y}`;
 }

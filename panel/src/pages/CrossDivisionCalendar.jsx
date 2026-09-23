@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, fmtRange } from "../api.js";
 import { IconCalendar, IconCopy, IconLock, IconShare, IconWhatsapp } from "../components/Icons.jsx";
 import { useToast, ErrorState } from "../components/ui.jsx";
-import { formatWhatsAppMessage, shareWhatsApp, getMonthLabel } from "../utils/share-whatsapp.js";
+import { formatEventMessage, shareWhatsApp, WA_MODES } from "../utils/share-whatsapp.js";
 
 const MONTHS = [
 	"Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -30,6 +30,9 @@ export default function CrossDivisionCalendar() {
 	const [error, setError] = useState("");
 	const [copied, setCopied] = useState(false);
 	const [attempt, setAttempt] = useState(0);
+	// Event yang pesannya dibuka di preview; null = belum ada preview.
+	const [previewId, setPreviewId] = useState(null);
+	const [mode, setMode] = useState("formal");
 	const toast = useToast();
 
 	const monthParam = `${year}-${String(month).padStart(2, "0")}`;
@@ -38,15 +41,21 @@ export default function CrossDivisionCalendar() {
 		setLoading(true);
 		setError("");
 		api(`/admin/internal-events/calendar?month=${monthParam}`)
-			.then((d) => setEvents(d?.items || []))
+			.then((d) => {
+				const items = d?.items || [];
+				setEvents(items);
+				// Bulan berganti → pilihan lama mungkin tidak ada lagi. Reset.
+				setPreviewId((prev) => (prev && items.some((e) => e.id === prev) ? prev : null));
+			})
 			.catch((e) => setError(e?.message || "Gagal memuat kalender."))
 			.finally(() => setLoading(false));
 	}, [monthParam, attempt]);
 
-	const message = useMemo(
-		() => formatWhatsAppMessage(events, { monthLabel: getMonthLabel(year, month - 1) }),
-		[events, year, month],
+	const previewEvent = useMemo(
+		() => events.find((e) => e.id === previewId) || null,
+		[events, previewId],
 	);
+	const message = useMemo(() => formatEventMessage(previewEvent, mode), [previewEvent, mode]);
 
 	const handleCopy = async () => {
 		try {
@@ -105,14 +114,6 @@ export default function CrossDivisionCalendar() {
 						›
 					</button>
 				</div>
-				<div className="cross-calendar-actions">
-					<button className="btn sec sm" onClick={handleCopy} disabled={loading || !events.length}>
-						<IconCopy size={14} /> {copied ? "Tersalin" : "Salin pesan WA"}
-					</button>
-					<button className="btn gold sm" onClick={handleShare} disabled={loading || !events.length}>
-						<IconShare size={14} /> Share ke WhatsApp
-					</button>
-				</div>
 			</div>
 
 			{loading && <p className="muted">Memuat kalender…</p>}
@@ -129,37 +130,53 @@ export default function CrossDivisionCalendar() {
 					) : (
 						<div className="cross-calendar-list">
 							{events.map((ev) => (
-								<div key={ev.id} className="cross-calendar-item">
+								<div key={ev.id} className={`cross-calendar-item${previewId === ev.id ? " selected" : ""}`}>
 									<div className="cross-calendar-meta">
 										<span className="badge div">{ev.division_name || "Divisi"}</span>
 									</div>
 									<h4>{ev.title}</h4>
 									<p className="muted small">{fmtRange(ev.starts_at, ev.ends_at)}</p>
 									<p className="muted small">📍 {ev.location || "-"}</p>
-									{ev.organizer && <p className="muted small">🤝 Penyelenggara: {ev.organizer}</p>}
-									{ev.description && (
-										<p className="muted small cross-calendar-desc">{ev.description}</p>
+									<div className="cross-calendar-item-actions">
+										<button
+											className={`btn ${previewId === ev.id ? "sec" : "ghost"} sm`}
+											onClick={() => setPreviewId(previewId === ev.id ? null : ev.id)}
+											aria-pressed={previewId === ev.id}
+										>
+											<IconWhatsapp size={14} /> {previewId === ev.id ? "Tutup pesan" : "Buat pesan WA"}
+										</button>
+										<Link className="btn ghost sm" to={`/internal-events/${ev.id}`}>Lihat detail</Link>
+									</div>
+
+									{previewId === ev.id && (
+										<div className="cross-calendar-preview">
+											<div className="cross-calendar-preview-header">
+												<div className="wa-modes" role="radiogroup" aria-label="Gaya pesan">
+													{WA_MODES.map((m) => (
+														<button
+															key={m.key}
+															className={`chip ${mode === m.key ? "active" : ""}`}
+															aria-pressed={mode === m.key}
+															onClick={() => setMode(m.key)}
+														>
+															{m.label}
+														</button>
+													))}
+												</div>
+												<div className="cross-calendar-preview-actions">
+													<button className="btn ghost sm" onClick={handleCopy}>
+														<IconCopy size={14} /> {copied ? "Tersalin" : "Salin"}
+													</button>
+													<button className="btn gold sm" onClick={handleShare}>
+														<IconShare size={14} /> Share
+													</button>
+												</div>
+											</div>
+											<pre className="cross-calendar-message">{message}</pre>
+										</div>
 									)}
-									<Link className="btn ghost sm" to={`/internal-events/${ev.id}`}>Lihat detail</Link>
 								</div>
 							))}
-						</div>
-					)}
-
-					{events.length > 0 && (
-						<div className="cross-calendar-preview card">
-							<div className="cross-calendar-preview-header">
-								<h4>Preview Pesan WhatsApp</h4>
-								<div className="cross-calendar-preview-actions">
-									<button className="btn ghost sm" onClick={handleCopy}>
-										<IconCopy size={14} /> {copied ? "Tersalin" : "Salin"}
-									</button>
-									<button className="btn gold sm" onClick={handleShare}>
-										<IconWhatsapp size={14} /> Share
-									</button>
-								</div>
-							</div>
-							<pre className="cross-calendar-message">{message}</pre>
 						</div>
 					)}
 				</>

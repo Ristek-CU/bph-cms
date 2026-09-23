@@ -1283,10 +1283,13 @@ main.page:has(.roro-layout) { display: flex; flex-direction: column; overflow: h
 	border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
 	background: #fbfdfa; display: flex; flex-direction: column; gap: 6px;
 }
+.cross-calendar-item.selected { border-color: var(--gold, #c9a227); box-shadow: 0 0 0 1px var(--gold, #c9a227); }
 .cross-calendar-item h4 { margin: 0; font-size: 16px; }
 .cross-calendar-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.cross-calendar-item-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .cross-calendar-desc { color: var(--muted); margin: 0; line-height: 1.5; }
-.cross-calendar-preview { margin-top: 12px; }
+.cross-calendar-preview { margin-top: 8px; }
+.wa-modes { display: flex; gap: 6px; flex-wrap: wrap; }
 .cross-calendar-preview-header {
 	display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
 }
