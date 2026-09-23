@@ -1,28 +1,44 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, displayStatus, fmtRange, publicLink } from "../api.js";
 import { useToast, copyText, ErrorState } from "../components/ui.jsx";
 import { href } from "../components/Shell.jsx";
 import Calendar from "../components/Calendar.jsx";
 import { IconChevronRight } from "../components/Icons.jsx";
+import { internalCalendarLinks, internalCaps } from "../utils/internal-event.js";
 
 const LABEL = { draft: "Draft", ongoing: "Berlangsung", upcoming: "Akan Datang", past: "Selesai" };
 
 export default function Overview({ events, onEdit, capabilities, user }) {
 	const toast = useToast();
+	const navigate = useNavigate();
+	const caps = internalCaps(user, capabilities);
 
-	// Kalender Ringkasan = aktivitas seluruh SGA (informasi antar divisi):
-	// semua event published semua divisi. Event milik divisi user tetap dapat
-	// aksi edit/copy-link; divisi lain read-only.
-	const [allEvents, setAllEvents] = useState(null);
+	// Dua sumber data yang SENGAJA berbeda (K-11):
+	//   - widget kalender        = agenda INTERNAL semua divisi
+	//   - tabel "Event terdekat" = student event publik semua divisi (tidak berubah)
+	// Keduanya default ke bulan berjalan WIB karena tidak mengirim ?month=.
+	const [internalEvents, setInternalEvents] = useState(null);
 	const [calErr, setCalErr] = useState("");
+	const [publicEvents, setPublicEvents] = useState([]);
+	const [soonErr, setSoonErr] = useState("");
+
 	const loadCalendar = () => {
 		setCalErr("");
-		api("/admin/events/calendar")
-			.then((d) => setAllEvents(d.items || []))
+		api("/admin/internal-events/calendar")
+			.then((d) => setInternalEvents(d.items || []))
 			.catch((e) => setCalErr(e?.message || "Gagal memuat kalender."));
 	};
-	useEffect(loadCalendar, []);
+	const loadSoonest = () => {
+		setSoonErr("");
+		api("/admin/events/calendar")
+			.then((d) => setPublicEvents(d.items || []))
+			.catch((e) => setSoonErr(e?.message || "Gagal memuat event terdekat."));
+	};
+	useEffect(() => {
+		loadCalendar();
+		loadSoonest();
+	}, []);
 
 	const counts = events.reduce(
 		(acc, e) => {
@@ -33,9 +49,9 @@ export default function Overview({ events, onEdit, capabilities, user }) {
 		{ total: 0, draft: 0, ongoing: 0, upcoming: 0, past: 0 },
 	);
 
-	// 5 event terdekat — sumber sama dengan kalender semua divisi (allEvents),
-	// bukan cuma event divisi sendiri; urut waktu, berlangsung + akan datang.
-	const soonest = [...(allEvents || [])]
+	// 5 event terdekat — tetap student event publik semua divisi, urut waktu,
+	// berlangsung + akan datang.
+	const soonest = [...publicEvents]
 		.filter((e) => displayStatus(e) !== "past")
 		.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
 		.slice(0, 5);
@@ -68,22 +84,24 @@ export default function Overview({ events, onEdit, capabilities, user }) {
 				<div>
 					<div className="card">
 						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-							<h2 className="card-title">Kalender SGA — semua divisi</h2>
-							<Link to="/events/kalender" className="small overview-link">
+							<h2 className="card-title">Kalender internal — semua divisi</h2>
+							<Link to="/calendar" className="small overview-link">
 								Buka penuh <IconChevronRight size={13} />
 							</Link>
 						</div>
 						<p className="muted small" style={{ marginTop: -4 }}>
-							Aktivitas seluruh SGA — rencanakan jadwal divisimu tanpa bentrok dengan divisi lain.
+							Agenda internal seluruh divisi — rencanakan jadwal divisimu tanpa
+							bentrok dengan divisi lain. Tidak tampil di situs publik.
 						</p>
 						{calErr ? (
 							<ErrorState message={calErr} onRetry={loadCalendar} />
 						) : (
 							<Calendar
-								events={allEvents || []}
+								events={internalEvents || []}
 								ownDivisionId={user?.division?.id || null}
-								onEdit={onEdit}
-								capabilities={capabilities}
+								onEdit={(id) => navigate(`/internal-events/${id}/edit`)}
+								capabilities={{ canCreateEvent: caps.canCreate, canEditEvent: caps.canEdit }}
+								links={internalCalendarLinks(caps)}
 								compact
 							/>
 						)}
@@ -92,8 +110,15 @@ export default function Overview({ events, onEdit, capabilities, user }) {
 
 				<div>
 					<div className="card">
-						<h2 className="card-title" style={{ marginBottom: 10 }}>Event terdekat</h2>
-						{soonest.length === 0 ? (
+						{/* Judul diberi penanda "publik" karena kalender di sebelahnya sekarang
+						    agenda internal — tanpa pembeda, dua panel ini terlihat redundan. */}
+						<h2 className="card-title" style={{ marginBottom: 10 }}>Event publik terdekat</h2>
+						<p className="muted small" style={{ marginTop: -4, marginBottom: 10 }}>
+							Student event semua divisi yang tampil di situs publik.
+						</p>
+						{soonErr ? (
+							<ErrorState message={soonErr} onRetry={loadSoonest} />
+						) : soonest.length === 0 ? (
 							<p className="muted">
 								Belum ada event yang berlangsung atau akan datang.
 								{capabilities?.canCreateEvent && (

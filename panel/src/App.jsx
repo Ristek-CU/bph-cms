@@ -11,7 +11,6 @@ import EventList from "./pages/EventList.jsx";
 import EventCalendar from "./pages/EventCalendar.jsx";
 import EventEditor from "./pages/EventEditor.jsx";
 import InternalEventList from "./pages/InternalEventList.jsx";
-import InternalEventCalendar from "./pages/InternalEventCalendar.jsx";
 import InternalEventDetail from "./pages/InternalEventDetail.jsx";
 import { InternalEventEditRoute, InternalEventNewRoute } from "./pages/InternalEventEditor.jsx";
 import Forms, { FormBuilderRoute, FormAnalyticsRoute } from "./pages/Forms.jsx";
@@ -361,8 +360,8 @@ function App() {
 						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal" }]}
 						actions={
 							<>
-								<Link className="btn ghost" to="/internal-events/kalender">
-									<IconCalendar size={16} /> Kalender
+								<Link className="btn ghost" to="/calendar">
+									<IconCalendar size={16} /> Kalender lintas divisi
 								</Link>
 								{capabilities.canCreateEvent && (
 									<Link className="btn gold" to="/internal-events/baru">
@@ -380,30 +379,9 @@ function App() {
 					</Shell>
 				}
 			/>
-			<Route
-				path="/internal-events/kalender"
-				element={
-					<Shell
-						{...shellProps}
-						title="Kalender Internal"
-						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal", to: "/internal-events" }, { label: "Kalender" }]}
-						onBack={backTo("/internal-events")}
-						actions={
-							capabilities.canCreateEvent ? (
-								<Link className="btn gold" to="/internal-events/baru">
-									<IconPlus size={16} /> Event internal baru
-								</Link>
-							) : null
-						}
-					>
-						{hasScopedPermission(permissions, "events.read") ? (
-							<InternalEventCalendar user={user} capabilities={capabilities} />
-						) : (
-							<NoAccess to="/internal-events" label="Kembali ke daftar internal event" />
-						)}
-					</Shell>
-				}
-			/>
+			{/* Tidak ada /internal-events/kalender: Kalender Lintas Divisi (/calendar)
+			    sudah menjadi satu-satunya kalender internal lintas divisi (K-10).
+			    Dua pintu ke data yang sama hanya membingungkan. */}
 			<Route
 				path="/internal-events/baru"
 				element={

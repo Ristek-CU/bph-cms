@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, fmtRange } from "../api.js";
-import { IconCalendar, IconCopy, IconShare, IconWhatsapp } from "../components/Icons.jsx";
+import { IconCalendar, IconCopy, IconLock, IconShare, IconWhatsapp } from "../components/Icons.jsx";
 import { useToast, ErrorState } from "../components/ui.jsx";
 import { formatWhatsAppMessage, shareWhatsApp, getMonthLabel } from "../utils/share-whatsapp.js";
 
@@ -9,14 +10,17 @@ const MONTHS = [
 	"Juli", "Agustus", "September", "Oktober", "November", "Desember",
 ];
 
-function ymd(y, m, d) {
-	return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
-
 function getNowWib() {
 	return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
 }
 
+// Kalender Lintas Divisi = agenda INTERNAL semua divisi (K-9).
+//
+// Dulunya halaman ini membaca /admin/events/calendar, yaitu student event publik.
+// Sekarang /admin/internal-events/calendar. Konsekuensi yang diterima sadar:
+// division_admin tidak lagi punya tampilan lintas divisi untuk event publik —
+// satu-satunya yang tersisa adalah /events, yang bagi platform_admin memang
+// sudah menampilkan semua divisi.
 export default function CrossDivisionCalendar() {
 	const now = getNowWib();
 	const [year, setYear] = useState(now.getFullYear());
@@ -25,6 +29,7 @@ export default function CrossDivisionCalendar() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState("");
 	const [copied, setCopied] = useState(false);
+	const [attempt, setAttempt] = useState(0);
 	const toast = useToast();
 
 	const monthParam = `${year}-${String(month).padStart(2, "0")}`;
@@ -32,11 +37,11 @@ export default function CrossDivisionCalendar() {
 	useEffect(() => {
 		setLoading(true);
 		setError("");
-		api(`/admin/events/calendar?month=${monthParam}`)
+		api(`/admin/internal-events/calendar?month=${monthParam}`)
 			.then((d) => setEvents(d?.items || []))
 			.catch((e) => setError(e?.message || "Gagal memuat kalender."))
 			.finally(() => setLoading(false));
-	}, [monthParam]);
+	}, [monthParam, attempt]);
 
 	const message = useMemo(
 		() => formatWhatsAppMessage(events, { monthLabel: getMonthLabel(year, month - 1) }),
@@ -74,10 +79,19 @@ export default function CrossDivisionCalendar() {
 
 	return (
 		<div className="cross-calendar">
+			<div className="internal-notice" role="note">
+				<IconLock size={16} />
+				<span>
+					Agenda internal organisasi dari semua divisi. Tidak pernah tampil di situs
+					publik — hanya pengurus SGA yang login yang bisa melihat.
+				</span>
+			</div>
+
 			<div className="cross-calendar-header">
 				<h2 className="card-title">Kalender Lintas Divisi</h2>
 				<p className="muted small">
-					Menampilkan event yang sudah dipublikasikan dari semua divisi. Hanya bisa dilihat di dalam CMS Hub.
+					Agenda internal yang sudah diterbitkan, dari semua divisi. Draft hanya
+					terlihat oleh divisi pemiliknya.
 				</p>
 			</div>
 
@@ -102,14 +116,15 @@ export default function CrossDivisionCalendar() {
 			</div>
 
 			{loading && <p className="muted">Memuat kalender…</p>}
-			{error && <ErrorState message={error} onRetry={() => setLoading(true)} />}
+			{error && <ErrorState message={error} onRetry={() => setAttempt((n) => n + 1)} />}
 
 			{!loading && !error && (
 				<>
 					{events.length === 0 ? (
 						<div className="empty-state">
 							<IconCalendar size={48} />
-							<p>Belum ada event terpublikasih untuk {MONTHS[month - 1]} {year}.</p>
+							<p>Belum ada agenda internal untuk {MONTHS[month - 1]} {year}.</p>
+							<Link className="btn sec" to="/internal-events/baru">Buat internal event</Link>
 						</div>
 					) : (
 						<div className="cross-calendar-list">
@@ -125,6 +140,7 @@ export default function CrossDivisionCalendar() {
 									{ev.description && (
 										<p className="muted small cross-calendar-desc">{ev.description}</p>
 									)}
+									<Link className="btn ghost sm" to={`/internal-events/${ev.id}`}>Lihat detail</Link>
 								</div>
 							))}
 						</div>

@@ -1,22 +1,27 @@
-import { fmtDateLong, fmtRange } from "../api.js";
+import { fmtRange } from "../api.js";
 
 /**
- * Format event lintas divisi menjadi pesan WhatsApp yang casual-formal.
- * events: array event dari /admin/events/calendar (published, all divisions).
+ * Format agenda internal lintas divisi menjadi pesan WhatsApp yang casual-formal.
+ * events: array dari /admin/internal-events/calendar (internal event published,
+ * semua divisi).
+ *
+ * Kata "internal" sengaja disebut eksplisit di header dan intro: pesan ini
+ * disebar ke grup WhatsApp, dan penerimanya harus tahu ini agenda kepengurusan —
+ * bukan kegiatan untuk mahasiswa umum.
  */
 export function formatWhatsAppMessage(events, { monthLabel } = {}) {
 	if (!events?.length) {
-		return "Belum ada event terpublikasih untuk periode ini.";
+		return "Belum ada agenda internal untuk periode ini.";
 	}
 
 	// Urutkan berdasarkan waktu mulai.
 	const sorted = [...events].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
 
 	const header = monthLabel
-		? `📅 Jadwal Lintas Divisi SGA Cakrawala — ${monthLabel}`
-		: "📅 Jadwal Lintas Divisi SGA Cakrawala";
+		? `📅 Jadwal Internal Lintas Divisi SGA Cakrawala — ${monthLabel}`
+		: "📅 Jadwal Internal Lintas Divisi SGA Cakrawala";
 
-	const intro = "Halo, teman-teman! 👋\nBerikut jadwal kegiatan lintas divisi yang sudah disusun. Semoga bisa membantu kita koordinasi dan merencanakan aktivitas masing-masing.";
+	const intro = "Halo, teman-teman pengurus! 👋\nBerikut agenda internal lintas divisi yang sudah disusun. Khusus kepengurusan, bukan untuk disebar ke mahasiswa umum. Semoga membantu kita koordinasi dan merencanakan aktivitas masing-masing.";
 
 	const body = sorted
 		.map((ev, index) => {
@@ -52,7 +57,7 @@ export async function shareWhatsApp(text) {
 	const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
 	if (navigator.share) {
 		try {
-			await navigator.share({ title: "Jadwal Lintas Divisi", text });
+			await navigator.share({ title: "Jadwal Internal Lintas Divisi", text });
 			return;
 		} catch (e) {
 			if (e.name === "AbortError") return;
