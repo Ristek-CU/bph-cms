@@ -1,7 +1,7 @@
 // @ts-nocheck -- Node integration runner, like test/harness.ts.
 import assert from 'node:assert/strict';
 import { startHarness, DIVISIONS } from './test/harness';
-import { llmChatStream, LlmUnavailableError } from './modules/assistant/llm';
+import { llmChatStream, llmChatStreamAnthropic, LlmUnavailableError } from './modules/assistant/llm';
 import { precheckUserMessage, precheckWithRules, compileGuardRule } from './modules/assistant/security';
 import { assistantService, compactHistory, toolsForTurn } from './modules/assistant/service';
 import { getDb } from './db/connection';
@@ -25,6 +25,7 @@ check('long history is bounded while preserving latest turns', () => {
 });
 const originalFetch = globalThis.fetch;
 const wire = events => events.map(e => `data: ${JSON.stringify(e)}\r\n\r\n`).join('');
+const chatWire = events => events.map(e => `data: ${JSON.stringify(e)}\r\n\r\n`).join('') + 'data: [DONE]\r\n\r\n';
 const provider = [
  { type: 'message_start', message: { usage: { input_tokens: 100, output_tokens: 1, cache_read_input_tokens: 20 } } },
  { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Halo' } },
@@ -37,16 +38,56 @@ try {
  let providerRequest;
  globalThis.fetch = async (_url, init) => { providerRequest = init; return new Response(wire(provider)); };
  const events = [];
- for await (const e of llmChatStream({ RORO_API_KEY: 'fixture' }, body)) events.push(e);
- check('stream routing prefers provider latency', () => assert.equal(providerRequest.headers['X-SI-Route-Objective'], 'latency'));
+ for await (const e of llmChatStreamAnthropic({ RORO_API_KEY: 'fixture' }, body)) events.push(e);
  check('provider cumulative usage is not double counted; cache input included', () => assert.deepEqual(events.find(e => e.type === 'usage').usage, { input_tokens: 120, output_tokens: 12, reported: true }));
  check('CRLF provider text decoded', () => assert.equal(events.find(e => e.type === 'text').text, 'Halo'));
  globalThis.fetch = async () => new Response(wire(provider.slice(0, 3)));
  const partial = [];
- await assert.rejects(async () => { for await (const e of llmChatStream({ RORO_API_KEY: 'fixture' }, body)) partial.push(e); }, LlmUnavailableError);
+ await assert.rejects(async () => { for await (const e of llmChatStreamAnthropic({ RORO_API_KEY: 'fixture' }, body)) partial.push(e); }, LlmUnavailableError);
  check('interrupted stream preserves reported usage', () => assert.equal(partial.find(e => e.type === 'usage').usage.output_tokens, 8));
  globalThis.fetch = async () => new Response(wire([{ type: 'error', error: { message: 'private provider detail' } }]));
- await assert.rejects(async () => { for await (const _ of llmChatStream({ RORO_API_KEY: 'fixture' }, body)) {} }, LlmUnavailableError);
+ await assert.rejects(async () => { for await (const _ of llmChatStreamAnthropic({ RORO_API_KEY: 'fixture' }, body)) {} }, LlmUnavailableError);
+ globalThis.fetch = async (_url, init) => {
+  providerRequest = { url: _url, ...init };
+  return new Response(chatWire([
+   { choices: [{ delta: { content: 'Siap.' }, finish_reason: null }] },
+   { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'create_event', arguments: '{"title":' } }] }, finish_reason: null }] },
+   { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"Acara"}' } }] }, finish_reason: 'tool_calls' }] },
+   { choices: [], usage: { prompt_tokens: 34, completion_tokens: 12 } },
+  ]));
+ };
+ const chatEvents = [];
+ for await (const e of llmChatStream({ RORO_API_KEY: 'fixture' }, { ...body, tools: [{ name: 'create_event', description: 'Buat draf', input_schema: { type: 'object' } }] })) chatEvents.push(e);
+ check('chat stream uses OpenAI endpoint with reasoning disabled', () => {
+  assert.ok(providerRequest.url.endsWith('/v1/chat/completions'));
+  assert.equal(providerRequest.headers['X-SI-Route-Objective'], 'latency');
+  assert.deepEqual(JSON.parse(providerRequest.body).reasoning, { effort: 'none' });
+ });
+ check('chat stream rebuilds tool call and usage', () => {
+  assert.deepEqual(chatEvents.find(e => e.type === 'tool_use').input, { title: 'Acara' });
+  assert.deepEqual(chatEvents.find(e => e.type === 'usage').usage, { input_tokens: 34, output_tokens: 12, reported: true });
+ });
+ for await (const _ of llmChatStream({ RORO_API_KEY: 'fixture' }, { ...body, messages: [
+  { role: 'assistant', content: [{ type: 'tool_use', id: 'call-1', name: 'get_events', input: {} }] },
+  { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call-1', content: '{"ok":true}' }] },
+ ] })) {}
+ check('tool result history is translated for follow-up round', () => {
+  const messages = JSON.parse(providerRequest.body).messages;
+  assert.equal(messages[1].tool_calls[0].function.name, 'get_events');
+  assert.deepEqual(messages[2], { role: 'tool', tool_call_id: 'call-1', content: '{"ok":true}' });
+ });
+ const objectives = [];
+ globalThis.fetch = async (_url, init) => {
+  objectives.push(init.headers['X-SI-Route-Objective']);
+  if (objectives.length === 1) throw new Error('temporary provider network failure');
+  return new Response(chatWire([{ choices: [{ delta: { content: 'Pulih' }, finish_reason: 'stop' }] }, { choices: [], usage: { prompt_tokens: 10, completion_tokens: 2 } }]));
+ };
+ const retried = [];
+ for await (const e of llmChatStream({ RORO_API_KEY: 'fixture' }, body)) retried.push(e);
+ check('provider retries once on another routing objective before any output', () => {
+  assert.deepEqual(objectives, ['latency', 'reliability']);
+  assert.equal(retried.find(e => e.type === 'text').text, 'Pulih');
+ });
  globalThis.fetch = async (_url, init) => new Promise((_, reject) => {
   const timer = setTimeout(() => reject(new Error('fixture stalled')), 200);
   init.signal.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')); }, { once: true });
@@ -114,26 +155,23 @@ try {
  await h.sql("INSERT INTO forms(id,title,slug,status,division_id,created_at,updated_at) VALUES('private-form','PRIVATE_FORM_SECRET','private-form','draft',?,?,?)", DIVISIONS.a.id, now, now);
  await h.sql("INSERT INTO form_submissions(id,form_id,status,created_at,updated_at) VALUES('private-sub','private-form','new',?,?)", now, now);
  let request;
- globalThis.fetch = async (_url, init) => { request = JSON.parse(init.body); return new Response(wire(provider)); };
+ globalThis.fetch = async (_url, init) => { request = JSON.parse(init.body); return new Response(chatWire([{ choices: [{ delta: { content: 'Ringkasan' }, finish_reason: 'stop' }] }, { choices: [], usage: { prompt_tokens: 10, completion_tokens: 3 } }])); };
  await assistantService.chatStream(getDb(h.d1), { userId: 'u-a-viewer', divisionId: DIVISIONS.a.id, permissions: ['forms.read.own_division'], recordAudit: async () => {} }, { RORO_API_KEY: 'fixture' }, { message: 'Insight respons form' }, () => {});
- check('insight path respects submissions permission', () => assert.ok(!request.system.includes('PRIVATE_FORM_SECRET')));
+ check('insight path respects submissions permission', () => assert.ok(!request.messages[0].content.includes('PRIVATE_FORM_SECRET')));
  const memoryEnv = { RORO_API_KEY: 'fixture' };
  globalThis.fetch = async () => new Response(JSON.stringify({ content: [{ type: 'text', text: 'Suka acara kampus' }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 3 } }));
  await assistantService.updateMemory(getDb(h.d1), { userId: 'u-a-admin', permissions: [], recordAudit: async () => {} }, memoryEnv, conv);
  const afterMemory = await h.sql('SELECT * FROM ai_usage WHERE user_id = ? AND day = ?', 'u-a-admin', day);
  check('memory tokens counted without adding chat requests', () => assert.deepEqual([afterMemory[0].requests, afterMemory[0].input_tokens, afterMemory[0].output_tokens], [2, 220, 48]));
  let providerCalls = 0;
- globalThis.fetch = async () => ++providerCalls === 1 ? new Response(wire([
-  provider[0],
-  { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'write-1', name: 'create_form' } },
-  { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify({ title: 'Resilient draft', fields: [{ label: 'Nama', type: 'short_text', required: true }] }) } },
-  { type: 'message_delta', usage: { output_tokens: 30 }, delta: { stop_reason: 'tool_use' } },
-  { type: 'message_stop' },
+ globalThis.fetch = async () => ++providerCalls === 1 ? new Response(chatWire([
+  { choices: [{ delta: { tool_calls: [{ index: 0, id: 'write-1', function: { name: 'create_form', arguments: JSON.stringify({ title: 'Resilient draft', fields: [{ label: 'Nama', type: 'short_text', required: true }] }) } }] }, finish_reason: 'tool_calls' }] },
+  { choices: [], usage: { prompt_tokens: 100, completion_tokens: 30 } },
  ])) : new Response('Unavailable', { status: 503 });
  const draftEvents = [];
  await assistantService.chatStream(getDb(h.d1), { userId: 'u-a-admin', divisionId: DIVISIONS.a.id, permissions: ['forms.create.own_division'], recordAudit: async () => {} }, { RORO_API_KEY: 'fixture' }, { message: 'Buat form Nama' }, e => draftEvents.push(e));
  const fallback = draftEvents.find(e => e.type === 'done');
- check('valid proposal survives provider outage on closing round', () => assert.equal(fallback.proposal.tool, 'create_form'));
+ check('valid proposal needs only one provider call', () => { assert.equal(fallback.proposal.tool, 'create_form'); assert.equal(providerCalls, 1); });
  check('valid draft gets useful fallback instead of service failure text', () => { assert.match(fallback.reply, /Draf sudah siap/); assert.ok(!fallback.reply.includes('tidak bisa dihubungi')); });
  const deleted = await h.req(`${root}/conversations/${conv}`, { token: 'tok-a-admin', method: 'DELETE' });
  check('owner can remove chat from history', () => assert.equal(deleted.status, 200));

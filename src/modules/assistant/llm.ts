@@ -125,7 +125,12 @@ export const llmChat = async (
 
 const fetchProvider = async (url: string, init: RequestInit): Promise<Response> => {
 	try { return await fetch(url, init); }
-	catch { throw new LlmUnavailableError("Layanan AI tidak merespons atau koneksi terputus"); }
+	catch (error) {
+		if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+			throw new LlmUnavailableError("Layanan AI melewati batas waktu respons");
+		}
+		throw new LlmUnavailableError("Koneksi ke layanan AI gagal sebelum respons diterima");
+	}
 };
 
 // Beda dari ApiError supaya service bisa menerjemahkan ke pesan chat yang ramah,
@@ -145,7 +150,7 @@ export type StreamEvent =
 	| { type: "usage"; usage: LlmUsage }
 	| { type: "done" };
 
-export const llmChatStream = async function* (
+export const llmChatStreamAnthropic = async function* (
 	env: {
 		RORO_API_KEY?: string;
 		RORO_BASE_URL?: string;
@@ -295,4 +300,158 @@ export const llmChatStream = async function* (
 		yield { type: "tool_use", id: t.id, name: t.name, input, stop_reason: stopReason };
 	}
 	yield { type: "done" };
+};
+
+type StreamBody = Parameters<typeof llmChatStreamAnthropic>[1];
+type StreamEnv = Parameters<typeof llmChatStreamAnthropic>[0];
+
+// Chat-completions memberi kontrol reasoning yang didukung model GLM dan
+// menormalkan tool call ke format OpenAI. Endpoint Anthropic tetap tersedia di
+// atas untuk regresi/rollback, tetapi tidak lagi dipakai chat streaming utama.
+const llmChatStreamOpenAI = async function* (
+	env: StreamEnv,
+	body: StreamBody,
+	timeoutMs: number,
+	objective: "latency" | "reliability",
+): AsyncGenerator<StreamEvent> {
+	const base = (env.RORO_BASE_URL || "https://api.surplusintelligence.ai/anthropic")
+		.replace(/\/$/, "").replace(/\/anthropic$/, "");
+	const messages: Array<Record<string, unknown>> = [{ role: "system", content: body.system }];
+	for (const message of body.messages) {
+		if (typeof message.content === "string") {
+			messages.push({ role: message.role, content: message.content });
+			continue;
+		}
+		if (message.role === "assistant") {
+			const text = message.content.filter((block): block is LlmContent => block.type === "text")
+				.map((block) => block.text).join("\n");
+			const toolCalls = message.content.filter((block): block is LlmToolUse => block.type === "tool_use")
+				.map((block) => ({ id: block.id, type: "function", function: { name: block.name, arguments: JSON.stringify(block.input) } }));
+			messages.push({ role: "assistant", content: text || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) });
+		} else {
+			for (const block of message.content) {
+				if (block.type === "tool_result") messages.push({ role: "tool", tool_call_id: block.tool_use_id, content: block.content });
+				else if (block.type === "text") messages.push({ role: "user", content: block.text });
+			}
+		}
+	}
+
+	const res = await fetchProvider(`${base}/v1/chat/completions`, {
+		method: "POST",
+		signal: AbortSignal.timeout(timeoutMs),
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${env.RORO_API_KEY}`,
+			"X-SI-Route-Objective": objective,
+		},
+		body: JSON.stringify({
+			model: env.RORO_MODEL || "glm-5.2",
+			stream: true,
+			max_tokens: body.max_tokens ?? 2000,
+			reasoning: { effort: "none" },
+			messages,
+			tools: body.tools.length ? body.tools.map((tool) => ({
+				type: "function",
+				function: { name: tool.name, description: tool.description, parameters: tool.input_schema },
+			})) : undefined,
+		}),
+	});
+	if (!res.ok || !res.body) {
+		if (res.status === 401 || res.status === 403) throw new LlmUnavailableError("LLM menolak key (401/403)");
+		throw new LlmUnavailableError(`LLM error HTTP ${res.status}`);
+	}
+
+	const reader = res.body.getReader();
+	const decoder = new TextDecoder();
+	const toolCalls = new Map<number, { id: string; name: string; json: string }>();
+	let buf = "";
+	let done = false;
+	let stopReason: string | null = null;
+	let usage: LlmUsage | undefined;
+	try {
+		while (!done) {
+			const { value, done: eof } = await reader.read();
+			if (eof) break;
+			buf += decoder.decode(value, { stream: true });
+			buf = buf.replace(/\r\n/g, "\n");
+			let idx: number;
+			while ((idx = buf.indexOf("\n\n")) !== -1) {
+				const chunk = buf.slice(0, idx);
+				buf = buf.slice(idx + 2);
+				const data = chunk.split("\n").find((line) => line.startsWith("data:"))?.slice(5).trim();
+				if (!data) continue;
+				if (data === "[DONE]") { done = true; break; }
+				let evt: any;
+				try { evt = JSON.parse(data); } catch { continue; }
+				if (evt.error) throw new LlmUnavailableError("LLM stream error");
+				if (evt.usage) usage = {
+					input_tokens: Number(evt.usage.prompt_tokens) || 0,
+					output_tokens: Number(evt.usage.completion_tokens) || 0,
+					reported: typeof evt.usage.prompt_tokens === "number" && typeof evt.usage.completion_tokens === "number",
+				};
+				const choice = evt.choices?.[0];
+				if (choice?.finish_reason) stopReason = choice.finish_reason;
+				const delta = choice?.delta;
+				if (delta?.reasoning_content) yield { type: "thinking", text: delta.reasoning_content };
+				if (delta?.content) yield { type: "text", text: delta.content };
+				for (const call of delta?.tool_calls ?? []) {
+					const index = Number(call.index) || 0;
+					const current = toolCalls.get(index) ?? { id: "", name: "", json: "" };
+					if (call.id) current.id = call.id;
+					if (call.function?.name) {
+						current.name += call.function.name;
+						if (!toolCalls.has(index)) yield { type: "tool_use_start", name: current.name };
+					}
+					if (call.function?.arguments) current.json += call.function.arguments;
+					toolCalls.set(index, current);
+				}
+			}
+		}
+		if (!done) throw new LlmUnavailableError("LLM stream terputus sebelum selesai");
+	} catch (error) {
+		if (error instanceof LlmUnavailableError) throw error;
+		if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+			throw new LlmUnavailableError("Layanan AI melewati batas waktu saat streaming");
+		}
+		throw new LlmUnavailableError("LLM stream terputus");
+	} finally {
+		if (usage) yield { type: "usage", usage };
+		await reader.cancel().catch(() => {});
+		reader.releaseLock();
+	}
+	if (!usage) yield { type: "usage", usage: { input_tokens: 0, output_tokens: 0, reported: false } };
+	for (const call of [...toolCalls.entries()].sort(([a], [b]) => a - b)) {
+		const t = call[1];
+		let input: unknown = null;
+		try { input = JSON.parse(t.json || "{}"); } catch { /* validator rejects malformed tool input */ }
+		yield { type: "tool_use", id: t.id, name: t.name, input, stop_reason: stopReason };
+	}
+	yield { type: "done" };
+};
+
+export const llmChatStream = async function* (env: StreamEnv, body: StreamBody): AsyncGenerator<StreamEvent> {
+	if (env.RORO_MOCK_STREAM) {
+		yield* llmChatStreamAnthropic(env, body);
+		return;
+	}
+	if (!env.RORO_API_KEY) throw new LlmUnavailableError("RORO_API_KEY belum di-set");
+	const totalMs = body.timeout_ms ?? 120_000;
+	const started = Date.now();
+	let attempt = 0;
+	while (attempt < 2) {
+		let emitted = false;
+		const remaining = totalMs - (Date.now() - started);
+		if (remaining <= 0) throw new LlmUnavailableError("Layanan AI melewati batas waktu respons");
+		const timeoutMs = attempt === 0 ? Math.min(20_000, remaining) : remaining;
+		try {
+			for await (const event of llmChatStreamOpenAI(env, body, timeoutMs, attempt === 0 ? "latency" : "reliability")) {
+				if (event.type !== "usage") emitted = true;
+				yield event;
+			}
+			return;
+		} catch (error) {
+			if (emitted || attempt === 1 || !(error instanceof LlmUnavailableError) || /401|403|HTTP 4\d\d/.test(error.message)) throw error;
+			attempt++;
+		}
+	}
 };

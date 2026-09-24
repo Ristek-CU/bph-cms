@@ -664,7 +664,10 @@ export const assistantService = {
 					replyText = proposal ? proposalReadyReply :
 						"Roro sedang tidak bisa dihubungi (layanan AI bermasalah). Coba lagi sebentar lagi — pesanmu sudah tersimpan di riwayat.";
 					emit({ type: "text", text: replyText });
-					await aiLog(db, actor, convId, { eventType: "llm_unavailable", level: "error", message: e.message || "LLM unavailable" });
+					await aiLog(db, actor, convId, {
+						eventType: "llm_unavailable", level: "error", message: e.message || "LLM unavailable",
+						metadata: { duration_ms: Date.now() - roundStarted, first_event_ms: firstEventMs ?? null, partial_text: !!textBuf, provider_path: "chat_completions" },
+					});
 					return false;
 				}
 				await aiLog(db, actor, convId, { eventType: "error", level: "error", message: e instanceof Error ? e.message : String(e) });
