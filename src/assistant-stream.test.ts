@@ -45,6 +45,7 @@ const sseText = (events: any[]) =>
 
 const th = (t: string) => ({ type: "thinking", text: t });
 const tx = (t: string) => ({ type: "text", text: t });
+const tus = (name: string) => ({ type: "tool_use_start", name });
 const tu = (id: string, name: string, input: unknown) => ({ type: "tool_use", id, name, input, stop_reason: "tool_use" });
 
 // ID + slug fix — diketahui sebelum mock dibangun (queue di workerd globalThis,
@@ -66,6 +67,7 @@ const MOCK_STREAM = [
 	// S1: create_event via stream (teks + tool_use; tidak perlu ronde penutup).
 	[
 		th("User mau event futsal, detail lengkap."),
+		tus("create_event"),
 		tx("Draf event futsal sudah kusiapkan — cek kartunya, tinggal konfirmasi."),
 		tu("tu-s1", "create_event", EVENT_OK),
 	],
@@ -151,6 +153,7 @@ eq("stream → 200", s1.status, 200);
 ok("content-type SSE", (s1.headers.get("Content-Type") ?? "").includes("text/event-stream"), s1.headers.get("Content-Type"));
 const ev1 = parseSse(s1.body);
 ok("ada event thinking", ev1.some((e) => e.type === "thinking"), ev1.map((e) => e.type));
+ok("status berubah saat tool mulai bekerja", ev1.some((e) => e.type === "working"), ev1.map((e) => e.type));
 ok("ada event tool_use (create_event)", ev1.some((e) => e.type === "done" && e.proposal?.tool === "create_event"), ev1.map((e) => e.type));
 const done1 = ev1.find((e) => e.type === "done");
 ok("done membawa reply", (done1?.reply ?? "").includes("kusiapkan"), done1?.reply);

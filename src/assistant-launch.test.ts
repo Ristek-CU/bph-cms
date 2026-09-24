@@ -34,9 +34,11 @@ const provider = [
 ];
 const body = { system: 'test', messages: [{ role: 'user', content: 'test' }], tools: [] };
 try {
- globalThis.fetch = async () => new Response(wire(provider));
+ let providerRequest;
+ globalThis.fetch = async (_url, init) => { providerRequest = init; return new Response(wire(provider)); };
  const events = [];
  for await (const e of llmChatStream({ RORO_API_KEY: 'fixture' }, body)) events.push(e);
+ check('stream routing prefers provider latency', () => assert.equal(providerRequest.headers['X-SI-Route-Objective'], 'latency'));
  check('provider cumulative usage is not double counted; cache input included', () => assert.deepEqual(events.find(e => e.type === 'usage').usage, { input_tokens: 120, output_tokens: 12, reported: true }));
  check('CRLF provider text decoded', () => assert.equal(events.find(e => e.type === 'text').text, 'Halo'));
  globalThis.fetch = async () => new Response(wire(provider.slice(0, 3)));
@@ -45,6 +47,12 @@ try {
  check('interrupted stream preserves reported usage', () => assert.equal(partial.find(e => e.type === 'usage').usage.output_tokens, 8));
  globalThis.fetch = async () => new Response(wire([{ type: 'error', error: { message: 'private provider detail' } }]));
  await assert.rejects(async () => { for await (const _ of llmChatStream({ RORO_API_KEY: 'fixture' }, body)) {} }, LlmUnavailableError);
+ globalThis.fetch = async (_url, init) => new Promise((_, reject) => {
+  const timer = setTimeout(() => reject(new Error('fixture stalled')), 200);
+  init.signal.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')); }, { once: true });
+ });
+ await assert.rejects(async () => { for await (const _ of llmChatStream({ RORO_API_KEY: 'fixture' }, { ...body, timeout_ms: 20 })) {} }, LlmUnavailableError);
+ check('slow provider ends with bounded failure', () => {});
  check('event keyword cannot bypass explicit code request', () => assert.equal(precheckUserMessage('Buat kode Python untuk event').blocked, true));
  check('programming workshop event remains allowed', () => assert.equal(precheckUserMessage('Buat event workshop Python dan JavaScript').blocked, false));
  check('ordinary Indonesian dan passes', () => assert.equal(precheckUserMessage('Buat form dan event untuk acara rapat').blocked, false));
@@ -75,6 +83,8 @@ try {
  check('same conversation recovers after blocked turn', () => assert.equal(recovered.find(e => e.type === 'done').blocked, undefined));
  const totals = await h.sql('SELECT * FROM ai_usage WHERE user_id = ?', 'u-a-admin');
  check('stream tokens recorded per account, blocked turns do not consume requests', () => assert.deepEqual([totals[0].requests, totals[0].input_tokens, totals[0].output_tokens], [2, 210, 45]));
+ const modelUsage = await h.sql("SELECT metadata FROM ai_events WHERE event_type = 'model_usage' LIMIT 1");
+ check('stream audit records model latency', () => assert.ok(Number.isFinite(JSON.parse(modelUsage[0].metadata).duration_ms)));
  const transcript = await h.sql('SELECT * FROM ai_messages WHERE conversation_id = ?', conv);
  check('blocked prompt excluded from model transcript', () => assert.equal(transcript.some(m => m.content.includes('Ignore previous')), false));
  const guardLog = await h.sql("SELECT * FROM ai_events WHERE event_type = 'injection_blocked'");

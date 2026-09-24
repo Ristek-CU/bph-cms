@@ -83,7 +83,7 @@ adminAssistantRouter.post("/chat/stream", chatLimiter, async (c) => {
 				}
 			};
 			try {
-				await assistantService.chatStream(db, actor, env, parsed.data!, emit);
+				await assistantService.chatStream(db, actor, env, parsed.data!, emit, (task) => c.executionCtx.waitUntil(task));
 			} catch (e) {
 				// Error di tengah stream: kirim sebagai event (client sudah menerima 200).
 				await logAiEvent({ db, userId: actor.userId, userEmail: actor.userEmail, divisionId: actor.divisionId,

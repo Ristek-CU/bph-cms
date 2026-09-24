@@ -243,14 +243,14 @@ const aiLog = (db: Db, actor: ChatActor & { userEmail?: string }, convId: string
 		...e,
 	});
 
-const recordModelUsage = async (db: Db, actor: ChatActor, conversationId: string, usage: { input_tokens: number; output_tokens: number; reported?: boolean } | undefined, source: string, day: string) => {
+const recordModelUsage = async (db: Db, actor: ChatActor, conversationId: string, usage: { input_tokens: number; output_tokens: number; reported?: boolean } | undefined, source: string, day: string, timing?: { duration_ms: number; first_event_ms?: number }) => {
 	const input = usage?.input_tokens ?? 0;
 	const output = usage?.output_tokens ?? 0;
 	await quotaRecord(db, actor.userId, day, { input_tokens: input, output_tokens: output }, 0);
 	await aiLog(db, actor, conversationId, {
 		eventType: "model_usage", level: !usage || usage.reported === false ? "warn" : "info",
 		message: !usage || usage.reported === false ? "Provider tidak melaporkan token lengkap" : `Pemakaian AI: ${input} input + ${output} output token`,
-		metadata: { source, input_tokens: input, output_tokens: output, usage_reported: !!usage && usage.reported !== false },
+		metadata: { source, input_tokens: input, output_tokens: output, usage_reported: !!usage && usage.reported !== false, ...timing },
 	});
 };
 
@@ -484,6 +484,7 @@ export const assistantService = {
 		env: Parameters<typeof this.chat>[2],
 		input: { conversation_id?: string; message: string },
 		emit: (event: Record<string, unknown>) => void,
+		defer?: (task: Promise<unknown>) => void,
 	) {
 		if (input.conversation_id) await conversationOr404(db, input.conversation_id, actor.userId);
 		const usageDay = quotaDay();
@@ -559,7 +560,6 @@ export const assistantService = {
 		let proposal: Proposal | null = null;
 		let totalIn = 0;
 		let totalOut = 0;
-		let thinkingAll = "";
 		let thinkingSent = false;
 
 		// Intent insight → injeksi snapshot statistik asli ke system prompt.
@@ -597,6 +597,9 @@ export const assistantService = {
 			}
 		}
 
+		// Batas seluruh ronde provider: satu request lambat tidak boleh membuat
+		// panel menunggu beberapa kali timeout 120 detik.
+		const providerDeadline = Date.now() + 75_000;
 		// Satu ronde LLM stream → event ke client. Return true kalau butuh ronde
 		// berikutnya (ada tool_use).
 		// noTools=true → ronde tanpa tool: model wajib menjawab teks (runde penutup).
@@ -605,8 +608,12 @@ export const assistantService = {
 			// Akumulasi blok dari delta — dipakai untuk persist + tool loop.
 			let textBuf = "";
 			const toolUses: Array<{ id: string; name: string; input: unknown }> = [];
+			const roundStarted = Date.now();
+			let firstEventMs: number | undefined;
 
 			try {
+				const remainingMs = providerDeadline - roundStarted;
+				if (remainingMs <= 0) throw new LlmUnavailableError("Waktu respons AI habis");
 				for await (const ev of llmChatStream(env, {
 					system: buildSystem({
 						userName: actor.userName,
@@ -619,19 +626,24 @@ export const assistantService = {
 					}),
 					messages: llmMessages,
 					tools: noTools ? [] : availableTools,
+					timeout_ms: Math.min(60_000, remainingMs),
 				})) {
+					firstEventMs ??= Date.now() - roundStarted;
 					if (ev.type === "usage") {
 						totalIn += ev.usage.input_tokens;
 						totalOut += ev.usage.output_tokens;
-						await recordModelUsage(db, actor, convId!, ev.usage, "chat_stream", usageDay);
+						await recordModelUsage(db, actor, convId!, ev.usage, "chat_stream", usageDay, { duration_ms: Date.now() - roundStarted, first_event_ms: firstEventMs });
 						continue;
 					}
 					if (ev.type === "thinking") {
-						thinkingAll += ev.text;
 						// Emit thinking hanya sampai jawaban final mulai — setelah itu
 						// bubble berpindah ke mode jawaban.
 						if (!textBuf && !thinkingSent) emit({ type: "thinking", text: "Menyiapkan jawaban untukmu…" });
 						thinkingSent = true;
+						continue;
+					}
+					if (ev.type === "tool_use_start") {
+						emit({ type: "working", message: ev.name.startsWith("get_") ? "Roro sedang membaca data…" : "Roro sedang menyiapkan draf…" });
 						continue;
 					}
 					if (ev.type === "text") {
@@ -849,19 +861,19 @@ export const assistantService = {
 			metadata: { proposal: saved?.tool ?? null, input_tokens: totalIn, output_tokens: totalOut },
 		});
 
-		// Memori: sama dengan chat() — jalur stream adalah jalur utama panel, tanpa
-		// ini memori tidak pernah diperbarui di produksi.
-		// ponytail: done event tertunda selama panggilan memori (tiap 10 pesan);
-		// pindah ke waitUntil kalau latensinya terasa.
+		// Memori tetap diperbarui tiap 10 pesan, tetapi jangan menahan SSE done
+		// saat panggilan ringkasan memori ke provider berlangsung.
 		const userCount = await db
 			.select({ n: sql<number>`count(*)` })
 			.from(aiMessages)
 			.where(and(eq(aiMessages.conversationId, convId), eq(aiMessages.role, "user")));
 		const count = Number(userCount[0]?.n ?? 0);
 		if (count > 0 && count % MEMORY_EVERY === 0) {
-			await this.updateMemory(db, actor, env, convId).catch(async () => {
+			const task = this.updateMemory(db, actor, env, convId).catch(async () => {
 				await aiLog(db, actor, convId, { eventType: "error", level: "error", message: "Pembaruan memori Roro gagal" });
 			});
+			if (defer) defer(task);
+			else await task;
 		}
 
 		emit({

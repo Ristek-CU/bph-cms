@@ -1,14 +1,13 @@
 /index.html
-  Cache-Control: no-cache, no-store, must-revalidate
+  Cache-Control: no-cache, no-store, must-revalidate, no-transform
+
+/
+  Cache-Control: no-cache, no-store, must-revalidate, no-transform
 
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
-  # ponytail: hash inline script milik auto-inject CF Web Analytics — CF ganti
-  # snippet tanpa notice, hash baru ambil dari pesan CSP error di browser.
-  # Matikan auto-inject di dashboard CF (Web Analytics) biar berhenti chase hash.
-  # NOTE: Cloudflare Web Analytics menginject inline script dinamis. Hash di bawah
-  # adalah daftar hash yang pernah muncul. Solusi permanen: matikan auto-inject
-  # Web Analytics di dashboard Cloudflare untuk domain ini.
-  Content-Security-Policy: default-src 'self'; connect-src 'self' https://cms.sga-cakrawala.org https://bph-cms.sga-cakrawala.org https://cloudflareinsights.com; img-src 'self' data: blob: https://cms.sga-cakrawala.org https://bph-cms.sga-cakrawala.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' https://static.cloudflareinsights.com 'sha256-mZ+U7hftXkK3OhQG3Lo11fwSb3Poc9x/7+D4HwZXiD8=' 'sha256-LXRTRDUdbpD9nikBeoVmA6NJg4myfUyTtGaAzt0klP8=' 'sha256-W2kNzLMQlFocKHkYq3ajpFP7ggyNedBFHRBHAIwTeqQ=' 'sha256-RUGBbQvCVIONPD0ib044ovUAtoXkrcCOd/OYTFeMJEQ=' 'sha256-CNvlW0uvYdFkr4CZBUEAH3Roklgazy4N2uI29VsJ1SY=' 'sha256-2lwG25AZ8nfuS0BiaowfACyjzBO+geUDjGG54mbU7TQ=' 'sha256-H7lTIAesu/8XJogcw1usKv2VXQg4hSLrGig7/zqfVGc='; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  # Cloudflare JavaScript Detections menyisipkan inline script yang berubah tiap
+  # request. HTML root memakai no-transform agar CSP tetap menolak inline script.
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://cms.sga-cakrawala.org https://bph-cms.sga-cakrawala.org https://cloudflareinsights.com; img-src 'self' data: blob: https://cms.sga-cakrawala.org https://bph-cms.sga-cakrawala.org; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' https://static.cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'

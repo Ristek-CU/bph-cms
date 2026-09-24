@@ -132,15 +132,19 @@ function ProposalActions({ status, resultResourceId, onConfirm, busy, tool, labe
 	);
 }
 
-// Status "Roro lagi mikir…" — menampilkan potongan pikiran terakhir saat model
-// berpikir (GLM 5.2 selalu berpikir 4–60 detik sebelum menjawab).
-function ThinkingBubble({ text }) {
+function ThinkingBubble({ text, label }) {
+	const [seconds, setSeconds] = useState(0);
+	useEffect(() => {
+		const started = Date.now();
+		const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+		return () => clearInterval(timer);
+	}, []);
 	return (
 		<div className="roro-msg assistant">
 			<Avatar animate />
 			<div className="roro-bubble roro-thinking">
-				<p className="roro-thinking-label">Roro lagi mikir…</p>
-				<p className="roro-thinking-text">{text.slice(-180)}</p>
+				<p className="roro-thinking-label">{seconds >= 45 ? "Roro masih mencoba menghubungi AI…" : label || (seconds < 15 ? "Roro lagi mikir…" : "Roro sedang menyiapkan jawaban…")}</p>
+				<p className="roro-thinking-text">{text.slice(-180)} {seconds > 4 ? `${seconds} dtk` : ""}</p>
 			</div>
 		</div>
 	);
@@ -203,7 +207,7 @@ function ChatView({ messages, onConfirm, busyConfirm, streaming }) {
 					</div>
 				</div>
 			))}
-			{streaming && (streaming.phase === "thinking" ? <ThinkingBubble text={streaming.thinking} /> : null)}
+			{streaming && (streaming.phase === "thinking" || streaming.phase === "working" ? <ThinkingBubble text={streaming.thinking ?? ""} label={streaming.label} /> : null)}
 			<div ref={endRef} />
 		</div>
 	);
@@ -316,10 +320,14 @@ export default function Assistant() {
 					return last?.id === "streaming" ? [...m.slice(0, -1), bubble] : [...m, bubble];
 				});
 			};
+			let timedOut = false;
+			let timeoutId;
 			try {
-				streamController.current = new AbortController();
+				const controller = new AbortController();
+				streamController.current = controller;
+				timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, 95_000);
 				const res = await fetch("/api/v1/admin/assistant/chat/stream", {
-					signal: streamController.current.signal,
+					signal: controller.signal,
 					method: "POST",
 					headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
 					body: JSON.stringify({ conversation_id: convId ?? undefined, message }),
@@ -350,6 +358,8 @@ export default function Assistant() {
 						}
 						if (ev.type === "thinking") {
 							setStreaming((s) => ({ phase: "thinking", thinking: (s?.thinking ?? "") + ev.text }));
+						} else if (ev.type === "working") {
+							setStreaming({ phase: "working", thinking: "", label: ev.message });
 						} else if (ev.type === "text") {
 							streamed += ev.text;
 							setStreaming({ phase: "text" });
@@ -383,11 +393,13 @@ export default function Assistant() {
 				}
 				api("/admin/assistant/usage").then(setUsage).catch(() => {});
 			} catch (e) {
-				if (e.name === "AbortError") return;
-				toast(errText(e), "err");
+				if (e.name === "AbortError" && !timedOut) return;
+				toast(timedOut ? "Roro terlalu lama merespons. Cek riwayat sebelum mengirim ulang." : errText(e), "err");
 				setMessages((m) => m.filter((x) => !x.id.startsWith("tmp-") && x.id !== "streaming"));
 				setInput(message);
+				if (timedOut) loadConversations();
 			} finally {
+				clearTimeout(timeoutId);
 				setStreaming(null);
 				setBusy(false);
 				inputRef.current?.focus();

@@ -158,6 +158,7 @@ export const llmChatStream = async function* (
 		messages: LlmMessage[];
 		tools: LlmToolDef[];
 		max_tokens?: number;
+		timeout_ms?: number;
 	},
 ): AsyncGenerator<StreamEvent> {
 	// Mock streaming: RORO_MOCK_STREAM berisi array respons; tiap respons = array
@@ -179,11 +180,13 @@ export const llmChatStream = async function* (
 	const base = (env.RORO_BASE_URL || "https://api.surplusintelligence.ai/anthropic").replace(/\/$/, "");
 	const res = await fetchProvider(`${base}/v1/messages`, {
 		method: "POST",
-		signal: AbortSignal.timeout(120_000),
+		signal: AbortSignal.timeout(body.timeout_ms ?? 120_000),
 		headers: {
 			"Content-Type": "application/json",
 			"x-api-key": env.RORO_API_KEY,
 			"anthropic-version": "2023-06-01",
+			// Surplus memilih seller dengan latensi terendah dalam price band.
+			"X-SI-Route-Objective": "latency",
 		},
 		body: JSON.stringify({
 			model: env.RORO_MODEL || "glm-5.2",
