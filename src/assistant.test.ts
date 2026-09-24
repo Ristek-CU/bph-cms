@@ -57,9 +57,13 @@ const MOCK = [
 	text("Maaf, akun kamu belum punya izin membuat event. Minta admin divisi ya."),
 	toolUse("tu4", "create_event", EVENT_BAD), // A3: payload invalid
 	text("Lokasinya di mana? Setelah aku tahu, aku susun ulang drafnya."),
+	toolUse("tu5", "get_internal_events", {}), // IE1: baca agenda internal
+	text("Agenda internal divisi kamu dan divisi lain sudah kucek, aman."),
+	toolUse("tu6", "create_internal_event", EVENT_OK), // IE2: usulan agenda internal
+	text("Draf agenda internal rapat koordinasi sudah kusiapkan — cek kartunya."),
 ];
 
-const h: Harness = await startHarness({ vars: { RORO_MOCK: JSON.stringify(MOCK), RORO_DAILY_LIMIT: "3" } });
+const h: Harness = await startHarness({ vars: { RORO_MOCK: JSON.stringify(MOCK), RORO_DAILY_LIMIT: "5" } });
 
 const ASST = "/api/v1/admin/assistant";
 
@@ -186,10 +190,49 @@ const a3 = await h.req(`${ASST}/chat`, {
 eq("chat A3 → 200", a3.status, 200);
 eq("proposal invalid ditolak", a3.body?.data?.proposal, null);
 
+// ── Agenda internal: baca lintas divisi + usulan draft ──────────────────────
+section("Tool agenda internal");
+
+// IE1: get_internal_events — published semua divisi + draft divisi sendiri.
+const ie1 = await h.req(`${ASST}/chat`, {
+	token: "tok-a-admin",
+	method: "POST",
+	json: { conversation_id: convA, message: "Cek agenda internal bulan depan dong" },
+});
+eq("chat IE1 → 200", ie1.status, 200);
+eq("tanpa proposal (tool baca)", ie1.body?.data?.proposal, null);
+
+// IE2: create_internal_event → proposal pending, confirm → draft internal event.
+const ie2 = await h.req(`${ASST}/chat`, {
+	token: "tok-a-admin",
+	method: "POST",
+	json: { conversation_id: convA, message: "Buatin rapat koordinasi 10 Oktober ya" },
+});
+eq("chat IE2 → 200", ie2.status, 200);
+eq("proposal tool internal", ie2.body?.data?.proposal?.tool, "create_internal_event");
+const msgIe2 = ie2.body?.data?.message_id;
+
+const confIe = await h.req(`${ASST}/confirm`, {
+	token: "tok-a-admin",
+	method: "POST",
+	json: { conversation_id: convA, message_id: msgIe2 },
+});
+eq("confirm internal → 200", confIe.status, 200);
+const ieId = confIe.body?.data?.resource_id;
+const ieRow = await h.sql("SELECT title, status, division_id FROM internal_events WHERE id = ?", ieId);
+eq("internal event draft terbentuk", ieRow[0]?.status, "draft");
+eq("owner divisi pemilik", ieRow[0]?.division_id, "01990001-0000-7000-8000-000000000002");
+
+const ieAudit = await h.sql(
+	"SELECT action FROM audit_logs WHERE resource_id = ? AND action LIKE 'assistant%'",
+	ieId,
+);
+eq("audit internal tercatat", ieAudit[0]?.action, "assistant.confirm_create_internal_event");
+
 // ── Kuota harian ────────────────────────────────────────────────────────────
 section("Kuota");
 
-// tok-a-admin sudah 3 chat hari ini (RORO_DAILY_LIMIT=3) → chat ke-4 ditolak.
+// tok-a-admin sudah 5 chat hari ini (RORO_DAILY_LIMIT=5) → chat ke-6 ditolak.
 const a4 = await h.req(`${ASST}/chat`, {
 	token: "tok-a-admin",
 	method: "POST",

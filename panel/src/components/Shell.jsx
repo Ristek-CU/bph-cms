@@ -134,16 +134,11 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 				<span className="icon" aria-hidden><IconCalendar /></span> Event
 			</NavLink>
 			{/* Event Internal (D-AK) — agenda internal organisasi, tidak pernah tampil
-			    di situs publik. Gate-nya events.read, sama dengan Kalender Lintas
-			    Divisi: semua pengurus boleh membaca (K-2). */}
+			    di situs publik. Gate-nya events.read: semua pengurus boleh membaca (K-2).
+			    Kalender lintas divisi = tab di dalam modul ini, bukan nav terpisah. */}
 			{hasScoped(permissions, "events.read") && (
 				<NavLink to="/internal-events" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
 					<span className="icon" aria-hidden><IconLock /></span> Event Internal
-				</NavLink>
-			)}
-			{hasScoped(permissions, "events.read") && (
-				<NavLink to="/calendar" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
-					<span className="icon" aria-hidden><IconCalendar /></span> Kalender Lintas Divisi
 				</NavLink>
 			)}
 			{canSeeForms && (

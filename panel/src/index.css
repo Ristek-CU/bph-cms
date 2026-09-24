@@ -1269,6 +1269,9 @@ main.page:has(.roro-layout) { display: flex; flex-direction: column; overflow: h
 @media (prefers-reduced-motion: reduce) { .login-roro-mascot { animation: none; } }
 
 /* ---- Kalender Lintas Divisi ---- */
+/* Tab tampilan di atas modul (mis. Event Internal: Daftar | Kalender). */
+.mod-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+
 .cross-calendar { display: flex; flex-direction: column; gap: 16px; }
 .cross-calendar-header { max-width: 720px; }
 .cross-calendar-header h2 { margin-bottom: 6px; }

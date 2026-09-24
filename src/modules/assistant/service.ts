@@ -19,6 +19,7 @@ import { logAiEvent, type LogAiEventParams } from "./oversight.service";
 import { precheckWithRules, loadGuardRules } from "./security";
 import { eventService } from "../events/event.service";
 import { formService } from "../forms/form.service";
+import { internalEventService } from "../internal-events/internal-event.service";
 import { recordAuditLog } from "../audit/audit.service";
 
 const MAX_TOOL_ROUNDS = 3;
@@ -316,6 +317,7 @@ export const assistantService = {
 			db,
 			divisionId: actor.divisionId,
 			userId: actor.userId,
+			permissions: actor.permissions,
 		};
 		let replyText = "";
 		let proposal: Proposal | null = null;
@@ -521,7 +523,7 @@ export const assistantService = {
 		const [memory] = await db.select().from(aiMemories).where(eq(aiMemories.userId, actor.userId));
 
 		const llmMessages: LlmMessage[] = ordered.map((m) => ({ role: m.role, content: m.content }));
-		const toolCtx: ToolContext = { db, divisionId: actor.divisionId, userId: actor.userId };
+		const toolCtx: ToolContext = { db, divisionId: actor.divisionId, userId: actor.userId, permissions: actor.permissions };
 
 		let replyText = "";
 		let proposal: Proposal | null = null;
@@ -707,9 +709,9 @@ export const assistantService = {
 		const stripToolJson = (t: string): string =>
 			t
 				// (a) create_form {...} — buang nama tool + blok JSON balanced.
-				.replace(/\bcreate_(?:event|form)\s*\{[\s\S]*?\}(?:\s*\n\s*})*/, "\n")
+				.replace(/\bcreate_(?:event|internal_event|form)\s*\{[\s\S]*?\}(?:\s*\n\s*})*/, "\n")
 				// (b) wrapper {"tool": "create_form", ...} — buang blok JSON dari { pertama.
-				.replace(/\{\s*"tool"\s*:\s*"create_(?:event|form)"[\s\S]*?\}(?:\s*\n\s*})*/, "\n")
+				.replace(/\{\s*"tool"\s*:\s*"create_(?:event|internal_event|form)"[\s\S]*?\}(?:\s*\n\s*})*/, "\n")
 				.replace(/\n{3,}/g, "\n\n")
 				.trim();
 		if (!saved && !formStatsMd) {
@@ -878,6 +880,12 @@ export const assistantService = {
 					userId: actor.userId,
 				});
 				resourceId = created!.id;
+			} else if (proposal.tool === "create_internal_event") {
+				const created = await internalEventService.create(db, parsed.data as never, {
+					divisionId: actor.divisionId,
+					userId: actor.userId,
+				});
+				resourceId = created!.id;
 			} else {
 				const created = await formService.create(db, parsed.data as never, {
 					divisionId: actor.divisionId,
@@ -891,7 +899,7 @@ export const assistantService = {
 				.set({ resultResourceId: resourceId })
 				.where(eq(aiMessages.id, msg.id));
 
-			await actor.recordAudit(`assistant.confirm_${proposal.tool}`, proposal.tool === "create_event" ? "event" : "form", resourceId, {
+			await actor.recordAudit(`assistant.confirm_${proposal.tool}`, proposal.tool === "create_form" ? "form" : proposal.tool === "create_internal_event" ? "internal_event" : "event", resourceId, {
 				via: "roro",
 				conversation_id: input.conversation_id,
 			});
@@ -1057,7 +1065,7 @@ const rescueToolCallText = (text: string): Proposal | null => {
 		}
 	};
 	// (a) create_form {...} — jalankan pemeriksaan balanced-brace dari nama tool.
-	const m = /\bcreate_(event|form)\s*\{/.exec(text);
+	const m = /\bcreate_(event|internal_event|form)\s*\{/.exec(text);
 	if (m) {
 		const start = text.indexOf("{", m.index);
 		let depth = 0;

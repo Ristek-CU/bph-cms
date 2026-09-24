@@ -36,6 +36,32 @@ const stripMd = (s) =>
 
 // Kartu proposal di dalam bubble assistant.
 function ProposalCard({ proposal, status, resultResourceId, onConfirm, busy }) {
+	if (proposal.tool === "create_internal_event") {
+		const d = proposal.data;
+		return (
+			<div className="card roro-proposal">
+				<p className="card-title">Draf Event Internal</p>
+				<h3>{d.title}</h3>
+				<p className="small">{d.description}</p>
+				<p className="small"><strong>{fmtRange(d.starts_at, d.ends_at)}</strong></p>
+				<p className="small">📍 {d.location}</p>
+				{d.organizer && <p className="small">Penyelenggara: {d.organizer}</p>}
+				{d.sessions?.length > 0 && (
+					<div className="roro-runsheet">
+						{d.sessions.map((s, i) => (
+							<div key={i} className="roro-session">
+								<strong>{s.name}</strong>
+								<span className="small"> {fmtRange(s.starts_at, s.ends_at)}</span>
+								{s.speaker && <span className="small"> · {s.speaker}</span>}
+							</div>
+						))}
+					</div>
+				)}
+				<ProposalActions {...{ status, resultResourceId, onConfirm, busy }} tool="create_internal_event" label="Iya, buatkan agenda internal" />
+			</div>
+		);
+	}
+
 	if (proposal.tool === "create_event") {
 		const d = proposal.data;
 		return (
@@ -88,12 +114,13 @@ function ProposalCard({ proposal, status, resultResourceId, onConfirm, busy }) {
 function ProposalActions({ status, resultResourceId, onConfirm, busy, tool, label }) {
 	if (status === "executed") {
 		const target = resultResourceId
-			? (tool === "create_form" ? `/forms/${resultResourceId}` : `/events/${resultResourceId}/edit`)
+			? (tool === "create_form" ? `/forms/${resultResourceId}` : tool === "create_internal_event" ? `/internal-events/${resultResourceId}` : `/events/${resultResourceId}/edit`)
 			: null;
+		const noun = tool === "create_form" ? "form" : tool === "create_internal_event" ? "agenda internal" : "event";
 		return (
 			<p className="roro-done">
 				<IconCheck size={14} /> Draf dibuat.{" "}
-				<Link to={target || (tool === "create_form" ? "/forms" : "/events")}>Buka {tool === "create_form" ? "form" : "event"}</Link>
+				<Link to={target || (tool === "create_form" ? "/forms" : tool === "create_internal_event" ? "/internal-events" : "/events")}>Buka {noun}</Link>
 			</p>
 		);
 	}
@@ -385,7 +412,7 @@ export default function Assistant() {
 					),
 				);
 				if (d.tool === "create_event") window.dispatchEvent(new Event("bph:events-changed"));
-				toast(d.tool === "create_event" ? "Draft event dibuat." : "Draft form dibuat.");
+				toast(d.tool === "create_internal_event" ? "Draft agenda internal dibuat." : d.tool === "create_event" ? "Draft event dibuat." : "Draft form dibuat.");
 			} catch (e) {
 				toast(errText(e), "err");
 				if (e?.statusCode === 404) {

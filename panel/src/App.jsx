@@ -10,7 +10,7 @@ import Assistant from "./pages/Assistant.jsx";
 import EventList from "./pages/EventList.jsx";
 import EventCalendar from "./pages/EventCalendar.jsx";
 import EventEditor from "./pages/EventEditor.jsx";
-import InternalEventList from "./pages/InternalEventList.jsx";
+import InternalEventTabs from "./pages/InternalEventTabs.jsx";
 import InternalEventDetail from "./pages/InternalEventDetail.jsx";
 import { InternalEventEditRoute, InternalEventNewRoute } from "./pages/InternalEventEditor.jsx";
 import Forms, { FormBuilderRoute, FormAnalyticsRoute } from "./pages/Forms.jsx";
@@ -316,18 +316,6 @@ function App() {
 				}
 			/>
 			<Route
-				path="/calendar"
-				 element={
-					<Shell
-						{...shellProps}
-						title="Kalender Lintas Divisi"
-						crumb={[{ label: "Modul", to: "/" }, { label: "Kalender Lintas Divisi" }]}
-					>
-						{hasScopedPermission(permissions, "events.read") ? <CrossDivisionCalendar /> : <NoAccess />}
-					</Shell>
-				}
-			/>
-			<Route
 				path="/events/baru"
 				element={
 					<Shell {...shellProps} title="Event Baru" crumb={[{ label: "Modul", to: "/" }, { label: "Event", to: "/events" }, { label: "Baru" }]} onBack={backTo("/events")}>
@@ -350,7 +338,8 @@ function App() {
 			{/* Internal Event (D-AK) — agenda internal organisasi. Baca terbuka untuk
 			    semua pengurus lintas divisi (K-2), tulis hanya divisi pemilik.
 			    Halaman-halaman ini memuat datanya sendiri; App tidak menyimpan
-			    state internal event. */}
+			    state internal event. Kalender lintas divisi = tab di modul ini,
+			    bukan modul terpisah — satu domain data, satu pintu masuk. */}
 			<Route
 				path="/internal-events"
 				element={
@@ -360,9 +349,6 @@ function App() {
 						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal" }]}
 						actions={
 							<>
-								<Link className="btn ghost" to="/calendar">
-									<IconCalendar size={16} /> Kalender lintas divisi
-								</Link>
 								{capabilities.canCreateEvent && (
 									<Link className="btn gold" to="/internal-events/baru">
 										<IconPlus size={16} /> Event internal baru
@@ -372,16 +358,32 @@ function App() {
 						}
 					>
 						{hasScopedPermission(permissions, "events.read") ? (
-							<InternalEventList user={user} capabilities={capabilities} />
+							<InternalEventTabs user={user} capabilities={capabilities} />
 						) : (
 							<NoAccess to="/internal-events" label="Kembali ke daftar internal event" />
 						)}
 					</Shell>
 				}
 			/>
-			{/* Tidak ada /internal-events/kalender: Kalender Lintas Divisi (/calendar)
-			    sudah menjadi satu-satunya kalender internal lintas divisi (K-10).
-			    Dua pintu ke data yang sama hanya membingungkan. */}
+			{/* Kalender Lintas Divisi = tab "Kalender" di modul Event Internal.
+			    /calendar diarahkan ke sini — link lama tetap hidup. */}
+			<Route
+				path="/internal-events/kalender"
+				element={
+					<Shell
+						{...shellProps}
+						title="Kalender Lintas Divisi"
+						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal", to: "/internal-events" }, { label: "Kalender" }]}
+						onBack={backTo("/internal-events")}
+					>
+						{hasScopedPermission(permissions, "events.read") ? <CrossDivisionCalendar /> : <NoAccess to="/internal-events" label="Kembali ke daftar internal event" />}
+					</Shell>
+				}
+			/>
+			<Route
+				path="/calendar"
+				element={<Navigate to="/internal-events/kalender" replace />}
+			/>
 			<Route
 				path="/internal-events/baru"
 				element={

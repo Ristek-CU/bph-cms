@@ -85,7 +85,7 @@ export default function Overview({ events, onEdit, capabilities, user }) {
 					<div className="card">
 						<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
 							<h2 className="card-title">Kalender internal — semua divisi</h2>
-							<Link to="/calendar" className="small overview-link">
+							<Link to="/internal-events/kalender" className="small overview-link">
 								Buka penuh <IconChevronRight size={13} />
 							</Link>
 						</div>

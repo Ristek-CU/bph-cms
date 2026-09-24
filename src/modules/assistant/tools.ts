@@ -12,12 +12,16 @@ import { nowWib } from "./prompt";
 import { formService } from "../forms/form.service";
 import { createEventSchema } from "../events/event.schema";
 import { createFormSchema } from "../forms/form.schema";
+import { internalEventService, type InternalEventViewer } from "../internal-events/internal-event.service";
 
 export type ToolContext = {
 	db: Db;
 	// Scope RBAC: divisi aktif user di session. Undefined = platform_admin lihat semua.
 	divisionId?: string;
 	userId?: string;
+	// Untuk tool baca yang punya viewer scope berbeda (internal event: platform_admin
+	// melihat juga draft divisi lain).
+	permissions?: string[];
 };
 
 export type ToolResult =
@@ -79,6 +83,24 @@ export const TOOLS: ToolEntry[] = [
 				divisionId: ctx.divisionId,
 				perPage: 50,
 			});
+			return { ok: true, data: items.map((e) => slimEvent(e as unknown as Record<string, unknown>)) };
+		},
+	},
+	{
+		name: "get_internal_events",
+		description:
+			"Lihat agenda INTERNAL organisasi (rapat, koordinasi — bukan event mahasiswa): published semua divisi + draft divisi sendiri. Dipakai untuk cek bentrok jadwal internal sebelum mengusulkan agenda baru.",
+		input_schema: { type: "object", properties: {} },
+		kind: "read",
+		// K-2: baca internal event terbuka untuk semua pengurus — persis route list.
+		permission: "events.read",
+		run: async (ctx) => {
+			const viewer: InternalEventViewer = {
+				divisionId: ctx.divisionId,
+				// platform_admin (events.read.all) melihat semua draft — sama dengan route.
+				isAll: (ctx.permissions ?? []).includes("events.read.all"),
+			};
+			const { items } = await internalEventService.listAdmin(ctx.db, viewer, { perPage: 50 });
 			return { ok: true, data: items.map((e) => slimEvent(e as unknown as Record<string, unknown>)) };
 		},
 	},
@@ -157,6 +179,43 @@ export const TOOLS: ToolEntry[] = [
 		permission: "events.create",
 		validate: createEventSchema,
 		run: async () => ({ ok: true, data: null }), // dieksekusi lewat confirm, bukan di sini
+	},
+	{
+		name: "create_internal_event",
+		description:
+			"Usulkan agenda INTERNAL BARU (rapat/koordinasi pengurus — BUKAN event mahasiswa, tidak pernah tampil publik; selalu draft). Butuh: title, starts_at, ends_at (ISO 8601 +07:00), location. Opsional: description, organizer, sessions[]. Pakai ini bila user bicara rapat/koordinasi/agenda internal; create_event untuk kegiatan mahasiswa.",
+		input_schema: {
+			type: "object",
+			properties: {
+				title: { type: "string" },
+				description: { type: "string" },
+				starts_at: { type: "string", description: "ISO 8601 dengan offset, mis. 2026-09-20T08:00:00+07:00" },
+				ends_at: { type: "string" },
+				location: { type: "string" },
+				organizer: { type: "string" },
+				sessions: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: {
+							name: { type: "string" },
+							starts_at: { type: "string" },
+							ends_at: { type: "string" },
+							speaker: { type: "string" },
+							location: { type: "string" },
+							description: { type: "string" },
+						},
+						required: ["name", "starts_at", "ends_at"],
+					},
+				},
+			},
+			required: ["title", "starts_at", "ends_at", "location"],
+		},
+		kind: "write",
+		permission: "events.create",
+		// Schema body identik dengan POST /admin/internal-events (sengaja).
+		validate: createEventSchema,
+		run: async () => ({ ok: true, data: null }), // dieksekusi lewat confirm
 	},
 	{
 		name: "create_form",
