@@ -694,6 +694,23 @@ export const assistantService = {
 				}
 			}
 			llmMessages.push({ role: "user", content: results });
+			// Proposal sudah tervalidasi dan kartu draf memuat detailnya. Ronde
+			// penutup LLM hanya mengirim ulang prompt, tool, dan riwayat untuk
+			// mengatakan "silakan konfirmasi"; jawab deterministik di sini.
+			if (proposal) {
+				const closing = !replyText.trim()
+					? proposalReadyReply
+					: /konfirmasi|kartu/i.test(replyText) ? "" : " Periksa kartu draf, lalu konfirmasi untuk menyimpan.";
+				if (closing) {
+					replyText += closing;
+					emit({ type: "text", text: closing });
+				}
+				lastRoundUsedTool = false;
+				return false;
+			}
+			// Teks sebelum hasil tool baca biasanya hanya pengantar ("aku cek dulu").
+			// Jawaban sesudah hasil tool adalah yang disimpan dan ditampilkan final.
+			replyText = "";
 			return true;
 		};
 
@@ -779,7 +796,8 @@ export const assistantService = {
 		// teks, paksa ronde dengan tool sungguhan.
 		const PROMISES_DRAFT =
 			/((aku|saya|sudah|akan|langsung|coba|tinggal)\s*(saja\s*)?(saya\s*)?(susun|buat|siapkan|usulkan|kirim)[^\n]{0,60}(draft|draf))|(berikut\s+(draft|draf)(\s+(form|event))-nya)|((draft|draf)\s+(ini\s+)?(form|event)?\s*(sudah|berstatus))/i;
-		if (!saved && !formStatsMd && PROMISES_DRAFT.test(replyText)) {
+		const NEEDS_DETAILS = /\b(butuh|perlu|kurang|lengkap(?:i|kan)?)\b|\b(kasih|beri|sebutkan|tentukan|pilih)\b[^.!?]{0,60}\b(info|detail|tanggal|jam|lokasi|judul|pertanyaan|pilihan)\b|\b(tanggal berapa|jam berapa|lokasi(?:nya)? di mana)\b/i;
+		if (!saved && !formStatsMd && PROMISES_DRAFT.test(replyText) && !NEEDS_DETAILS.test(replyText)) {
 			await aiLog(db, actor, convId, { eventType: "promise_without_tool", level: "warn", message: "Janji draft tanpa tool call, paksa ronde ulang" });
 			replyText = "";
 			llmMessages.push({

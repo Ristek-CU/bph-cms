@@ -63,12 +63,12 @@ const EVENT_OK = {
 
 // Urutan respons stream sepanjang suite.
 const MOCK_STREAM = [
-	// S1: create_event via stream (thinking → tool_use → ditutup teks).
+	// S1: create_event via stream (teks + tool_use; tidak perlu ronde penutup).
 	[
 		th("User mau event futsal, detail lengkap."),
+		tx("Draf event futsal sudah kusiapkan — cek kartunya, tinggal konfirmasi."),
 		tu("tu-s1", "create_event", EVENT_OK),
 	],
-	[tx("Draf event futsal sudah kusiapkan — cek kartunya, tinggal konfirmasi.")],
 	// S2: get_form_stats DENGAN form_id — regresi runReadTool buang input.
 	[
 		th("Cek statistik form dulu."),
@@ -103,7 +103,8 @@ const MOCK_STREAM = [
 		th("Sistem minta tool call..."),
 		tu("tu-s8", "create_event", EVENT_OK),
 	],
-	[tx("Draf event sudah kususulkan lewat kartu — tinggal konfirmasi.")],
+	// S9: pertanyaan klarifikasi boleh menyebut draf masa depan tanpa retry.
+	[tx("Tinggal kasih aku tanggal dan lokasi rapatnya, nanti langsung aku susun drafnya.")],
 ];
 
 const h: Harness = await startHarness({
@@ -286,8 +287,16 @@ const s8 = await h.req(`${ASST}/chat/stream`, {
 const ev8 = parseSse(s8.body);
 const done8 = ev8.find((e) => e.type === "done");
 eq("prosa → dipaksa tool call → proposal", done8?.proposal?.tool, "create_event");
-ok("prosa dibuang, ganti ringkasan draf", (done8?.reply ?? "").includes("kususulkan"), done8?.reply);
+ok("prosa dibuang, ganti ringkasan draf", (done8?.reply ?? "").includes("Draf sudah siap"), done8?.reply);
 ok("prosa lama tidak bocor", !(done8?.reply ?? "").includes("Form Prosa"), done8?.reply);
+
+const s9 = await h.req(`${ASST}/chat/stream`, {
+	token: "tok-a-admin",
+	method: "POST",
+	json: { conversation_id: convS, message: "Bantu rencanakan rapat tanpa tanggal" },
+});
+const done9 = parseSse(s9.body).find((e) => e.type === "done");
+ok("klarifikasi tidak dipaksa membuat draf", (done9?.reply ?? "").includes("kasih aku tanggal") && !done9?.proposal, done9);
 
 // ── Tanpa key → fail-closed via stream (bukan 500) ──────────────────────────
 section("Fail-closed via stream");
