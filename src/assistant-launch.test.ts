@@ -3,12 +3,26 @@ import assert from 'node:assert/strict';
 import { startHarness, DIVISIONS } from './test/harness';
 import { llmChatStream, LlmUnavailableError } from './modules/assistant/llm';
 import { precheckUserMessage, precheckWithRules, compileGuardRule } from './modules/assistant/security';
-import { assistantService } from './modules/assistant/service';
+import { assistantService, compactHistory, toolsForTurn } from './modules/assistant/service';
 import { getDb } from './db/connection';
 import { todayWib } from './modules/assistant/prompt';
 
 let checks = 0;
 const check = (label, fn) => { fn(); checks++; console.log(`ok ${label}`); };
+const allPermissions = ['events.read.all', 'events.create.all', 'forms.read.all', 'forms.create.all', 'forms.submissions.all'];
+check('event request sends only event tool schemas', () => assert.deepEqual(toolsForTurn('Buat rapat divisi', allPermissions).map(t => t.name), ['get_events', 'get_internal_events', 'create_event', 'create_internal_event']));
+check('form request sends only form tool schemas', () => assert.deepEqual(toolsForTurn('Buat form survei', allPermissions).map(t => t.name), ['get_forms', 'get_form_stats', 'create_form']));
+check('mixed and short follow-up requests retain both domains', () => {
+ assert.equal(toolsForTurn('Buat form dan acara', allPermissions).length, 7);
+ assert.equal(toolsForTurn('Lanjutkan', allPermissions).length, 7);
+});
+check('tool schemas follow current permissions', () => assert.deepEqual(toolsForTurn('Buat form', ['forms.read.own_division']).map(t => t.name), ['get_forms']));
+check('long history is bounded while preserving latest turns', () => {
+ const messages = Array.from({ length: 20 }, (_, i) => ({ content: `${i}:` + 'x'.repeat(1000) }));
+ const compact = compactHistory(messages);
+ assert.ok(compact.length < messages.length);
+ assert.deepEqual(compact.slice(-4), messages.slice(-4));
+});
 const originalFetch = globalThis.fetch;
 const wire = events => events.map(e => `data: ${JSON.stringify(e)}\r\n\r\n`).join('');
 const provider = [

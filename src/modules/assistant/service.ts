@@ -13,7 +13,7 @@ import {
 	aiUsage,
 } from "../../db/schema";
 import { LlmUnavailableError, llmChat, llmChatStream, stripThinking, type LlmMessage, type LlmToolResult, type StreamEvent } from "./llm";
-import { TOOLS, canUseTool, llmToolDefs, toolByName, type ToolContext } from "./tools";
+import { TOOLS, canUseTool, toolByName, type ToolContext } from "./tools";
 import { buildSystem, nowWib, todayWib } from "./prompt";
 import { logAiEvent, type LogAiEventParams } from "./oversight.service";
 import { precheckWithRules, loadGuardRules } from "./security";
@@ -24,8 +24,36 @@ import { recordAuditLog } from "../audit/audit.service";
 
 const MAX_TOOL_ROUNDS = 3;
 const HISTORY_WINDOW = 30; // pesan yang dikirim ke LLM per giliran
+const HISTORY_CHAR_BUDGET = 12_000; // batasi replay percakapan panjang per ronde
 const proposalReadyReply = "Draf sudah siap di kartu di bawah. Periksa detailnya, lalu konfirmasi untuk menyimpan sebagai draf. Setelah itu kamu bisa publish dari editor.";
 const MEMORY_EVERY = 10; // perbarui memori tiap N pesan user
+
+// Simpan seluruh transkrip di DB, tetapi kirim hanya bagian terbaru ke model.
+// Empat pesan terakhir selalu dipertahankan agar revisi draf tetap punya konteks.
+export const compactHistory = <T extends { content: string }>(messages: T[]): T[] => {
+	let chars = 0;
+	const selected: T[] = [];
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const size = messages[i].content.length;
+		if (selected.length >= 4 && chars + size > HISTORY_CHAR_BUDGET) break;
+		selected.push(messages[i]);
+		chars += size;
+	}
+	return selected.reverse();
+};
+
+// Permintaan yang jelas hanya tentang event/form tidak perlu skema domain lain.
+// Pesan ambigu, lanjutan singkat, atau campuran tetap mendapat semua tool yang diizinkan.
+export const toolsForTurn = (message: string, permissions: string[]) => {
+	const eventIntent = /\b(event|acara|agenda|rapat|seminar|lomba|workshop|koordinasi|kalender)\b/i.test(message);
+	const formIntent = /\b(form|formulir|survei|survey|kuesioner|responden|respons|jawaban)\b/i.test(message);
+	return TOOLS.filter((tool) => {
+		if (!canUseTool(permissions, tool, { isOwnDivision: true })) return false;
+		if (eventIntent && !formIntent) return tool.name.includes("event");
+		if (formIntent && !eventIntent) return tool.name.includes("form");
+		return true;
+	}).map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.input_schema }));
+};
 
 // Proposal yang disimpan di ai_messages.proposal_json.
 export type Proposal = {
@@ -310,7 +338,8 @@ export const assistantService = {
 		});
 		const [memory] = await db.select().from(aiMemories).where(eq(aiMemories.userId, actor.userId));
 
-		const llmMessages: LlmMessage[] = ordered.map((m) => ({ role: m.role, content: m.content }));
+		const llmMessages: LlmMessage[] = compactHistory(ordered).map((m) => ({ role: m.role, content: m.content }));
+		const availableTools = toolsForTurn(input.message, actor.permissions);
 
 		// 4. Loop tool — maksimal MAX_TOOL_ROUNDS.
 		const toolCtx: ToolContext = {
@@ -338,7 +367,7 @@ export const assistantService = {
 						/* chat() non-stream tanpa injeksi stats — jalur utama streaming. */
 					}),
 					messages: llmMessages,
-					tools: llmToolDefs(),
+					tools: availableTools,
 				});
 			} catch (e) {
 				if (e instanceof LlmUnavailableError) {
@@ -522,7 +551,8 @@ export const assistantService = {
 		});
 		const [memory] = await db.select().from(aiMemories).where(eq(aiMemories.userId, actor.userId));
 
-		const llmMessages: LlmMessage[] = ordered.map((m) => ({ role: m.role, content: m.content }));
+		const llmMessages: LlmMessage[] = compactHistory(ordered).map((m) => ({ role: m.role, content: m.content }));
+		const availableTools = toolsForTurn(input.message, actor.permissions);
 		const toolCtx: ToolContext = { db, divisionId: actor.divisionId, userId: actor.userId, permissions: actor.permissions };
 
 		let replyText = "";
@@ -588,7 +618,7 @@ export const assistantService = {
 						formStatsMd,
 					}),
 					messages: llmMessages,
-					tools: noTools ? [] : llmToolDefs(),
+					tools: noTools ? [] : availableTools,
 				})) {
 					if (ev.type === "usage") {
 						totalIn += ev.usage.input_tokens;
