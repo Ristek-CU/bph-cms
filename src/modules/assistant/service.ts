@@ -61,6 +61,15 @@ export type Proposal = {
 	data: unknown; // sudah tervalidasi schema modul
 };
 
+// Revisi draf = satu proposal pengganti (prompt.ts): proposal pending lama di
+// percakapan yang sama ditolak supaya confirm ganda tidak membuat duplikat.
+const rejectStalePending = async (db: Db, conversationId: string) => {
+	await db
+		.update(aiMessages)
+		.set({ proposalStatus: "rejected" })
+		.where(and(eq(aiMessages.conversationId, conversationId), eq(aiMessages.proposalStatus, "pending")));
+};
+
 // ---- Kuota (§3.6) -----------------------------------------------------------
 
 const num = (v: string | undefined, dflt: number) => {
@@ -183,6 +192,7 @@ export const handleToolUse = async (
 	toolCtx: ToolContext,
 	tu: { id: string; name: string; input: unknown },
 	results: LlmToolResult[],
+	turnMessage?: string, // pesan user giliran ini — untuk guard salah tool
 ): Promise<Proposal | null> => {
 	const tool = toolByName(tu.name);
 	if (!tool) {
@@ -190,6 +200,18 @@ export const handleToolUse = async (
 		return null;
 	}
 	if (tool.kind === "write") {
+		// Guard salah tool: pesan jelas rapat/koordinasi (agenda internal) tapi model
+		// memanggil create_event → tolak, suruh pakai create_internal_event. Tanpa
+		// ini rapat bisa tersimpan sebagai event mahasiswa (berisiko ter-publish publik).
+		if (tu.name === "create_event" && /\b(rapat|koordinasi)\b/i.test(String(turnMessage ?? ""))) {
+			results.push({
+				type: "tool_result",
+				tool_use_id: tu.id,
+				content: "Ini agenda internal (rapat/koordinasi), bukan event mahasiswa. Usulkan ulang dengan tool create_internal_event.",
+				is_error: true,
+			});
+			return null;
+		}
 		// Validasi keluaran LLM SEBELUM disimpan — keluaran tidak pernah dipercaya.
 		const parsed = tool.validate?.safeParse(tu.input);
 		if (!parsed?.success) {
@@ -198,6 +220,19 @@ export const handleToolUse = async (
 				type: "tool_result",
 				tool_use_id: tu.id,
 				content: `Proposal ditolak validasi: ${issues}. Perbaiki dan usulkan ulang, atau tanyakan detail yang hilang ke user.`,
+				is_error: true,
+			});
+			return null;
+		}
+		// Sesi di luar rentang event: schema modul tidak mengecek ini (kontrak error
+		// route manual pakai key "sessions.N" dari service), jadi cek di sini supaya
+		// kartu proposal tidak tampil lalu gagal 422 saat confirm.
+		const d = parsed.data as { starts_at?: string; ends_at?: string; sessions?: Array<{ starts_at: string; ends_at: string }> };
+		if (d.starts_at && d.ends_at && d.sessions?.some((s) => Date.parse(s.starts_at) < Date.parse(d.starts_at!) || Date.parse(s.ends_at) > Date.parse(d.ends_at!))) {
+			results.push({
+				type: "tool_result",
+				tool_use_id: tu.id,
+				content: "Proposal ditolak: ada sesi yang berada di luar rentang waktu event. Sesuaikan waktu sesi atau rentang event, lalu usulkan ulang.",
 				is_error: true,
 			});
 			return null;
@@ -400,7 +435,7 @@ export const assistantService = {
 			// Eksekusi tool yang diminta — read otomatis, write jadi proposal.
 			const results: LlmToolResult[] = [];
 			for (const tu of toolUses) {
-				const p = await handleToolUse(actor, toolCtx, tu, results);
+				const p = await handleToolUse(actor, toolCtx, tu, results, input.message);
 				await aiLog(db, actor, convId, { eventType: "tool_result", level: results.at(-1)?.is_error ? "warn" : "info", message: `Hasil tool ${tu.name}`, metadata: { tool: tu.name, input: tu.input, result: results.at(-1) } });
 				if (p) {
 					proposal = p;
@@ -424,6 +459,7 @@ export const assistantService = {
 
 		// 5. Simpan balasan + proposal pending (kalau ada).
 		replyText = sanitizeReply(replyText, !!proposal);
+		if (proposal) await rejectStalePending(db, convId);
 		const replyId = uuidv7();
 		await db.insert(aiMessages).values({
 			id: replyId,
@@ -694,7 +730,7 @@ export const assistantService = {
 			});
 			const results: LlmToolResult[] = [];
 			for (const tu of toolUses) {
-				const p = await handleToolUse(actor, toolCtx, tu, results);
+				const p = await handleToolUse(actor, toolCtx, tu, results, input.message);
 				await aiLog(db, actor, convId, { eventType: "tool_result", level: results.at(-1)?.is_error ? "warn" : "info", message: `Hasil tool ${tu.name}`, metadata: { tool: tu.name, input: tu.input, result: results.at(-1) } });
 				if (p) {
 					proposal = p;
@@ -843,6 +879,7 @@ export const assistantService = {
 		// Path insight lewat guard klaim-kreate: teksnya ringkasan data, bukan
 		// klaim eksekusi — regex klaim sukses sering false-positive di sini.
 		if (!formStatsMd) replyText = sanitizeReply(replyText, !!saved);
+		if (saved) await rejectStalePending(db, convId);
 		const replyId = uuidv7();
 		await db.insert(aiMessages).values({
 			id: replyId,

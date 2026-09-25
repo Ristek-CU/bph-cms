@@ -61,8 +61,9 @@ adminAssistantRouter.post("/chat", chatLimiter, async (c) => {
 });
 
 // Chat streaming — jalur utama panel. SSE: event thinking/text/done lihat
-// assistantService.chatStream. Streaming dulu status, lalu baru JSON validasi —
-// error body/kuota tetap HTTP error biasa (sebelum stream mulai).
+// assistantService.chatStream. Error body invalid (zod) = HTTP error biasa
+// sebelum stream mulai; error kuota/internal SETELAH header terkirim keluar
+// sebagai event {type:"error"} dalam HTTP 200 — panel menanganinya sebagai toast.
 adminAssistantRouter.post("/chat/stream", chatLimiter, async (c) => {
 	const parsed = chatSchema.safeParse(await c.req.json().catch(() => null));
 	if (!parsed.success) {
