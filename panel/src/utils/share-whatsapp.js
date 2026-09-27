@@ -14,12 +14,15 @@ export function formatEventMessage(ev, mode = "formal") {
 	const time = fmtRange(ev.starts_at, ev.ends_at);
 	const division = ev.division_name || "-";
 	const location = ev.location || "-";
+	// Link langsung (Meet/Zoom) menempel di baris lokasi — pesan WA yang dikirim
+	// tanpa baris "Pendaftaran" tetap membawa tautan.
+	const locLine = ev.location_url ? `${location} — ${ev.location_url}` : location;
 
 	if (mode === "ringkas") {
 		return [
 			`📅 *${ev.title}*`,
 			`🗓️ ${time} (WIB)`,
-			`📍 ${location} · 🏢 ${division}`,
+			`📍 ${locLine} · 🏢 ${division}`,
 		].join("\n");
 	}
 
@@ -30,7 +33,7 @@ export function formatEventMessage(ev, mode = "formal") {
 			`Ada agenda bareng *${ev.title}* nih:`,
 			`🗓️ ${time} (WIB)`,
 			`🏢 Divisi ${division}`,
-			`📍 ${location}`,
+			`📍 ${locLine}`,
 		];
 		if (ev.organizer) lines.push(`🤝 Diselenggarakan sama: ${ev.organizer}`);
 		if (ev.description) lines.push(`📝 ${ev.description.replace(/\n/g, " ")}`);
@@ -45,7 +48,7 @@ export function formatEventMessage(ev, mode = "formal") {
 		"",
 		`🗓️ Waktu : ${time} (WIB)`,
 		`🏢 Divisi : ${division}`,
-		`📍 Lokasi : ${location}`,
+		`📍 Lokasi : ${locLine}`,
 	];
 	if (ev.organizer) lines.push(`🤝 Penyelenggara : ${ev.organizer}`);
 	if (ev.description) lines.push(`📝 Keterangan : ${ev.description.replace(/\n/g, " ")}`);

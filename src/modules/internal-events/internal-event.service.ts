@@ -499,6 +499,7 @@ export const internalEventService = {
 				starts_at: internalEvents.startsAt,
 				ends_at: internalEvents.endsAt,
 				location: internalEvents.location,
+				location_url: internalEvents.locationUrl,
 				organizer: internalEvents.organizer,
 				division_id: internalEvents.divisionId,
 				division_name: divisions.name,
