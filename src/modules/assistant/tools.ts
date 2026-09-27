@@ -12,6 +12,7 @@ import { nowWib } from "./prompt";
 import { formService } from "../forms/form.service";
 import { createEventSchema } from "../events/event.schema";
 import { createFormSchema } from "../forms/form.schema";
+import { hasPermission } from "../../shared/permissions";
 import { internalEventService, type InternalEventViewer } from "../internal-events/internal-event.service";
 
 export type ToolContext = {
@@ -279,16 +280,11 @@ export const toolByName = (name: string) => TOOLS.find((t) => t.name === name);
 export const llmToolDefs = () =>
 	TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
 
-// Cek permission dengan pola shared/permissions — base + scope. platform_admin
-// (".all") selalu lolos; divisi dicek own_division + kecocokan divisi aktif.
+// Cek permission — delegasi ke shared/permissions supaya bridge RBAC route manual
+// (events.create_draft.own_division → events.create untuk contributor) berlaku
+// identik di Roro. platform_admin (".all") selalu lolos.
 export const canUseTool = (
 	permissions: string[],
 	tool: ToolEntry,
 	opts: { isOwnDivision: boolean },
-): boolean => {
-	const base = tool.permission; // "events.create" dll
-	return (
-		permissions.includes(`${base}.all`) ||
-		(opts.isOwnDivision && permissions.includes(`${base}.own_division`))
-	);
-};
+): boolean => hasPermission(permissions, `${tool.permission}.own_division`, opts);

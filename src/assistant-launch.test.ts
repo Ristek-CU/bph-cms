@@ -17,6 +17,17 @@ check('mixed and short follow-up requests retain both domains', () => {
  assert.equal(toolsForTurn('Lanjutkan', allPermissions).length, 7);
 });
 check('tool schemas follow current permissions', () => assert.deepEqual(toolsForTurn('Buat form', ['forms.read.own_division']).map(t => t.name), ['get_forms']));
+check('internal agenda with form mention and typo still gets event tools', () => {
+ // Regresi prod: "gw bukan form sori tapi evenet internal aja" — typo + kata
+ // "internal" tidak match intent lama → hanya tool form dikirim, Roro menolak.
+ const names = toolsForTurn('gw bukan form sori tapi evenet internal aja weekly meeting', allPermissions).map(t => t.name);
+ assert.ok(names.includes('create_internal_event'), names);
+ assert.ok(names.includes('create_form'), names);
+});
+check('contributor with create_draft gets internal event tools like manual route', () => {
+ const names = toolsForTurn('rapat internal', ['events.read.own_division', 'events.create_draft.own_division']).map(t => t.name);
+ assert.ok(names.includes('create_internal_event'), names);
+});
 check('long history is bounded while preserving latest turns', () => {
  const messages = Array.from({ length: 20 }, (_, i) => ({ content: `${i}:` + 'x'.repeat(1000) }));
  const compact = compactHistory(messages);

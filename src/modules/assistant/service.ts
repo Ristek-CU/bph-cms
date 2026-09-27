@@ -45,7 +45,9 @@ export const compactHistory = <T extends { content: string }>(messages: T[]): T[
 // Permintaan yang jelas hanya tentang event/form tidak perlu skema domain lain.
 // Pesan ambigu, lanjutan singkat, atau campuran tetap mendapat semua tool yang diizinkan.
 export const toolsForTurn = (message: string, permissions: string[]) => {
-	const eventIntent = /\b(event|acara|agenda|rapat|seminar|lomba|workshop|koordinasi|kalender)\b/i.test(message);
+	// "internal"/"meeting"/typo "evenet" muncul di transcript prod — tanpa ini user
+	// yang minta agenda internal hanya dapat tool form, lalu Roro menolaknya.
+	const eventIntent = /\b(event|evenet|acara|agenda|rapat|seminar|lomba|workshop|koordinasi|kalender|internal|meeting|meet)\b/i.test(message);
 	const formIntent = /\b(form|formulir|survei|survey|kuesioner|responden|respons|jawaban)\b/i.test(message);
 	return TOOLS.filter((tool) => {
 		if (!canUseTool(permissions, tool, { isOwnDivision: true })) return false;
