@@ -130,7 +130,11 @@ section("Rekap");
 await h.req(`${ADMIN}/periods/${pid}/open`, { token: "tok-bph", method: "POST" });
 await h.req(`${PUB}/${pid}/submit`, {
 	method: "POST",
-	json: { name: "Sinta Dewi", answers: [{ label: QUESTIONS[0].label, category: "Kinerja", score: 2 }, { label: QUESTIONS[1].label, category: "Kolaborasi", score: 3 }] },
+	json: {
+		name: "Sinta Dewi",
+		answers: [{ label: QUESTIONS[0].label, category: "Kinerja", score: 2 }, { label: QUESTIONS[1].label, category: "Kolaborasi", score: 3 }],
+		note: "Tetap semangat!",
+	},
 });
 
 const recap = await h.req(`${ADMIN}/periods/${pid}/recap`, { token: "tok-bph" });

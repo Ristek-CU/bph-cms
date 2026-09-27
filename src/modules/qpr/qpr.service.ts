@@ -193,7 +193,8 @@ export const qprService = {
 			.returning({ id: qprEntries.id });
 		if (claimed.length === 0) throw ApiError.conflict("Nama ini sudah mengisi penilaian.");
 		try {
-			await db.insert(qprAnswers).values({ id: uuidv7(), entryId: entry.id, answers: JSON.stringify(input.answers), submittedAt: now });
+			const stored = input.note ? [...input.answers, { label: "Catatan", category: "Catatan", score: 5, note: input.note }] : input.answers;
+			await db.insert(qprAnswers).values({ id: uuidv7(), entryId: entry.id, answers: JSON.stringify(stored), submittedAt: now });
 		} catch (e) {
 			// Insert gagal → batalkan klaim done supaya pengisi bisa retry.
 			// (Batch D1 tidak bisa kondisional antar-statement; rollback manual.)
@@ -219,8 +220,14 @@ export const qprService = {
 		const categories = new Map<string, number[]>();
 		const notes: string[] = [];
 		for (const e of doneEntries) {
-			const parsed = (parseFieldOptions(byEntry.get(e.id) ?? null) as Array<{ category?: string; score?: number; note?: string }>) ?? [];
+			const parsed = (parseFieldOptions(byEntry.get(e.id) ?? null) as Array<{ label?: string; category?: string; score?: number; note?: string }>) ?? [];
 			for (const a of parsed) {
+				// Entri "Catatan" = catatan bebas tingkat jawaban (skor 5 hanyalah
+				// pengisi) — bukan penilaian, jangan ikut merata-ratakan.
+				if (a.label === "Catatan") {
+					if (a.note) notes.push(a.note);
+					continue;
+				}
 				if (typeof a.score === "number" && typeof a.category === "string") {
 					const list = categories.get(a.category) ?? [];
 					list.push(a.score);

@@ -9,7 +9,21 @@ const STATUS_LABEL = { draft: "Draft", open: "Berlangsung", closed: "Selesai" };
 
 const PUBLIC_BASE = "https://cms.sga-cakrawala.org/#/qpr";
 
+// ponytail: fitur belum dirilis — wall maintenance untuk panel + halaman publik.
+// Aktifkan fitur: ganti jadi false (badge nav "Segera" di Shell.jsx ikut dikembalikan).
+const QPR_MAINTENANCE = true;
+
+function MaintenanceNote() {
+	return (
+		<div className="empty-state" style={{ maxWidth: 560, margin: "0 auto" }}>
+			<p><strong>Fitur QPR sedang dalam tahap pengembangan.</strong></p>
+			<p className="muted small">Penilaian QPR belum bisa diakses. Nantikan pengumuman dari BPH.</p>
+		</div>
+	);
+}
+
 export default function Qpr({ user }) {
+	if (QPR_MAINTENANCE) return <MaintenanceNote />;
 	const canManage = useMemo(() => user?.permissions?.includes("qpr.manage"), [user]);
 	return canManage ? <AdminView /> : <NoManage />;
 }
@@ -416,6 +430,7 @@ function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 
 /** Halaman publik pengisian (no-login): dropdown nama + form skala 1-5. */
 export function PublicFill({ periodId }) {
+	if (QPR_MAINTENANCE) return <MaintenanceNote />;
 	const toast = useToast();
 	const [roster, setRoster] = useState(null);
 	const [err, setErr] = useState("");
@@ -440,8 +455,7 @@ export function PublicFill({ periodId }) {
 		setBusy(true);
 		try {
 			const answers = questions.map((q) => ({ label: q.label, category: q.category, score: scores[q.label] }));
-			if (note.trim()) answers.push({ label: "Catatan", category: "Catatan", score: 5, note: note.trim() });
-			await api(`/qpr/${periodId}/submit`, { method: "POST", json: { name, answers } });
+			await api(`/qpr/${periodId}/submit`, { method: "POST", json: { name, answers, note: note.trim() || undefined } });
 			setDoneMsg("Penilaian terkirim. Terima kasih!");
 		} catch (e) {
 			toast(errText(e), "err");

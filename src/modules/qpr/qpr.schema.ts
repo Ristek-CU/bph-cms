@@ -48,5 +48,8 @@ export const submitAnswersSchema = z.object({
 		)
 		.min(1)
 		.max(50),
+	// Catatan bebas tingkat jawaban (opsional) — field terpisah, bukan jawaban
+	// palsu, supaya lolos validasi label/kategori.
+	note: z.string().max(2000).nullish(),
 });
 export type SubmitAnswersInput = z.infer<typeof submitAnswersSchema>;
