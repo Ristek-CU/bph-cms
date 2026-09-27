@@ -10,11 +10,7 @@
 		"skipLibCheck": true,
 		"esModuleInterop": true,
 		"isolatedModules": true,
-		"forceConsistentCasingInFileNames": true,
-		"baseUrl": ".",
-		"paths": {
-			"@/*": ["./src/*"]
-		}
+		"forceConsistentCasingInFileNames": true
 	},
 	"include": ["src/**/*.ts"]
 }
