@@ -12,16 +12,19 @@ let sessSeq = 0;
 
 export const newSession = (after) => {
 	// Default: tanggal + jam terakhir dari sesi sebelumnya, durasi 1 jam — runsheet nyambung.
-	const date = after?._date || "";
+	const date = after?._date && after?._start && after?._end && after._end <= after._start
+		? joinDT(after._date, after._end, true).slice(0, 10)
+		: after?._date || "";
 	const start = after?._end || "08:00";
 	const [h, m] = start.split(":").map(Number);
-	const end = `${String(Math.min(h + 1, 23)).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+	const end = `${String((h + 1) % 24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 	return {
 		_key: `s${++sessSeq}`,
 		name: "",
 		_date: date,
 		_start: start,
 		_end: end,
+		_initialSchedule: `${date}|${start}|${end}`,
 		speaker: "",
 		location: "",
 		description: "",
@@ -52,7 +55,10 @@ export const withKeys = (arr) =>
 	}));
 
 export const hasSessionDraft = (s) =>
-	Boolean(s.name.trim() || s._date || s.speaker || s.location || s.description);
+	Boolean(s.name.trim() || s.speaker?.trim() || s.location?.trim() || s.description?.trim()
+		|| (s._initialSchedule !== undefined
+			? `${s._date}|${s._start}|${s._end}` !== s._initialSchedule
+			: s._date));
 
 // Terjemahan error 422 server ke Bahasa Indonesia (fallback: pesan asli).
 const ERR_MAP = [
@@ -63,16 +69,21 @@ const ERR_MAP = [
 	[/^location_url|^registration_url|^cover_image_url/, "Link tidak valid — pastikan diawali https://"],
 	[/^sessions\.\d+\.starts_at$/, "Jam mulai sesi belum diisi."],
 	[/^sessions\.\d+\.ends_at$/, "Jam selesai sesi belum diisi atau tidak valid."],
+	[/^sessions\.\d+\.name$/, "Nama sesi wajib diisi (maksimal 200 karakter)."],
 	[/^sessions$/, "Ada sesi dengan jam belum lengkap. Isi jam mulai & selesai tiap sesi."],
 	[/^sessions\.(\d+)/, "Ada sesi dengan jam di luar jam event. Perbaiki jam sesi atau perpanjang jam event."],
 	[/^slug/, "Alamat link sudah dipakai atau tidak valid. Gunakan huruf kecil dan tanda hubung."],
 ];
 
-export const translateErrors = (errors) => {
+export const translateErrors = (errors, submittedSessions, displayedSessions) => {
 	const out = {};
 	for (const [f, msgs] of Object.entries(errors || {})) {
 		const hit = ERR_MAP.find(([re]) => re.test(f));
-		out[f] = hit ? hit[1] : msgs.join(", ");
+		const field = submittedSessions && displayedSessions ? f.replace(/^sessions\.(\d+)/, (match, index) => {
+			const displayedIndex = displayedSessions.findIndex(s => s._key === submittedSessions[Number(index)]?._key);
+			return displayedIndex < 0 ? match : `sessions.${displayedIndex}`;
+		}) : f;
+		out[field] = hit ? hit[1] : Array.isArray(msgs) ? msgs.join(", ") : String(msgs);
 	}
 	return out;
 };

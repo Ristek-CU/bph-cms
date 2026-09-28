@@ -4,6 +4,7 @@ import { api, getToken, isoToInput, toIsoWib } from "../api.js";
 import { Confirm, useToast, Field, useUnsavedChanges } from "../components/ui.jsx";
 // Kartu sesi + pratinjau dan helper tanggal dipakai bersama dengan
 // InternalEventEditor — lihat components/event-form.jsx & utils/event-form.js.
+import DateTimePicker from "../components/DateTimePicker.jsx";
 import { Preview, SessionCard } from "../components/event-form.jsx";
 import {
 	hasSessionDraft,
@@ -51,15 +52,17 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 
 	useEffect(() => {
 		if (sessions.length > prevSessionsLen.current) {
-			sessionsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+			const card = sessionsEndRef.current?.previousElementSibling;
+			card?.scrollIntoView({ behavior: "smooth", block: "start" });
+			card?.querySelector("input")?.focus({ preventScroll: true });
 		}
 		prevSessionsLen.current = sessions.length;
 	}, [sessions.length]);
 
 
 	const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
-	// Patch sesi berdasarkan urutan tampil (sortedSessions), konsisten dengan render.
-	const setSess = (i, patch) => setSessions(sortedSessions.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+	// Keep display order stable while typing; sort only the submitted runsheet.
+	const setSess = (i, patch) => setSessions(sessions.map((x, j) => (j === i ? { ...x, ...patch } : x)));
 	const sortedSessions = useMemo(
 		() => [...sessions]
 			.map((s, i) => ({ session: s, index: i }))
@@ -129,7 +132,7 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 			errs.ends_at = "Jam selesai harus setelah jam mulai.";
 		if (!form.location.trim()) errs.location = "Lokasi wajib diisi.";
 		// Sesi kosong boleh diabaikan; sesi yang mulai diisi wajib lengkap.
-		sortedSessions.forEach((s, i) => {
+		sessions.forEach((s, i) => {
 			if (!hasSessionDraft(s)) return;
 			if (!s.name.trim()) errs[`sessions.${i}.name`] = "Nama sesi wajib diisi.";
 			if (!s._date) errs[`sessions.${i}.date`] = "Tanggal sesi belum diisi.";
@@ -184,9 +187,12 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 			notifyEventsChanged();
 			navigate(`/events/${id}/edit`);
 		} catch (e) {
-			const translated = translateErrors(e?.errors);
-			if (Object.keys(translated).length) setErrors(translated);
-			else toast(e?.message || "Gagal menyimpan.", "err");
+			const translated = translateErrors(e?.errors, sortedSessions.filter(hasSessionDraft), sessions);
+			if (Object.keys(translated).length) {
+				setErrors(translated);
+				toast("Belum tersimpan. " + Object.values(translated).join(" "), "err");
+				requestAnimationFrame(() => document.querySelector('[aria-invalid="true"]')?.focus());
+			} else toast(e?.message || "Gagal menyimpan.", "err");
 		} finally {
 			setSaving(false);
 		}
@@ -220,138 +226,140 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 	}
 
 	return (
-		<>
-			<div className="card">
-				<div className="section">
-					<div className="section-head">
-						<div className="section-num">1</div>
-						<div>
-							<h2>Informasi Utama</h2>
-							<p>Identitas event yang dilihat mahasiswa di portal dan link share.</p>
+		<div className="event-editor">
+			<div className="event-editor-scroll">
+				<div className="card">
+					<div className="section">
+						<div className="section-head">
+							<div className="section-num">1</div>
+							<div>
+								<h2>Informasi Utama</h2>
+								<p>Identitas event yang dilihat mahasiswa di portal dan link share.</p>
+							</div>
 						</div>
-					</div>
-					<Field label="Nama event" required error={errors.title}>
-						<input type="text" value={form.title} onChange={set("title")} placeholder="Cakrawala Festival 2026" />
-					</Field>
-					{!editing && !savedId && (
-						<Field label="Alamat link (slug)" help="Kosongkan = dibuat otomatis dari nama. Contoh: cakrawala-festival-2026" error={errors.slug}>
-							<input type="text" value={form.slug} onChange={set("slug")} placeholder="otomatis dari judul" />
+						<Field label="Nama event" required error={errors.title}>
+							<input type="text" value={form.title} onChange={set("title")} placeholder="Cakrawala Festival 2026" />
 						</Field>
-					)}
-					<Field label="Deskripsi" help="Ceritakan event-nya. Tampil di halaman detail.">
-						<textarea rows={4} value={form.description} onChange={set("description")} />
-					</Field>
-					<Field label="Foto cover" help="JPG/PNG/WebP, maks 5MB. Rasio disarankan 16:9. Ini foto utama yang dilihat mahasiswa.">
-						<div className="upload-hint">
+						{!editing && !savedId && (
+							<Field label="Alamat link (slug)" help="Kosongkan = dibuat otomatis dari nama. Contoh: cakrawala-festival-2026" error={errors.slug}>
+								<input type="text" value={form.slug} onChange={set("slug")} placeholder="otomatis dari judul" />
+							</Field>
+						)}
+						<Field label="Deskripsi" help="Ceritakan event-nya. Tampil di halaman detail.">
+							<textarea rows={4} value={form.description} onChange={set("description")} />
+						</Field>
+						<Field label="Foto cover" help="JPG/PNG/WebP, maks 5MB. Rasio disarankan 16:9. Ini foto utama yang dilihat mahasiswa.">
+							<div className="upload-hint">
+								<input
+									type="file"
+									disabled={uploading || saving}
+									accept="image/jpeg,image/png,image/webp"
+									aria-label="Unggah foto cover"
+									onChange={(e) => e.target.files[0] && upload(e.target.files[0])}
+								/>
+								{uploading && <p role="status">Mengunggah cover…</p>}
+								{cover && <img className="cover-preview" src={cover} alt="Pratinjau cover" />}
+							</div>
+						</Field>
+						<Field label="Penyelenggara" help="Contoh: BPH SGA, BEM.">
+							<input type="text" value={form.organizer} onChange={set("organizer")} />
+						</Field>
+					</div>
+
+					<div className="section">
+						<div className="section-head">
+							<div className="section-num">2</div>
+							<div>
+								<h2>Waktu &amp; Lokasi</h2>
+								<p>Semua waktu dalam WIB (Asia/Jakarta).</p>
+							</div>
+						</div>
+						<div className="grid-2">
+							<Field label="Mulai" required error={errors.starts_at}>
+								<DateTimePicker data-field-control pickerLabel="Mulai" type="datetime-local" value={form.starts_at} onChange={set("starts_at")} />
+							</Field>
+							<Field label="Selesai" required error={errors.ends_at}>
+								<DateTimePicker data-field-control pickerLabel="Selesai" type="datetime-local" value={form.ends_at} onChange={set("ends_at")} />
+							</Field>
+						</div>
+						<Field label="Lokasi" required error={errors.location}>
+							<input type="text" value={form.location} onChange={set("location")} placeholder="Auditorium Lt. 2, Kampus Kemang" />
+						</Field>
+						<Field label="Link Google Maps" help="Tempel link Maps agar tombol 'Lihat Lokasi' muncul di halaman publik." error={errors.location_url}>
+							<input type="url" value={form.location_url} onChange={set("location_url")} placeholder="https://maps.app.goo.gl/…" />
+						</Field>
+					</div>
+
+					<div className="section">
+						<div className="section-head">
+							<div className="section-num">3</div>
+							<div>
+								<h2>Pendaftaran</h2>
+								<p>Ke mana mahasiswa diarahkan untuk mendaftar.</p>
+							</div>
+						</div>
+						<Field label="Link pendaftaran" help="Link Google Form / WhatsApp tempat mahasiswa mendaftar." error={errors.registration_url}>
+							<input type="url" value={form.registration_url} onChange={set("registration_url")} placeholder="https://forms.gle/…" />
+						</Field>
+						<div className="check-row">
 							<input
-								type="file"
-								disabled={uploading || saving}
-								accept="image/jpeg,image/png,image/webp"
-								aria-label="Unggah foto cover"
-								onChange={(e) => e.target.files[0] && upload(e.target.files[0])}
+								type="checkbox"
+								id="reg-open"
+								checked={form.registration_open}
+								onChange={(e) => setForm({ ...form, registration_open: e.target.checked })}
 							/>
-							{uploading && <p role="status">Mengunggah cover…</p>}
-							{cover && <img className="cover-preview" src={cover} alt="Pratinjau cover" />}
+							<label htmlFor="reg-open" className="field-label" style={{ margin: 0 }}>
+								Pendaftaran dibuka
+								<span className="field-help" style={{ display: "inline" }}> — kalau mati, tombol Daftar tidak muncul di halaman publik.</span>
+							</label>
 						</div>
-					</Field>
-					<Field label="Penyelenggara" help="Contoh: BPH SGA, BEM.">
-						<input type="text" value={form.organizer} onChange={set("organizer")} />
-					</Field>
+					</div>
+
+					<div className="section">
+						<div className="section-head">
+							<div className="section-num">4</div>
+							<div>
+								<h2>Runsheet (Timeline Sesi)</h2>
+								<p>Jadwal rinci per jam yang dilihat mahasiswa. Boleh dikosongkan dulu — bisa diisi nanti. Sesi otomatis diurutkan per jam saat disimpan.</p>
+							</div>
+						</div>
+						{sessions.map((s, i) => (
+							<SessionCard
+								key={s._key}
+								s={s}
+								i={i}
+								err={{
+									name: errors[`sessions.${i}.name`],
+								date: errors[`sessions.${i}.date`],
+									starts_at: errors[`sessions.${i}.starts_at`],
+									ends_at: errors[`sessions.${i}.ends_at`],
+									range: errors[`sessions.${i}`],
+								}}
+								onChange={setSess}
+								onRemove={() => setSessions(sessions.filter((x) => x !== s))}
+							/>
+						))}
+						<div ref={sessionsEndRef} />
+						<button className="btn sec" type="button" onClick={() => setSessions([...sessions, newSession(sortedSessions[sortedSessions.length - 1] || { _date: form.starts_at.slice(0, 10), _end: form.starts_at.slice(11, 16) || "08:00" })])}>
+							+ Tambah sesi
+						</button>
+						{errors["sessions"] && <div className="field-err">{errors["sessions"]}</div>}
+					</div>
 				</div>
 
-				<div className="section">
-					<div className="section-head">
-						<div className="section-num">2</div>
-						<div>
-							<h2>Waktu &amp; Lokasi</h2>
-							<p>Semua waktu dalam WIB (Asia/Jakarta).</p>
-						</div>
-					</div>
-					<div className="grid-2">
-						<Field label="Mulai" required error={errors.starts_at}>
-							<input type="datetime-local" value={form.starts_at} onChange={set("starts_at")} />
-						</Field>
-						<Field label="Selesai" required error={errors.ends_at}>
-							<input type="datetime-local" value={form.ends_at} onChange={set("ends_at")} />
-						</Field>
-					</div>
-					<Field label="Lokasi" required error={errors.location}>
-						<input type="text" value={form.location} onChange={set("location")} placeholder="Auditorium Lt. 2, Kampus Kemang" />
-					</Field>
-					<Field label="Link Google Maps" help="Tempel link Maps agar tombol 'Lihat Lokasi' muncul di halaman publik." error={errors.location_url}>
-						<input type="url" value={form.location_url} onChange={set("location_url")} placeholder="https://maps.app.goo.gl/…" />
-					</Field>
-				</div>
-
-				<div className="section">
-					<div className="section-head">
-						<div className="section-num">3</div>
-						<div>
-							<h2>Pendaftaran</h2>
-							<p>Ke mana mahasiswa diarahkan untuk mendaftar.</p>
-						</div>
-					</div>
-					<Field label="Link pendaftaran" help="Link Google Form / WhatsApp tempat mahasiswa mendaftar." error={errors.registration_url}>
-						<input type="url" value={form.registration_url} onChange={set("registration_url")} placeholder="https://forms.gle/…" />
-					</Field>
-					<div className="check-row">
-						<input
-							type="checkbox"
-							id="reg-open"
-							checked={form.registration_open}
-							onChange={(e) => setForm({ ...form, registration_open: e.target.checked })}
+				{showPreview && (
+					<div className="card preview-card">
+						<h2 style={{ fontSize: 15, marginBottom: 10 }}>Pratinjau halaman (perkiraan)</h2>
+						<Preview
+							form={form}
+							sessions={sortedSessions}
+							coverImage={cover ? <img src={cover} alt="" /> : null}
 						/>
-						<label htmlFor="reg-open" className="field-label" style={{ margin: 0 }}>
-							Pendaftaran dibuka
-							<span className="field-help" style={{ display: "inline" }}> — kalau mati, tombol Daftar tidak muncul di halaman publik.</span>
-						</label>
 					</div>
-				</div>
+				)}
 
-				<div className="section">
-					<div className="section-head">
-						<div className="section-num">4</div>
-						<div>
-							<h2>Runsheet (Timeline Sesi)</h2>
-							<p>Jadwal rinci per jam yang dilihat mahasiswa. Boleh dikosongkan dulu — bisa diisi nanti. Sesi otomatis diurutkan per jam saat disimpan.</p>
-						</div>
-					</div>
-					{sortedSessions.map((s, i) => (
-						<SessionCard
-							key={s._key}
-							s={s}
-							i={i}
-							err={{
-								name: errors[`sessions.${i}.name`],
-							date: errors[`sessions.${i}.date`],
-								starts_at: errors[`sessions.${i}.starts_at`],
-								ends_at: errors[`sessions.${i}.ends_at`],
-								range: errors[`sessions.${i}`],
-							}}
-							onChange={setSess}
-							onRemove={() => setSessions(sessions.filter((x) => x !== s))}
-						/>
-					))}
-					<div ref={sessionsEndRef} />
-					<button className="btn sec" type="button" onClick={() => setSessions([...sessions, newSession(sortedSessions[sortedSessions.length - 1] || { _date: form.starts_at.slice(0, 10), _end: form.starts_at.slice(11, 16) || "08:00" })])}>
-						+ Tambah sesi
-					</button>
-					{errors["sessions"] && <div className="field-err">{errors["sessions"]}</div>}
-				</div>
+				<div className="editor-save-status" role="status">{saving ? "Menyimpan perubahan…" : uploading ? "Mengunggah cover…" : dirty ? "Ada perubahan yang belum disimpan" : savedId ? "Semua perubahan tersimpan" : "Mulai isi detail event. Kolom bertanda * wajib diisi."}</div>
 			</div>
-
-			{showPreview && (
-				<div className="card preview-card">
-					<h2 style={{ fontSize: 15, marginBottom: 10 }}>Pratinjau halaman (perkiraan)</h2>
-					<Preview
-						form={form}
-						sessions={sortedSessions}
-						coverImage={cover ? <img src={cover} alt="" /> : null}
-					/>
-				</div>
-			)}
-
-			<div className="editor-save-status" role="status">{saving ? "Menyimpan perubahan…" : uploading ? "Mengunggah cover…" : dirty ? "Ada perubahan yang belum disimpan" : savedId ? "Semua perubahan tersimpan" : "Mulai isi detail event. Kolom bertanda * wajib diisi."}</div>
 			<div className="sticky-bar">
 				{!editing && !savedId ? (
 					<>
@@ -412,6 +420,6 @@ export default function EventEditor({ event, prefillDate, canPublish = false, ca
 			>
 				Event "{form.title}" beserta semua sesi akan dihapus selamanya. Tidak bisa dibatalkan.
 			</Confirm>
-		</>
+		</div>
 	);
 }

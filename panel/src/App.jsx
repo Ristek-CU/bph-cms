@@ -277,6 +277,7 @@ function App() {
 					<Shell
 						{...shellProps}
 						title="Event"
+						onBack={backTo("/")}
 						crumb={[{ label: "Modul", to: "/" }, { label: "Event" }]}
 						actions={
 							<>

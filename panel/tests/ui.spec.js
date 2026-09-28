@@ -163,22 +163,17 @@ test('audit-only user does not see account mutation tabs', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Akun', exact: true })).toHaveCount(0);
 });
 
-test('QPR modal Escape restores focus', async ({ page }) => {
-  await setup(page); await visit(page, '/qpr');
-  await page.getByRole('button', { name: '+ Periode baru' }).click();
-  await expect(page.getByLabel('Judul periode')).toBeFocused();
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '+ Periode baru' })).toBeFocused();
-});
-
-test('public QPR supports a full submission without login on mobile', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 }); await setup(page, { signedIn: false }); await visit(page, '/qpr/period-1');
-  await page.getByLabel('Namamu').selectOption('Nadia');
-  await expect(page.getByRole('button', { name: 'Kirim penilaian' })).toBeDisabled();
-  await page.getByRole('radio', { name: '5 dari 5' }).check();
-  await page.getByRole('button', { name: 'Kirim penilaian' }).click();
-  await expect(page.getByRole('heading', { name: 'Terima kasih!' })).toBeVisible();
+test('QPR maintenance blocks unreleased admin and public forms', async ({ page }) => {
+  const state = await setup(page);
+  await visit(page, '/qpr');
+  await expect(page.getByText('Fitur QPR sedang dalam tahap pengembangan.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '+ Periode baru' })).toHaveCount(0);
+  await page.evaluate(() => localStorage.clear());
+  await page.setViewportSize({ width: 390, height: 844 });
+  await visit(page, '/qpr/period-1');
+  await expect(page.getByText('Fitur QPR sedang dalam tahap pengembangan.')).toBeVisible();
+  await expect(page.getByLabel('Namamu')).toHaveCount(0);
+  expect(state.calls.filter(c => c.path.includes('/qpr/') && c.method !== 'GET')).toEqual([]);
   await noOverflow(page);
 });
 
@@ -245,8 +240,8 @@ test('mobile chat composer stays in view on short screens and long conversations
     const menu = await page.getByRole('button', { name: 'Buka menu' }).boundingBox();
     expect(menu.width).toBeGreaterThanOrEqual(44);
     expect(menu.height).toBeGreaterThanOrEqual(44);
-    const box = await input.boundingBox();
-    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    // visualViewport resize is delivered asynchronously after setViewportSize.
+    await expect.poll(() => input.evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(viewport.height);
     expect(await input.evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
     await page.getByRole('button', { name: 'Riwayat chat', exact: true }).click();
     await page.getByRole('button', { name: 'Rencana festival', exact: true }).click();
@@ -313,4 +308,198 @@ test('Ristek can inspect blocked prompt and sort token and chat leaders', async 
   await expect(page.locator('.usage-row').first()).toContainText('chat-terbanyak@example.com');
   await page.setViewportSize({ width: 375, height: 812 });
   await noOverflow(page);
+});
+
+// QA regression cases: populated fixtures and short desktop viewports matter.
+test('QA login banner is flush at every desktop height', async ({ page }) => {
+  await setup(page, { signedIn: false });
+  for (const height of [600, 768, 1000]) {
+    await page.setViewportSize({ width: 1280, height });
+    await visit(page, '/login');
+    expect((await page.locator('.login-story').boundingBox()).y).toBe(0);
+  }
+});
+
+test('QA event actions never cover the form scroll area', async ({ page }) => {
+  await setup(page); await visit(page, '/events/baru');
+  await page.getByRole('button', { name: '+ Tambah sesi', exact: true }).click();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 768 });
+    const scroll = await page.locator('.event-editor-scroll').count() ? page.locator('.event-editor-scroll') : page.locator('main.page');
+    await expect(scroll).toBeVisible();
+    for (const offset of [0, 450, 99999]) {
+      await scroll.evaluate((el, y) => { el.scrollTop = y; }, offset);
+      const content = await scroll.boundingBox();
+      const bar = await page.locator('.sticky-bar').boundingBox();
+      expect(content.y + content.height).toBeLessThanOrEqual(bar.y + 1);
+      expect(bar.y + bar.height).toBeLessThanOrEqual(768);
+    }
+    await page.getByLabel('Jam selesai sesi 1', { exact: true }).scrollIntoViewIfNeeded();
+    const field = await page.getByLabel('Jam selesai sesi 1', { exact: true }).boundingBox();
+    expect(field.y + field.height).toBeLessThanOrEqual((await page.locator('.sticky-bar').boundingBox()).y);
+  }
+});
+
+test('QA event list has a working back button on direct entry', async ({ page }) => {
+  await setup(page); await visit(page, '/events');
+  await page.getByRole('button', { name: 'Kembali ke halaman sebelumnya', exact: true }).click();
+  await expect(page).toHaveURL(/#\/$/);
+});
+
+test('QA draft saves with an untouched optional session and stays private', async ({ page }) => {
+  const state = await setup(page); await visit(page, '/events/baru?date=2026-10-10');
+  await page.getByLabel('Nama event').fill('QA draft');
+  await page.getByLabel(/^Lokasi/).fill('Auditorium');
+  await page.getByRole('button', { name: '+ Tambah sesi', exact: true }).click();
+  await expect(page.locator('.sess-head strong')).toHaveText('Sesi 1');
+  await page.getByRole('button', { name: 'Simpan Draft', exact: true }).click();
+  await expect(page.getByText('Event tersimpan sebagai draft.', { exact: true })).toBeVisible();
+  const writes = state.calls.filter(c => c.method === 'POST');
+  expect(writes).toHaveLength(1);
+  expect(writes[0].body.status).toBe('draft');
+  expect(writes[0].body.sessions).toEqual([]);
+  await expect(page).toHaveURL(/events\/new-event\/edit/);
+});
+
+test('QA session identity and numbering stay stable while editing times', async ({ page }) => {
+  await setup(page); await visit(page, '/events/baru?date=2026-10-10');
+  await page.getByRole('button', { name: '+ Tambah sesi', exact: true }).click();
+  await page.getByLabel('Nama sesi').fill('Pertama');
+  await page.getByRole('button', { name: '+ Tambah sesi', exact: true }).click();
+  await page.getByLabel('Nama sesi').nth(1).fill('Kedua');
+  await page.getByLabel('Jam mulai sesi 2', { exact: true }).fill('07:00');
+  await expect(page.getByLabel('Nama sesi').first()).toHaveValue('Pertama');
+  await expect(page.locator('.sess-head strong')).toHaveText(['Sesi 1', 'Sesi 2']);
+  await page.getByRole('button', { name: 'Hapus sesi', exact: true }).first().click();
+  await expect(page.locator('.sess-head strong')).toHaveText('Sesi 1');
+  await expect(page.getByLabel('Nama sesi')).toHaveValue('Kedua');
+});
+
+test('QA populated upcoming events keep full links and readable actions', async ({ page }, testInfo) => {
+  await setup(page);
+  const slug = 'agenda-publik-dengan-nama-yang-panjang-'.repeat(3);
+  await page.route('**/admin/events/calendar', route => route.fulfill({ json: { success: true, data: { items: [{ ...event, status: 'published', slug, starts_at: '2099-10-10T08:00:00+07:00', ends_at: '2099-10-10T17:00:00+07:00' }] } } }));
+  for (const width of [1280, 1440, 390]) {
+    await page.setViewportSize({ width, height: 900 }); await visit(page, '/overview');
+    const link = page.locator('.overview-grid .slug');
+    await expect(link).toContainText(slug);
+    await expect(page.locator('.upcoming-event p')).not.toContainText('WIB WIB');
+    expect(await link.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    const button = page.getByRole('button', { name: 'Salin link', exact: true });
+    expect(await button.evaluate(el => getComputedStyle(el).whiteSpace)).toBe('nowrap');
+    await page.locator('.upcoming-events').screenshot({ path: testInfo.outputPath(`upcoming-${width}.png`) });
+    await noOverflow(page);
+  }
+});
+
+test('QA Roro retires an earlier proposal when a revision arrives', async ({ page }) => {
+  await setup(page);
+  const proposal = { tool: 'create_event', data: event };
+  await page.route('**/admin/assistant/conversations/chat-1', route => route.fulfill({ json: { success: true, data: [{ id: 'old', role: 'assistant', content: 'Draf awal', proposal_json: proposal, proposal_status: 'pending' }] } }));
+  await page.route('**/admin/assistant/chat/stream', route => route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify({ type: 'done', conversation_id: 'chat-1', message_id: 'new', reply: 'Draf diperbarui', proposal })}\n\n` }));
+  await visit(page, '/');
+  await page.getByRole('button', { name: 'Rencana festival', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Pesan untuk Roro' }).fill('Revisi nama event');
+  await page.getByRole('button', { name: 'Kirim pesan', exact: true }).click();
+  await expect(page.getByText('Draf diperbarui', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Iya, buatkan event', exact: true })).toHaveCount(1);
+});
+
+test('QA date and time picker has explicit commit, cancel and scroll controls', async ({ page }, testInfo) => {
+  await setup(page); await visit(page, '/events/baru?date=2026-10-10');
+  await page.getByRole('button', { name: 'Pilih tanggal dan waktu: Mulai', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Pilih tanggal dan waktu' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '11 Oktober 2026', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Jam 09', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Menit 45', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Gulir menit ke bawah' })).toBeVisible();
+  await dialog.screenshot({ path: testInfo.outputPath('picker-desktop.png') });
+  await expect(page.getByLabel(/^Mulai \*/)).toHaveValue('2026-10-10T08:00');
+  await dialog.getByRole('button', { name: 'Selesai', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel(/^Mulai \*/)).toHaveValue('2026-10-11T09:45');
+  await page.getByRole('button', { name: 'Pilih tanggal dan waktu: Mulai', exact: true }).click();
+  await dialog.getByRole('button', { name: '12 Oktober 2026', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByLabel(/^Mulai \*/)).toHaveValue('2026-10-11T09:45');
+});
+
+test('QA Roro keeps earlier messages when a follow-up stream fails', async ({ page }) => {
+  await setup(page);
+  let turn = 0;
+  await page.route('**/admin/assistant/chat/stream', route => route.fulfill({ contentType: 'text/event-stream', body: ++turn === 1
+    ? `data: ${JSON.stringify({ type: 'done', conversation_id: 'chat-1', message_id: 'reply-1', reply: 'Jawaban pertama' })}\n\n`
+    : `data: ${JSON.stringify({ type: 'error', message: 'Provider sementara tidak tersedia' })}\n\n` }));
+  await visit(page, '/');
+  const input = page.getByRole('textbox', { name: 'Pesan untuk Roro' });
+  await input.fill('Pesan pertama');
+  await page.getByRole('button', { name: 'Kirim pesan', exact: true }).click();
+  await expect(page.getByText('Jawaban pertama', { exact: true })).toBeVisible();
+  await input.fill('Pesan lanjutan');
+  await page.getByRole('button', { name: 'Kirim pesan', exact: true }).click();
+  await expect(input).toHaveValue('Pesan lanjutan');
+  await expect(page.locator('.roro-msg.user')).toHaveText('Pesan pertama');
+  await expect(page.getByText('Jawaban pertama', { exact: true })).toBeVisible();
+});
+
+test('QA public and internal drafts persist through the real Worker API', async ({ page }) => {
+  test.setTimeout(90000);
+  const { startHarness } = await import('../../src/test/harness.ts');
+  const h = await startHarness();
+  try {
+    await setup(page);
+    await page.route(/\/api\/v1\/admin\/(?:internal-)?events(?:[/?]|$)/, async route => {
+      const req = route.request();
+      const url = new URL(req.url());
+      const response = await h.req(url.pathname + url.search, { method: req.method(), token: 'tok-bph', ...(req.method() !== 'GET' ? { json: req.postDataJSON() } : {}) });
+      await route.fulfill({ status: response.status, json: response.body });
+    });
+    for (const internal of [false, true]) {
+      const module = internal ? 'internal-events' : 'events';
+      const table = internal ? 'internal_events' : 'events';
+      const title = internal ? 'QA internal integration draft' : 'QA public integration draft';
+      await visit(page, `/${module}/baru?date=2026-10-10`);
+      await page.getByLabel('Nama event').fill(title);
+      await page.getByLabel(/^Lokasi/).fill('Auditorium');
+      await page.getByRole('button', { name: '+ Tambah sesi', exact: true }).click();
+      await page.getByRole('button', { name: 'Simpan Draft', exact: true }).click();
+      await expect(page.getByText(internal ? 'Internal event tersimpan sebagai draft divisi kamu.' : 'Event tersimpan sebagai draft.', { exact: true })).toBeVisible();
+      await expect(page).toHaveURL(new RegExp(`${module}/[^/]+/edit`));
+      const rows = await h.sql(`SELECT id, slug, status FROM ${table} WHERE title = ?`, title);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe('draft');
+      expect((await h.req(`/api/v1/events/${rows[0].slug}`)).status).toBe(404);
+      await page.reload();
+      await expect(page.getByLabel('Nama event')).toHaveValue(title);
+      await page.getByLabel('Nama event').fill(`${title} updated`);
+      await page.getByRole('button', { name: 'Simpan Perubahan', exact: true }).click();
+      await expect.poll(async () => (await h.sql(`SELECT title FROM ${table} WHERE id = ?`, rows[0].id))[0]?.title).toBe(`${title} updated`);
+      await page.getByRole('button', { name: 'Kembali ke halaman sebelumnya', exact: true }).click();
+      await expect(page.getByRole('heading', { name: `${title} updated`, exact: true })).toBeVisible();
+    }
+  } finally { await h.dispose(); }
+});
+
+// New picker also works with the narrow viewport where the original session fields clipped.
+test('QA picker remains usable on mobile and returns focus after confirmation', async ({ page }, testInfo) => {
+  await setup(page);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await visit(page, '/internal-events/baru?date=2026-10-10');
+  const trigger = page.getByRole('button', { name: 'Pilih tanggal dan waktu: Mulai', exact: true });
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: 'Pilih tanggal dan waktu' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Bulan berikutnya' }).click();
+  await dialog.getByRole('button', { name: '1 November 2026', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Selesai', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('picker-mobile.png') });
+  await dialog.getByRole('button', { name: 'Selesai', exact: true }).click();
+  await expect(trigger).toBeFocused();
+  await expect(page.getByLabel(/^Mulai \*/)).toHaveValue('2026-11-01T08:00');
+  await noOverflow(page);
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.title.startsWith('QA ')) await page.screenshot({ path: testInfo.outputPath('review.png'), fullPage: true });
 });

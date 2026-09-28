@@ -24,7 +24,7 @@ function MaintenanceNote() {
 
 export default function Qpr({ user }) {
 	if (QPR_MAINTENANCE) return <MaintenanceNote />;
-	const canManage = useMemo(() => user?.permissions?.includes("qpr.manage"), [user]);
+	const canManage = user?.permissions?.includes("qpr.manage");
 	return canManage ? <AdminView /> : <NoManage />;
 }
 
@@ -430,7 +430,10 @@ function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 
 /** Halaman publik pengisian (no-login): dropdown nama + form skala 1-5. */
 export function PublicFill({ periodId }) {
-	if (QPR_MAINTENANCE) return <MaintenanceNote />;
+	return QPR_MAINTENANCE ? <MaintenanceNote /> : <PublicFillForm periodId={periodId} />;
+}
+
+function PublicFillForm({ periodId }) {
 	const toast = useToast();
 	const [roster, setRoster] = useState(null);
 	const [err, setErr] = useState("");

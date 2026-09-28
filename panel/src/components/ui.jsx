@@ -138,7 +138,7 @@ export function Field({ label, required, help, error, children }) {
 	const id = useId();
 	// Anak tunggal elemen form otomatis dapat id + aria-invalid.
 	const cloned =
-		children && !Array.isArray(children) && ["input", "select", "textarea"].includes(children.type)
+		children && !Array.isArray(children) && (["input", "select", "textarea"].includes(children.type) || children.props?.["data-field-control"])
 			? cloneElement(children, { id: children.props.id || id, "aria-invalid": error ? true : undefined, "aria-required": required || undefined, "aria-describedby": [children.props["aria-describedby"], help && `${id}-help`, error && `${id}-error`].filter(Boolean).join(" ") || undefined })
 			: children;
 	return (

@@ -1,3 +1,4 @@
+import DateTimePicker from "./DateTimePicker.jsx";
 import { Field } from "./ui.jsx";
 import { IconClock, IconMapPin, IconTicket } from "./Icons.jsx";
 import { fmtDateLong, fmtTime, toIsoWib } from "../api.js";
@@ -25,13 +26,13 @@ export function SessionCard({ s, i, err, onChange, onRemove, removeLabel = "Hapu
 			</Field>
 			<div className="sess-when">
 				<Field label="Tanggal" required error={err?.date}>
-					<input type="date" value={s._date} onChange={set("_date")} aria-label={`Tanggal sesi ${i + 1}`} />
+					<DateTimePicker data-field-control pickerLabel={`Tanggal sesi ${i + 1}`} type="date" value={s._date} onChange={set("_date")} aria-label={`Tanggal sesi ${i + 1}`} />
 				</Field>
 				<Field label="Mulai jam" required error={err?.starts_at}>
-					<input type="time" value={s._start} onChange={set("_start")} aria-label={`Jam mulai sesi ${i + 1}`} />
+					<DateTimePicker data-field-control pickerLabel={`Jam mulai sesi ${i + 1}`} type="time" value={s._start} onChange={set("_start")} aria-label={`Jam mulai sesi ${i + 1}`} />
 				</Field>
 				<Field label="Selesai jam" required error={err?.ends_at}>
-					<input type="time" value={s._end} onChange={set("_end")} aria-label={`Jam selesai sesi ${i + 1}`} />
+					<DateTimePicker data-field-control pickerLabel={`Jam selesai sesi ${i + 1}`} type="time" value={s._end} onChange={set("_end")} aria-label={`Jam selesai sesi ${i + 1}`} />
 				</Field>
 			</div>
 			{s._start && s._end && overnight && (

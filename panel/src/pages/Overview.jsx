@@ -129,27 +129,19 @@ export default function Overview({ events, onEdit, capabilities, user }) {
 								)}
 							</p>
 						) : (
-							<div className="tbl-wrap">
-								<table className="tbl">
-								<thead>
-									<tr><th>Event</th><th>Waktu (WIB)</th><th>Status</th><th /></tr>
-								</thead>
-								<tbody>
-									{soonest.map((e) => (
-										<tr key={e.id}>
-											<td><strong>{e.title}</strong><br /><span className="slug muted small">/{e.slug}</span></td>
-											<td>{fmtRange(e.starts_at, e.ends_at)}</td>
-											<td><span className={`badge ${displayStatus(e)}`}>{LABEL[displayStatus(e)]}</span></td>
-											<td>
-												<button className="btn sec sm" onClick={() => copyLink(e)}>Salin link</button>{" "}
-												{capabilities?.canEditEvent?.(e) && (
-													<button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>
-												)}
-											</td>
-										</tr>
-									))}
-								</tbody>
-								</table>
+							<div className="upcoming-events">
+								{soonest.map((e) => (
+									<article className="upcoming-event" key={e.id}>
+										<h3>{e.title}</h3>
+										<a className="slug muted small" href={publicLink(e)} target="_blank" rel="noreferrer">{publicLink(e)}</a>
+										<p className="small">{fmtRange(e.starts_at, e.ends_at)}</p>
+										<div className="upcoming-event-actions">
+											<span className={`badge ${displayStatus(e)}`}>{LABEL[displayStatus(e)]}</span>
+											<button className="btn sec sm" onClick={() => copyLink(e)}>Salin link</button>
+											{capabilities?.canEditEvent?.(e) && <button className="btn sm" onClick={() => onEdit(e.id)}>Edit</button>}
+										</div>
+									</article>
+								))}
 							</div>
 						)}
 					</div>

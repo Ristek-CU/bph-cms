@@ -1062,7 +1062,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 .qpr-success > span { display: grid; place-items: center; background: #e0f2eb; color: #007c6e; width: 56px; height: 56px; margin: 0 auto 20px; border-radius: 50%; font-size: 28px; }
 
 /* Login: editorial SGA identity, with a quiet and focused sign-in panel. */
-.login-page { display: grid; grid-template-columns: 1.05fr 1fr; min-height: 100dvh; padding: 0; background: #fafbf7; }
+.login-page { display: grid; grid-template-columns: 1.05fr 1fr; align-items: stretch; min-height: 100dvh; padding: 0; background: #fafbf7; }
 .login-story { position: relative; overflow: hidden; min-height: 100dvh; padding: 24px 58px 48px; background: #06455b; color: #fff; display: flex; flex-direction: column; justify-content: space-between; }
 .login-story::after { content: ""; position: absolute; width: 540px; height: 540px; right: -280px; bottom: -190px; border: 1px solid rgba(235, 192, 95, .28); border-radius: 50%; box-shadow: 0 0 0 55px rgba(235, 192, 95, .045), 0 0 0 110px rgba(235, 192, 95, .04), 0 0 0 165px rgba(235, 192, 95, .03); pointer-events: none; }
 .login-wordmark { display: flex; align-items: center; gap: 14px; font-size: 13px; font-weight: 800; letter-spacing: .12em; }
@@ -1308,4 +1308,38 @@ main.page:has(.roro-layout) { display: flex; flex-direction: column; overflow: h
 	.cross-calendar-actions { width: 100%; }
 	.cross-calendar-actions .btn { flex: 1; }
 	.cross-calendar-preview-header { flex-direction: column; align-items: flex-start; }
+}
+
+/* Event editor: the footer occupies its own row; only fields scroll. */
+main.page:has(> .event-editor) { overflow: hidden; padding: 0; }
+.event-editor { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.event-editor-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px 28px; scroll-padding-block: 24px; }
+.event-editor > .sticky-bar { position: static; flex: none; margin: 0; z-index: auto; }
+.event-editor .sess { scroll-margin-block: 24px; }
+.sess-when > div, .grid-2 > div { min-width: 0; }
+.upcoming-events { display: grid; gap: 16px; }
+.upcoming-event { min-width: 0; border-top: 1px solid var(--border); padding-top: 14px; }
+.upcoming-event h3 { font-size: 15px; overflow-wrap: anywhere; }
+.upcoming-event .slug { display: block; margin-top: 6px; overflow-wrap: anywhere; }
+.upcoming-event p { margin-block: 8px; }
+.upcoming-event-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.upcoming-event-actions .btn { flex-shrink: 0; white-space: nowrap; }
+.datetime-control { position: relative; min-width: 0; }
+.datetime-control input { padding-right: 46px; min-width: 0; }
+.datetime-control input::-webkit-calendar-picker-indicator { display: none; }
+.datetime-control .picker-open { position: absolute; right: 2px; top: 2px; bottom: 2px; min-height: 0; width: 40px; padding: 0; font-size: 22px; }
+.datetime-dialog { width: min(440px, calc(100vw - 24px)); }
+.picker-month { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.picker-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; text-align: center; }
+.picker-days button, .picker-time-list button { border: 0; background: var(--bg); color: var(--text); border-radius: 6px; min-height: 36px; }
+.picker-days button.muted { color: var(--muted); background: transparent; }
+.picker-days button[aria-pressed="true"], .picker-time-list button[aria-pressed="true"] { background: var(--navy); color: white; font-weight: 700; }
+.picker-time { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.picker-time-column { display: flex; flex-direction: column; text-align: center; gap: 4px; min-width: 0; }
+.picker-time-list { position: relative; height: 120px; overflow-y: scroll; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--teal) var(--bg-2); display: flex; flex-direction: column; gap: 3px; }
+.picker-time-list button { flex: 0 0 36px; }
+.picker-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+@media (max-width: 640px) {
+  .event-editor-scroll { padding: 16px 14px; }
+  .datetime-dialog .dlg-body, .datetime-dialog .dlg-head { padding: 14px; }
 }

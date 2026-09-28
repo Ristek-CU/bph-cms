@@ -302,12 +302,13 @@ export default function Assistant() {
 	const send = useCallback(
 		async (text) => {
 			const message = (text ?? input).trim();
-			if (!message || busy || loadingChat || chatError) return;
+			if (!message || busy || busyConfirm || loadingChat || chatError) return;
 			setBusy(true);
 			setInput("");
+			const optimisticId = `tmp-${crypto.randomUUID()}`;
 			setMessages((m) => [
 				...m,
-				{ id: `tmp-${Date.now()}`, role: "user", content: message },
+				{ id: optimisticId, role: "user", content: message },
 			]);
 			// Streaming: tampilkan pikiran lalu jawaban saat masih mengalir.
 			setStreaming({ phase: "thinking", thinking: "" });
@@ -374,7 +375,9 @@ export default function Assistant() {
 				if (!final) throw new Error("Stream terputus — coba lagi");
 				// Ganti placeholder dengan pesan final (id beneran + proposal).
 				setMessages((m) => {
-					const cleaned = m.filter((x) => x.id !== "streaming");
+					const cleaned = m.filter((x) => x.id !== "streaming").map((x) =>
+						final.proposal && x.proposal_status === "pending" ? { ...x, proposal_status: "rejected" } : x,
+					);
 					return [
 						...cleaned,
 						{
@@ -395,7 +398,7 @@ export default function Assistant() {
 			} catch (e) {
 				if (e.name === "AbortError" && !timedOut) return;
 				toast(timedOut ? "Roro terlalu lama merespons. Cek riwayat sebelum mengirim ulang." : errText(e), "err");
-				setMessages((m) => m.filter((x) => !x.id.startsWith("tmp-") && x.id !== "streaming"));
+				setMessages((m) => m.filter((x) => x.id !== optimisticId && x.id !== "streaming"));
 				setInput(message);
 				if (timedOut) loadConversations();
 			} finally {
@@ -405,7 +408,7 @@ export default function Assistant() {
 				inputRef.current?.focus();
 			}
 		},
-		[input, busy, loadingChat, chatError, convId, toast, loadConversations],
+		[input, busy, busyConfirm, loadingChat, chatError, convId, toast, loadConversations],
 	);
 
 	const confirmProposal = useCallback(
@@ -513,9 +516,9 @@ export default function Assistant() {
 						onChange={(e) => setInput(e.target.value)}
 						placeholder="Tanya Roro…"
 						aria-label="Pesan untuk Roro"
-						disabled={busy || loadingChat || !!chatError}
+						disabled={busy || busyConfirm || loadingChat || !!chatError}
 					/>
-					<button className="btn gold roro-send" disabled={busy || loadingChat || !!chatError || !input.trim()} aria-label="Kirim pesan">
+					<button className="btn gold roro-send" disabled={busy || busyConfirm || loadingChat || !!chatError || !input.trim()} aria-label="Kirim pesan">
 						{busy ? <img src="/roro.png" alt="" aria-hidden className="roro-avatar roro-avatar-live roro-send-logo" draggable={false} /> : <img src="/roro.png" alt="" aria-hidden className="roro-send-logo" draggable={false} />}
 					</button>
 				</form>
