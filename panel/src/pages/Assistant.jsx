@@ -1,7 +1,7 @@
 // Roro AI — halaman chat asisten (landing setelah login). Pola ala ChatGPT:
 // daftar percakapan kiri, bubble chat kanan, draf event/form muncul sebagai kartu
 // proposal dengan tombol konfirmasi. Backend: src/modules/assistant/.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
 import { api, errText, fmtRange, getToken, ApiFail, clearToken } from "../api.js";
 import { useToast, Confirm, SkeletonCard, ErrorState, useEscape, useFocusTrap } from "../components/ui.jsx";
@@ -132,13 +132,13 @@ function ProposalActions({ status, resultResourceId, onConfirm, busy, tool, labe
 	);
 }
 
-function ThinkingBubble({ text, label }) {
-	const [seconds, setSeconds] = useState(0);
+function ThinkingBubble({ text, label, startedAt }) {
+	const [seconds, setSeconds] = useState(() => Math.max(0, Math.floor((Date.now() - (startedAt || Date.now())) / 1000)));
 	useEffect(() => {
-		const started = Date.now();
-		const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+		const start = startedAt || Date.now();
+		const timer = setInterval(() => setSeconds(Math.max(0, Math.floor((Date.now() - start) / 1000))), 1000);
 		return () => clearInterval(timer);
-	}, []);
+	}, [startedAt]);
 	return (
 		<div className="roro-msg assistant">
 			<Avatar animate />
@@ -207,23 +207,63 @@ function ChatView({ messages, onConfirm, busyConfirm, streaming }) {
 					</div>
 				</div>
 			))}
-			{streaming && (streaming.phase === "thinking" || streaming.phase === "working" ? <ThinkingBubble text={streaming.thinking ?? ""} label={streaming.label} /> : null)}
+			{streaming && (streaming.phase === "thinking" || streaming.phase === "working" ? <ThinkingBubble text={streaming.thinking ?? ""} label={streaming.label} startedAt={streaming.startedAt} /> : null)}
 			<div ref={endRef} />
 		</div>
 	);
 }
 
+// Session state singleton: tetap hidup saat user pindah rute di SPA (Events, Forms, dll)
+// dan kembali lagi ke Roro tanpa kehilangan prompt atau menghentikan streaming AI.
+let roroSession = {
+	convId: sessionStorage.getItem("roro_conv_id") || null,
+	messages: [],
+	busy: false,
+	streaming: null, // { phase, thinking, label, startedAt }
+	busyConfirm: false,
+};
+
+const sessionListeners = new Set();
+let activeStreamController = null;
+let activeRequestVersion = 0;
+
+function emitSessionChange(partial) {
+	roroSession = { ...roroSession, ...partial };
+	for (const l of sessionListeners) {
+		try { l(); } catch {}
+	}
+}
+
+function subscribeRoroSession(listener) {
+	sessionListeners.add(listener);
+	return () => sessionListeners.delete(listener);
+}
+
+function getRoroSnapshot() {
+	return roroSession;
+}
+
+export function resetRoroSession() {
+	if (activeStreamController) {
+		activeStreamController.abort();
+		activeStreamController = null;
+	}
+	activeRequestVersion++;
+	emitSessionChange({
+		convId: null,
+		messages: [],
+		busy: false,
+		streaming: null,
+		busyConfirm: false,
+	});
+	sessionStorage.removeItem("roro_conv_id");
+}
+
 export default function Assistant() {
 	const toast = useToast();
+	const { convId, messages, busy, streaming, busyConfirm } = useSyncExternalStore(subscribeRoroSession, getRoroSnapshot);
 	const [conversations, setConversations] = useState([]);
-	// Percakapan aktif dipersist per-session — pindah modul lalu balik ke Roro
-	// tetap di percakapan yang sama (tidak kereset ke chat baru).
-	const [convId, setConvId] = useState(() => sessionStorage.getItem("roro_conv_id") || null);
-	const [messages, setMessages] = useState([]);
 	const [input, setInput] = useState("");
-	const [busy, setBusy] = useState(false);
-	const [streaming, setStreaming] = useState(null); // { phase, thinking } saat chat mengalir
-	const [busyConfirm, setBusyConfirm] = useState(false);
 	const [listOpen, setListOpen] = useState(false); // mobile
 	const inputRef = useRef(null);
 	const [loadingChat, setLoadingChat] = useState(false);
@@ -231,11 +271,9 @@ export default function Assistant() {
 	const [listError, setListError] = useState("");
 	const [deleteId, setDeleteId] = useState(null);
 	const [usage, setUsage] = useState(null); // { today: {used, limit}, month: {used, limit} }
-	const requestVersion = useRef(0);
-	const streamController = useRef(null);
 	const historyRef = useFocusTrap(listOpen);
 	useEscape(() => setListOpen(false));
-	useEffect(() => () => { requestVersion.current++; streamController.current?.abort(); }, []);
+
 	useEffect(() => {
 		const field = inputRef.current;
 		if (!field) return;
@@ -248,25 +286,6 @@ export default function Assistant() {
 		return () => window.removeEventListener("resize", resize);
 	}, [input]);
 
-	// Balik ke Roro: kalau ada percakapan tersimpan, buka langsung. Daftar
-	// percakapan di-load tiap mount — pindah halaman lalu balik tetap ada isinya.
-	useEffect(() => {
-		loadConversations();
-		if (convId && messages.length === 0) openConversation(convId);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
-
-	// Kuota harian — biar user tahu sisa chat sebelum kena 429.
-	useEffect(() => {
-		api("/admin/assistant/usage").then(setUsage).catch(() => {});
-	}, []);
-
-	const changeConv = (id) => {
-		setConvId(id);
-		if (id) sessionStorage.setItem("roro_conv_id", id);
-		else sessionStorage.removeItem("roro_conv_id");
-	};
-
 	const loadConversations = useCallback(async () => {
 		try {
 			const d = await api("/admin/assistant/conversations");
@@ -277,61 +296,135 @@ export default function Assistant() {
 		}
 	}, []);
 
+	const pollForAssistantReply = useCallback((id, version, attempt = 0) => {
+		if (attempt >= 25 || version !== activeRequestVersion) {
+			if (version === activeRequestVersion) {
+				emitSessionChange({ busy: false, streaming: null });
+			}
+			return;
+		}
+		setTimeout(async () => {
+			if (version !== activeRequestVersion) return;
+			try {
+				const d = await api(`/admin/assistant/conversations/${id}`);
+				if (version !== activeRequestVersion) return;
+				const msgs = d || [];
+				const last = msgs[msgs.length - 1];
+				if (last && last.role === "assistant") {
+					emitSessionChange({ messages: msgs, busy: false, streaming: null });
+					api("/admin/assistant/usage").then(setUsage).catch(() => {});
+				} else {
+					pollForAssistantReply(id, version, attempt + 1);
+				}
+			} catch {
+				pollForAssistantReply(id, version, attempt + 1);
+			}
+		}, 2500);
+	}, []);
+
 	const openConversation = useCallback(async (id) => {
-		const version = ++requestVersion.current;
-		changeConv(id);
+		const version = ++activeRequestVersion;
+		if (activeStreamController) {
+			activeStreamController.abort();
+			activeStreamController = null;
+		}
 		setListOpen(false);
-		setMessages([]);
 		setChatError("");
 		setLoadingChat(true);
+		emitSessionChange({
+			convId: id,
+			messages: [],
+			busy: false,
+			streaming: null,
+		});
+		sessionStorage.setItem("roro_conv_id", id);
 		try {
 			const d = await api(`/admin/assistant/conversations/${id}`);
-			if (version === requestVersion.current) setMessages(d || []);
+			if (version === activeRequestVersion) {
+				const msgs = d || [];
+				const last = msgs[msgs.length - 1];
+				if (last && last.role === "user") {
+					emitSessionChange({
+						messages: msgs,
+						busy: true,
+						streaming: {
+							phase: "thinking",
+							thinking: "Roro sedang menyiapkan jawaban…",
+							startedAt: last.created_at ? Date.parse(last.created_at) : Date.now(),
+						},
+					});
+					pollForAssistantReply(id, version);
+				} else {
+					emitSessionChange({ messages: msgs, busy: false, streaming: null });
+				}
+			}
 		} catch (e) {
-			if (version !== requestVersion.current) return;
+			if (version !== activeRequestVersion) return;
 			if (e?.statusCode === 404) {
-				// convId basi di sessionStorage (ganti akun/chat terhapus) — jangan
-				// dead-end error; pulihkan ke chat baru.
-				changeConv(null);
+				emitSessionChange({ convId: null, messages: [] });
+				sessionStorage.removeItem("roro_conv_id");
 			} else {
 				setChatError(errText(e));
 			}
-		} finally { if (version === requestVersion.current) setLoadingChat(false); }
+		} finally {
+			if (version === activeRequestVersion) setLoadingChat(false);
+		}
+	}, [pollForAssistantReply]);
+
+	// Balik ke Roro: kalau ada percakapan tersimpan dan belum termuat, buka.
+	// Jika sedang streaming, biarkan stream terus berjalan tanpa di-abort.
+	useEffect(() => {
+		loadConversations();
+		if (roroSession.convId && roroSession.messages.length === 0 && !roroSession.busy) {
+			openConversation(roroSession.convId);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	// Kuota harian — biar user tahu sisa chat sebelum kena 429.
+	useEffect(() => {
+		api("/admin/assistant/usage").then(setUsage).catch(() => {});
 	}, []);
 
 	const send = useCallback(
 		async (text) => {
 			const message = (text ?? input).trim();
-			if (!message || busy || busyConfirm || loadingChat || chatError) return;
-			setBusy(true);
+			if (!message || roroSession.busy || roroSession.busyConfirm || loadingChat || chatError) return;
+			const startedAt = Date.now();
 			setInput("");
 			const optimisticId = `tmp-${crypto.randomUUID()}`;
-			setMessages((m) => [
-				...m,
-				{ id: optimisticId, role: "user", content: message },
-			]);
-			// Streaming: tampilkan pikiran lalu jawaban saat masih mengalir.
-			setStreaming({ phase: "thinking", thinking: "" });
+			const currentConvId = roroSession.convId;
+			emitSessionChange({
+				busy: true,
+				messages: [
+					...roroSession.messages,
+					{ id: optimisticId, role: "user", content: message },
+				],
+				streaming: { phase: "thinking", thinking: "", startedAt },
+			});
 			let streamed = "";
 			const upsert = () => {
-				// Placeholder assistant terakhir di-refresh tiap delta.
-				setMessages((m) => {
-					const last = m[m.length - 1];
-					const bubble = { id: "streaming", role: "assistant", content: streamed, proposal_json: null };
-					return last?.id === "streaming" ? [...m.slice(0, -1), bubble] : [...m, bubble];
-				});
+				const last = roroSession.messages[roroSession.messages.length - 1];
+				const bubble = { id: "streaming", role: "assistant", content: streamed, proposal_json: null };
+				const nextMessages = last?.id === "streaming"
+					? [...roroSession.messages.slice(0, -1), bubble]
+					: [...roroSession.messages, bubble];
+				emitSessionChange({ messages: nextMessages });
 			};
 			let timedOut = false;
 			let timeoutId;
 			try {
+				if (activeStreamController) {
+					activeStreamController.abort();
+				}
 				const controller = new AbortController();
-				streamController.current = controller;
+				activeStreamController = controller;
 				timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, 95_000);
 				const res = await fetch("/api/v1/admin/assistant/chat/stream", {
 					signal: controller.signal,
 					method: "POST",
 					headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-					body: JSON.stringify({ conversation_id: convId ?? undefined, message }),
+					body: JSON.stringify({ conversation_id: currentConvId ?? undefined, message }),
 				});
 				if (!res.ok) {
 					if (res.status === 401) { clearToken(); window.dispatchEvent(new Event("bph:unauthorized")); }
@@ -357,13 +450,32 @@ export default function Assistant() {
 						} catch {
 							continue;
 						}
-						if (ev.type === "thinking") {
-							setStreaming((s) => ({ phase: "thinking", thinking: (s?.thinking ?? "") + ev.text }));
+						if (ev.type === "start" && ev.conversation_id) {
+							emitSessionChange({ convId: ev.conversation_id });
+							sessionStorage.setItem("roro_conv_id", ev.conversation_id);
+							loadConversations();
+						} else if (ev.type === "thinking") {
+							emitSessionChange({
+								streaming: {
+									phase: "thinking",
+									thinking: (roroSession.streaming?.thinking ?? "") + ev.text,
+									startedAt,
+								},
+							});
 						} else if (ev.type === "working") {
-							setStreaming({ phase: "working", thinking: "", label: ev.message });
+							emitSessionChange({
+								streaming: {
+									phase: "working",
+									thinking: "",
+									label: ev.message,
+									startedAt,
+								},
+							});
 						} else if (ev.type === "text") {
 							streamed += ev.text;
-							setStreaming({ phase: "text" });
+							emitSessionChange({
+								streaming: { phase: "text", startedAt },
+							});
 							upsert();
 						} else if (ev.type === "done") {
 							final = ev;
@@ -373,71 +485,78 @@ export default function Assistant() {
 					}
 				}
 				if (!final) throw new Error("Stream terputus — coba lagi");
-				// Ganti placeholder dengan pesan final (id beneran + proposal).
-				setMessages((m) => {
-					const cleaned = m.filter((x) => x.id !== "streaming").map((x) =>
-						final.proposal && x.proposal_status === "pending" ? { ...x, proposal_status: "rejected" } : x,
-					);
-					return [
-						...cleaned,
-						{
-							id: final.message_id || `blocked-${Date.now()}`,
-							role: "assistant",
-							content: final.reply,
-							proposal_json: final.proposal,
-							proposal_status: final.proposal ? "pending" : null,
-							result_resource_id: null,
-						},
-					];
+				const cleaned = roroSession.messages.filter((x) => x.id !== "streaming").map((x) =>
+					final.proposal && x.proposal_status === "pending" ? { ...x, proposal_status: "rejected" } : x,
+				);
+				const finalAssistantMessage = {
+					id: final.message_id || `blocked-${Date.now()}`,
+					role: "assistant",
+					content: final.reply,
+					proposal_json: final.proposal,
+					proposal_status: final.proposal ? "pending" : null,
+					result_resource_id: null,
+				};
+				emitSessionChange({
+					convId: final.conversation_id,
+					messages: [...cleaned, finalAssistantMessage],
+					streaming: null,
+					busy: false,
 				});
-				if (!convId) {
-					changeConv(final.conversation_id);
-					loadConversations();
-				}
+				sessionStorage.setItem("roro_conv_id", final.conversation_id);
+				loadConversations();
 				api("/admin/assistant/usage").then(setUsage).catch(() => {});
 			} catch (e) {
-				if (e.name === "AbortError" && !timedOut) return;
+				if (e.name === "AbortError" && !timedOut) {
+					return;
+				}
 				toast(timedOut ? "Roro terlalu lama merespons. Cek riwayat sebelum mengirim ulang." : errText(e), "err");
-				setMessages((m) => m.filter((x) => x.id !== optimisticId && x.id !== "streaming"));
+				emitSessionChange({
+					messages: roroSession.messages.filter((x) => x.id !== optimisticId && x.id !== "streaming"),
+					streaming: null,
+					busy: false,
+				});
 				setInput(message);
 				if (timedOut) loadConversations();
 			} finally {
 				clearTimeout(timeoutId);
-				setStreaming(null);
-				setBusy(false);
+				if (activeStreamController?.signal?.aborted) {
+					activeStreamController = null;
+				}
 				inputRef.current?.focus();
 			}
 		},
-		[input, busy, busyConfirm, loadingChat, chatError, convId, toast, loadConversations],
+		[input, loadingChat, chatError, toast, loadConversations],
 	);
 
 	const confirmProposal = useCallback(
 		async (msg) => {
-			setBusyConfirm(true);
+			emitSessionChange({ busyConfirm: true });
 			try {
 				const d = await api("/admin/assistant/confirm", {
 					method: "POST",
-					json: { conversation_id: convId, message_id: msg.id },
+					json: { conversation_id: roroSession.convId, message_id: msg.id },
 				});
-				setMessages((m) =>
-					m.map((x) =>
+				emitSessionChange({
+					messages: roroSession.messages.map((x) =>
 						x.id === msg.id
 							? { ...x, proposal_status: "executed", result_resource_id: d.resource_id }
 							: x,
 					),
-				);
+				});
 				if (d.tool === "create_event") window.dispatchEvent(new Event("bph:events-changed"));
 				toast(d.tool === "create_internal_event" ? "Draft agenda internal dibuat." : d.tool === "create_event" ? "Draft event dibuat." : "Draft form dibuat.");
 			} catch (e) {
 				toast(errText(e), "err");
 				if (e?.statusCode === 404) {
-					setMessages((m) => m.map((x) => (x.id === msg.id ? { ...x, proposal_status: "rejected" } : x)));
+					emitSessionChange({
+						messages: roroSession.messages.map((x) => (x.id === msg.id ? { ...x, proposal_status: "rejected" } : x)),
+					});
 				}
 			} finally {
-				setBusyConfirm(false);
+				emitSessionChange({ busyConfirm: false });
 			}
 		},
-		[convId, toast],
+		[toast],
 	);
 
 	// Suggestion chip → isi input & kirim.
@@ -448,11 +567,20 @@ export default function Assistant() {
 	}, [send]);
 
 	const newChat = () => {
-		requestVersion.current++;
+		activeRequestVersion++;
+		if (activeStreamController) {
+			activeStreamController.abort();
+			activeStreamController = null;
+		}
 		setLoadingChat(false);
 		setChatError("");
-		changeConv(null);
-		setMessages([]);
+		emitSessionChange({
+			convId: null,
+			messages: [],
+			busy: false,
+			streaming: null,
+		});
+		sessionStorage.removeItem("roro_conv_id");
 		setListOpen(false);
 	};
 

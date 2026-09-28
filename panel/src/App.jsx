@@ -6,7 +6,7 @@ import { Login, Shell } from "./components/Shell.jsx";
 import { IconCalendar, IconPlus } from "./components/Icons.jsx";
 import WorkspaceModal from "./components/WorkspaceModal.jsx";
 import Overview from "./pages/Overview.jsx";
-import Assistant from "./pages/Assistant.jsx";
+import Assistant, { resetRoroSession } from "./pages/Assistant.jsx";
 import EventList from "./pages/EventList.jsx";
 import EventCalendar from "./pages/EventCalendar.jsx";
 import EventEditor from "./pages/EventEditor.jsx";
@@ -129,7 +129,7 @@ function App() {
 			setLoginNotice("Sesi kamu berakhir. Masuk lagi untuk melanjutkan.");
 			setShowWorkspaceModal(false);
 			setWorkspaces([]);
-			sessionStorage.removeItem("roro_conv_id");
+			resetRoroSession();
 			localStorage.removeItem(WS_KEY);
 			setUser(null);
 			setEvents([]);
@@ -189,7 +189,7 @@ function App() {
 	const handleLogout = useCallback(() => {
 		authGeneration.current++;
 		clearToken();
-		sessionStorage.removeItem("roro_conv_id");
+		resetRoroSession();
 		setShowWorkspaceModal(false);
 		setWsBusy(false);
 		setAuthErr("");

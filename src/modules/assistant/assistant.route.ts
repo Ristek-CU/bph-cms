@@ -83,17 +83,25 @@ adminAssistantRouter.post("/chat/stream", chatLimiter, async (c) => {
 					try { controller.enqueue(enc.encode(`data: ${JSON.stringify(event)}\n\n`)); } catch { connected = false; }
 				}
 			};
-			try {
-				await assistantService.chatStream(db, actor, env, parsed.data!, emit, (task) => c.executionCtx.waitUntil(task));
-			} catch (e) {
-				// Error di tengah stream: kirim sebagai event (client sudah menerima 200).
-				await logAiEvent({ db, userId: actor.userId, userEmail: actor.userEmail, divisionId: actor.divisionId,
-					eventType: "error", level: "error", message: e instanceof ApiError ? e.message : "Kesalahan internal saat streaming",
-					metadata: { request_id: c.get("requestId"), status: e instanceof ApiError ? e.statusCode : 500 } });
-				emit({ type: "error", message: e instanceof ApiError ? e.message : "Roro mengalami kendala. Coba lagi sebentar.", request_id: c.get("requestId") });
-			} finally {
-				if (connected) controller.close();
+			const promise = (async () => {
+				try {
+					await assistantService.chatStream(db, actor, env, parsed.data!, emit, (task) => c.executionCtx.waitUntil(task));
+				} catch (e) {
+					// Error di tengah stream: kirim sebagai event (client sudah menerima 200).
+					await logAiEvent({ db, userId: actor.userId, userEmail: actor.userEmail, divisionId: actor.divisionId,
+						eventType: "error", level: "error", message: e instanceof ApiError ? e.message : "Kesalahan internal saat streaming",
+						metadata: { request_id: c.get("requestId"), status: e instanceof ApiError ? e.statusCode : 500 } });
+					emit({ type: "error", message: e instanceof ApiError ? e.message : "Roro mengalami kendala. Coba lagi sebentar.", request_id: c.get("requestId") });
+				} finally {
+					if (connected) {
+						try { controller.close(); } catch {}
+					}
+				}
+			})();
+			if (c.executionCtx?.waitUntil) {
+				c.executionCtx.waitUntil(promise);
 			}
+			await promise;
 		},
 	});
 

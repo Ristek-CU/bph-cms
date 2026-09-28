@@ -565,6 +565,10 @@ export const assistantService = {
 			});
 		}
 
+		// Emit ID percakapan di awal stream supaya FE langsung punya context
+		// meski user navigasi ke halaman lain sebelum stream selesai.
+		emit({ type: "start", conversation_id: convId });
+
 		await quotaRecord(db, actor.userId, usageDay, { input_tokens: 0, output_tokens: 0 });
 		const userMsgId = uuidv7();
 		await db.insert(aiMessages).values({
