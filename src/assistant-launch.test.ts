@@ -71,7 +71,7 @@ try {
  for await (const e of llmChatStream({ RORO_API_KEY: 'fixture' }, { ...body, tools: [{ name: 'create_event', description: 'Buat draf', input_schema: { type: 'object' } }] })) chatEvents.push(e);
  check('chat stream uses OpenAI endpoint with reasoning disabled', () => {
   assert.ok(providerRequest.url.endsWith('/v1/chat/completions'));
-  assert.equal(providerRequest.headers['X-SI-Route-Objective'], 'latency');
+  assert.equal(providerRequest.headers['X-SI-Route-Objective'], 'reliability');
   assert.deepEqual(JSON.parse(providerRequest.body).reasoning, { effort: 'none' });
  });
  check('chat stream rebuilds tool call and usage', () => {
@@ -96,7 +96,7 @@ try {
  const retried = [];
  for await (const e of llmChatStream({ RORO_API_KEY: 'fixture' }, body)) retried.push(e);
  check('provider retries once on another routing objective before any output', () => {
-  assert.deepEqual(objectives, ['latency', 'reliability']);
+  assert.deepEqual(objectives, ['reliability', 'latency']);
   assert.equal(retried.find(e => e.type === 'text').text, 'Pulih');
  });
  globalThis.fetch = async (_url, init) => new Promise((_, reject) => {

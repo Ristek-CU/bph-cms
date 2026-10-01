@@ -63,6 +63,20 @@ export type Proposal = {
 	data: unknown; // sudah tervalidasi schema modul
 };
 
+// Each validated draft gets its own message and confirmation claim.
+const saveAdditionalProposals = async (db: Db, conversationId: string, proposals: Proposal[]) => {
+	const messages = proposals.map((proposal) => ({
+		id: uuidv7(), conversationId, role: "assistant" as const,
+		content: "Periksa draf ini, lalu konfirmasi untuk menyimpan.",
+		proposalJson: JSON.stringify(proposal), proposalStatus: "pending" as const,
+		toolName: proposal.tool, createdAt: new Date().toISOString(),
+	}));
+	if (messages.length) await db.insert(aiMessages).values(messages);
+	return messages.map((m) => ({ id: m.id, role: m.role, content: m.content,
+		proposal_json: JSON.parse(m.proposalJson) as Proposal, proposal_status: m.proposalStatus,
+		result_resource_id: null }));
+};
+
 // Revisi draf = satu proposal pengganti (prompt.ts): proposal pending lama di
 // percakapan yang sama ditolak supaya confirm ganda tidak membuat duplikat.
 const rejectStalePending = async (db: Db, conversationId: string) => {
@@ -205,7 +219,10 @@ export const handleToolUse = async (
 		// Guard salah tool: pesan jelas rapat/koordinasi (agenda internal) tapi model
 		// memanggil create_event → tolak, suruh pakai create_internal_event. Tanpa
 		// ini rapat bisa tersimpan sebagai event mahasiswa (berisiko ter-publish publik).
-		if (tu.name === "create_event" && /\b(rapat|koordinasi)\b/i.test(String(turnMessage ?? ""))) {
+		const draftTitle = typeof (tu.input as { title?: unknown } | null)?.title === "string" ? (tu.input as { title: string }).title : "";
+		const internalRequest = /\b(rapat|koordinasi|meeting)\b/i;
+		const publicRequest = /\b(mahasiswa|seminar|workshop|lomba|festival)\b/i;
+		if (tu.name === "create_event" && (internalRequest.test(draftTitle) || (internalRequest.test(String(turnMessage ?? "")) && !publicRequest.test(String(turnMessage ?? ""))))) {
 			results.push({
 				type: "tool_result",
 				tool_use_id: tu.id,
@@ -375,7 +392,7 @@ export const assistantService = {
 		});
 		const [memory] = await db.select().from(aiMemories).where(eq(aiMemories.userId, actor.userId));
 
-		const llmMessages: LlmMessage[] = compactHistory(ordered).map((m) => ({ role: m.role, content: m.content }));
+		const llmMessages: LlmMessage[] = compactHistory(ordered.map((m) => ({ role: m.role, content: m.content + (m.proposalJson ? `\nData draf (${m.proposalStatus}): ${m.proposalJson.slice(0, 4000)}` : "") })));
 		const availableTools = toolsForTurn(input.message, actor.permissions);
 
 		// 4. Loop tool — maksimal MAX_TOOL_ROUNDS.
@@ -387,6 +404,7 @@ export const assistantService = {
 		};
 		let replyText = "";
 		let proposal: Proposal | null = null;
+		const proposals: Proposal[] = [];
 		let totalIn = 0;
 		let totalOut = 0;
 
@@ -440,7 +458,9 @@ export const assistantService = {
 				const p = await handleToolUse(actor, toolCtx, tu, results, input.message);
 				await aiLog(db, actor, convId, { eventType: "tool_result", level: results.at(-1)?.is_error ? "warn" : "info", message: `Hasil tool ${tu.name}`, metadata: { tool: tu.name, input: tu.input, result: results.at(-1) } });
 				if (p) {
-					proposal = p;
+					if (proposals.length >= 20) throw ApiError.badRequest("Maksimal 20 draf per pesan. Bagi permintaan menjadi beberapa pesan.");
+					proposals.push(p);
+					proposal ??= p;
 					await aiLog(db, actor, convId, {
 						eventType: "proposal",
 						level: "info",
@@ -486,6 +506,8 @@ export const assistantService = {
 			metadata: { input_tokens: totalIn, output_tokens: totalOut, proposal: proposal?.tool ?? null },
 		});
 
+		const additionalProposals = await saveAdditionalProposals(db, convId, proposals.slice(1));
+
 		// 6. Memori: perbarui tiap MEMORY_EVERY pesan user (panggilan LLM murah).
 		const userCount = await db
 			.select({ n: sql<number>`count(*)` })
@@ -502,6 +524,7 @@ export const assistantService = {
 			conversation_id: convId,
 			reply: replyText || "(Roro tidak mengirim teks — coba ulangi)",
 			proposal,
+			additional_proposals: additionalProposals,
 			message_id: replyId,
 		};
 	},
@@ -594,12 +617,13 @@ export const assistantService = {
 		});
 		const [memory] = await db.select().from(aiMemories).where(eq(aiMemories.userId, actor.userId));
 
-		const llmMessages: LlmMessage[] = compactHistory(ordered).map((m) => ({ role: m.role, content: m.content }));
+		const llmMessages: LlmMessage[] = compactHistory(ordered.map((m) => ({ role: m.role, content: m.content + (m.proposalJson ? `\nData draf (${m.proposalStatus}): ${m.proposalJson.slice(0, 4000)}` : "") })));
 		const availableTools = toolsForTurn(input.message, actor.permissions);
 		const toolCtx: ToolContext = { db, divisionId: actor.divisionId, userId: actor.userId, permissions: actor.permissions };
 
 		let replyText = "";
 		let proposal: Proposal | null = null;
+		const proposals: Proposal[] = [];
 		let totalIn = 0;
 		let totalOut = 0;
 		let thinkingSent = false;
@@ -641,7 +665,7 @@ export const assistantService = {
 
 		// Batas seluruh ronde provider: satu request lambat tidak boleh membuat
 		// panel menunggu beberapa kali timeout 120 detik.
-		const providerDeadline = Date.now() + 75_000;
+		const providerDeadline = Date.now() + 150_000;
 		// Satu ronde LLM stream → event ke client. Return true kalau butuh ronde
 		// berikutnya (ada tool_use).
 		// noTools=true → ronde tanpa tool: model wajib menjawab teks (runde penutup).
@@ -668,7 +692,7 @@ export const assistantService = {
 					}),
 					messages: llmMessages,
 					tools: noTools ? [] : availableTools,
-					timeout_ms: Math.min(60_000, remainingMs),
+					timeout_ms: Math.min(120_000, remainingMs),
 				})) {
 					firstEventMs ??= Date.now() - roundStarted;
 					if (ev.type === "usage") {
@@ -704,8 +728,8 @@ export const assistantService = {
 				if (e instanceof LlmUnavailableError) {
 					lastRoundUsedTool = false;
 					replyText = proposal ? proposalReadyReply :
-						"Roro sedang tidak bisa dihubungi (layanan AI bermasalah). Coba lagi sebentar lagi — pesanmu sudah tersimpan di riwayat.";
-					emit({ type: "text", text: replyText });
+						(textBuf ? stripDsml(replyText + textBuf) + "\n\nJawaban terputus sebelum selesai. Draf dari respons ini belum disimpan; coba kirim ulang permintaanmu." : "Roro sedang tidak bisa dihubungi (layanan AI bermasalah). Coba lagi sebentar lagi — pesanmu sudah tersimpan di riwayat.");
+					emit({ type: "text", text: textBuf ? "\n\nJawaban terputus sebelum selesai. Coba kirim ulang permintaanmu." : replyText });
 					await aiLog(db, actor, convId, {
 						eventType: "llm_unavailable", level: "error", message: e.message || "LLM unavailable",
 						metadata: { duration_ms: Date.now() - roundStarted, first_event_ms: firstEventMs ?? null, partial_text: !!textBuf, provider_path: "chat_completions" },
@@ -739,7 +763,9 @@ export const assistantService = {
 				const p = await handleToolUse(actor, toolCtx, tu, results, input.message);
 				await aiLog(db, actor, convId, { eventType: "tool_result", level: results.at(-1)?.is_error ? "warn" : "info", message: `Hasil tool ${tu.name}`, metadata: { tool: tu.name, input: tu.input, result: results.at(-1) } });
 				if (p) {
-					proposal = p;
+					if (proposals.length >= 20) throw ApiError.badRequest("Maksimal 20 draf per pesan. Bagi permintaan menjadi beberapa pesan.");
+					proposals.push(p);
+					proposal ??= p;
 					await aiLog(db, actor, convId, {
 						eventType: "proposal",
 						level: "info",
@@ -907,6 +933,8 @@ export const assistantService = {
 			metadata: { proposal: saved?.tool ?? null, input_tokens: totalIn, output_tokens: totalOut },
 		});
 
+		const additionalProposals = await saveAdditionalProposals(db, convId, proposals.slice(1));
+
 		// Memori tetap diperbarui tiap 10 pesan, tetapi jangan menahan SSE done
 		// saat panggilan ringkasan memori ke provider berlangsung.
 		const userCount = await db
@@ -927,6 +955,7 @@ export const assistantService = {
 			conversation_id: convId,
 			reply: replyText || "(Roro tidak mengirim teks — coba ulangi)",
 			proposal: saved, // termasuk proposal hasil rescue tool-call-as-text
+			additional_proposals: additionalProposals,
 			message_id: replyId,
 		});
 	},
@@ -945,6 +974,16 @@ export const assistantService = {
 		const proposal = JSON.parse(msg.proposalJson) as Proposal;
 		const tool = toolByName(proposal.tool);
 		if (!tool || tool.kind !== "write") throw ApiError.badRequest("Proposal tidak dikenal");
+
+		// RBAC dicek SAAT confirm — permission bisa berubah sejak proposal dibuat.
+		if (!canUseTool(actor.permissions, tool, { isOwnDivision: true })) {
+			await db
+				.update(aiMessages)
+				.set({ proposalStatus: "rejected" })
+				.where(and(eq(aiMessages.id, msg.id), eq(aiMessages.proposalStatus, "pending")));
+			throw ApiError.forbidden("Akun kamu tidak punya izin membuat data ini");
+		}
+
 		// Retry setelah respons 5xx/network error harus idempotent. Kalau resource
 		// sudah tersimpan, kembalikan hasil yang sama alih-alih 409.
 		if (msg.proposalStatus === "executed" && msg.resultResourceId) {
@@ -952,15 +991,6 @@ export const assistantService = {
 		}
 		if (msg.proposalStatus === "executed") throw ApiError.conflict("Proposal sedang atau gagal dieksekusi");
 		if (msg.proposalStatus !== "pending") throw ApiError.conflict("Proposal tidak lagi bisa dikonfirmasi");
-
-		// RBAC dicek SAAT confirm — permission bisa berubah sejak proposal dibuat.
-		if (!canUseTool(actor.permissions, tool, { isOwnDivision: true })) {
-			await db
-				.update(aiMessages)
-				.set({ proposalStatus: "rejected" })
-				.where(eq(aiMessages.id, msg.id));
-			throw ApiError.forbidden("Akun kamu tidak punya izin membuat data ini");
-		}
 
 		// Validasi ulang saat confirm — schema modul bisa berubah sejak dibuat.
 		const parsed = tool.validate?.safeParse(proposal.data);

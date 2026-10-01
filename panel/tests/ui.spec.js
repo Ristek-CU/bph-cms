@@ -503,3 +503,15 @@ test('QA picker remains usable on mobile and returns focus after confirmation', 
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.title.startsWith('QA ')) await page.screenshot({ path: testInfo.outputPath('review.png'), fullPage: true });
 });
+
+test('Roro displays every draft from one multi-event response', async ({ page }) => {
+  await setup(page);
+  const proposals = [1, 2, 3].map(n => ({ tool: 'create_event', data: { ...event, title: `Agenda batch ${n}` } }));
+  await page.route('**/admin/assistant/chat/stream', route => route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify({ type: 'done', conversation_id: 'chat-1', message_id: 'batch-1', reply: 'Tiga draf siap', proposal: proposals[0], additional_proposals: proposals.slice(1).map((proposal_json, i) => ({ id: `batch-${i + 2}`, role: 'assistant', content: 'Periksa draf ini', proposal_json, proposal_status: 'pending' })) })}\n\n` }));
+  await visit(page, '/');
+  await page.getByRole('button', { name: 'Rencana festival', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Pesan untuk Roro' }).fill('Buat tiga acara sekaligus');
+  await page.getByRole('button', { name: 'Kirim pesan', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Iya, buatkan event', exact: true })).toHaveCount(3);
+  for (const n of [1, 2, 3]) await expect(page.getByText(`Agenda batch ${n}`, { exact: true })).toBeVisible();
+});

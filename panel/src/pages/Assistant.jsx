@@ -419,7 +419,7 @@ export default function Assistant() {
 				}
 				const controller = new AbortController();
 				activeStreamController = controller;
-				timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, 95_000);
+				timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, 180_000);
 				const res = await fetch("/api/v1/admin/assistant/chat/stream", {
 					signal: controller.signal,
 					method: "POST",
@@ -498,7 +498,7 @@ export default function Assistant() {
 				};
 				emitSessionChange({
 					convId: final.conversation_id,
-					messages: [...cleaned, finalAssistantMessage],
+					messages: [...cleaned, finalAssistantMessage, ...(final.additional_proposals ?? [])],
 					streaming: null,
 					busy: false,
 				});

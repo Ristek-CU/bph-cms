@@ -347,7 +347,7 @@ const llmChatStreamOpenAI = async function* (
 		body: JSON.stringify({
 			model: env.RORO_MODEL || "glm-5.2",
 			stream: true,
-			max_tokens: body.max_tokens ?? 2000,
+			max_tokens: body.max_tokens ?? 4000,
 			reasoning: { effort: "none" },
 			messages,
 			tools: body.tools.length ? body.tools.map((tool) => ({
@@ -373,6 +373,7 @@ const llmChatStreamOpenAI = async function* (
 			const { value, done: eof } = await reader.read();
 			if (eof) break;
 			buf += decoder.decode(value, { stream: true });
+			if (buf.length > 1_048_576) throw new LlmUnavailableError("Respons AI terlalu besar");
 			buf = buf.replace(/\r\n/g, "\n");
 			let idx: number;
 			while ((idx = buf.indexOf("\n\n")) !== -1) {
@@ -395,7 +396,8 @@ const llmChatStreamOpenAI = async function* (
 				if (delta?.reasoning_content) yield { type: "thinking", text: delta.reasoning_content };
 				if (delta?.content) yield { type: "text", text: delta.content };
 				for (const call of delta?.tool_calls ?? []) {
-					const index = Number(call.index) || 0;
+					const index = call.index;
+					if (!Number.isInteger(index) || index < 0 || index >= 20) throw new LlmUnavailableError("Jumlah tool AI melewati batas");
 					const current = toolCalls.get(index) ?? { id: "", name: "", json: "" };
 					if (call.id) current.id = call.id;
 					if (call.function?.name) {
@@ -403,10 +405,12 @@ const llmChatStreamOpenAI = async function* (
 						if (!toolCalls.has(index)) yield { type: "tool_use_start", name: current.name };
 					}
 					if (call.function?.arguments) current.json += call.function.arguments;
+					if (current.json.length > 262_144) throw new LlmUnavailableError("Draf AI terlalu besar");
 					toolCalls.set(index, current);
 				}
 			}
 		}
+		if (stopReason === "length") throw new LlmUnavailableError("Jawaban AI mencapai batas panjang; bagi permintaan menjadi beberapa pesan");
 		if (!done) throw new LlmUnavailableError("LLM stream terputus sebelum selesai");
 	} catch (error) {
 		if (error instanceof LlmUnavailableError) throw error;
@@ -442,9 +446,9 @@ export const llmChatStream = async function* (env: StreamEnv, body: StreamBody):
 		let emitted = false;
 		const remaining = totalMs - (Date.now() - started);
 		if (remaining <= 0) throw new LlmUnavailableError("Layanan AI melewati batas waktu respons");
-		const timeoutMs = attempt === 0 ? Math.min(20_000, remaining) : remaining;
+		const timeoutMs = remaining;
 		try {
-			for await (const event of llmChatStreamOpenAI(env, body, timeoutMs, attempt === 0 ? "latency" : "reliability")) {
+			for await (const event of llmChatStreamOpenAI(env, body, timeoutMs, attempt === 0 ? "reliability" : "latency")) {
 				if (event.type !== "usage") emitted = true;
 				yield event;
 			}
