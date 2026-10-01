@@ -3,7 +3,7 @@
 // proposal dengan tombol konfirmasi. Backend: src/modules/assistant/.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
-import { api, errText, fmtRange, getToken, ApiFail, clearToken } from "../api.js";
+import { getSessionGeneration, invalidateSession, api, errText, fmtRange, getToken, ApiFail } from "../api.js";
 import { useToast, Confirm, SkeletonCard, ErrorState, useEscape, useFocusTrap } from "../components/ui.jsx";
 import { IconPlus, IconTrash, IconCheck } from "../components/Icons.jsx";
 
@@ -420,6 +420,7 @@ export default function Assistant() {
 				const controller = new AbortController();
 				activeStreamController = controller;
 				timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, 180_000);
+				const generation = getSessionGeneration();
 				const res = await fetch("/api/v1/admin/assistant/chat/stream", {
 					signal: controller.signal,
 					method: "POST",
@@ -427,7 +428,7 @@ export default function Assistant() {
 					body: JSON.stringify({ conversation_id: currentConvId ?? undefined, message }),
 				});
 				if (!res.ok) {
-					if (res.status === 401) { clearToken(); window.dispatchEvent(new Event("bph:unauthorized")); }
+					if (res.status === 401) invalidateSession(generation);
 					const body = await res.json().catch(() => ({}));
 					throw new ApiFail(body, res.status);
 				}

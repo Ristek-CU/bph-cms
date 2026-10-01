@@ -42,11 +42,13 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 	const isLocalRequest = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(requestHost);
 	const allowDevAuth = c.env.ALLOW_DEV_AUTH === "true" && isLocalRequest;
 
+	let authUnavailable = false;
 	try {
 		const sessionResponse = await c.env.AUTH_SERVICE.fetch(
-			new Request("http://internal/v1/access/session", { headers: sessionHeaders }),
+			new Request("http://internal/v1/access/session", { headers: sessionHeaders, signal: AbortSignal.timeout(10_000) }),
 		);
 
+		if (sessionResponse.status >= 500 || sessionResponse.status === 429) authUnavailable = true;
 		if (sessionResponse.ok) {
 			const body = (await sessionResponse.json()) as {
 				data: { user: { id: string; role: string; email?: string; name?: string } } | null;
@@ -59,7 +61,7 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 			}
 		}
 	} catch {
-		// AUTH_SERVICE not connected in local dev fallback
+		authUnavailable = true; // Network or invalid upstream response must not revoke the session.
 	}
 
 	// Fallback hanya untuk dev lokal eksplisit. Jangan aktifkan di production.
@@ -73,6 +75,7 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 	}
 
 	if (!userId) {
+		if (authUnavailable) throw new ApiError(503, "Layanan autentikasi sementara tidak tersedia. Coba lagi tanpa keluar akun.");
 		throw ApiError.unauthorized();
 	}
 

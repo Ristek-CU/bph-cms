@@ -168,6 +168,8 @@ export const startHarness = async (
 
 					// GET /v1/access/session
 					const token = (request.headers.get("Authorization") ?? "").replace("Bearer ", "").trim();
+					if (token === "tok-auth-unavailable") return json({success:false},503);
+					if (token === "tok-auth-network") throw new Error("fixture auth connection failure");
 					const user = USERS[token];
 					if (!user) return json({ success: false, statusCode: 401 }, 401);
 					return json({ success: true, statusCode: 200, data: { user } }, 200);

@@ -515,3 +515,23 @@ test('Roro displays every draft from one multi-event response', async ({ page })
   await expect(page.getByRole('button', { name: 'Iya, buatkan event', exact: true })).toHaveCount(3);
   for (const n of [1, 2, 3]) await expect(page.getByText(`Agenda batch ${n}`, { exact: true })).toBeVisible();
 });
+
+test('late 401 from a previous login cannot clear the new session marker', async ({ page }) => {
+  await setup(page); await visit(page, '/');
+  let resolveStarted; const started = new Promise(resolve => { resolveStarted = resolve; });
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/v1/admin/qa-old-session', async route => { resolveStarted(); await gate; await route.fulfill({ status: 401, json: { success: false, message: 'Sesi lama berakhir' } }); });
+  await page.evaluate(async () => { const mod = await import('/src/api.js'); window.oldSessionRequest = mod.api('/admin/qa-old-session').catch(() => {}); });
+  await started;
+  await page.evaluate(async () => { (await import('/src/api.js')).setToken(); });
+  release();
+  await page.evaluate(() => window.oldSessionRequest);
+  expect(await page.evaluate(() => sessionStorage.getItem('bph_cms_token'))).toBe('panel-session');
+});
+
+test('auth service outage retains panel session', async ({ page }) => {
+  await setup(page); await visit(page, '/');
+  await page.route('**/api/v1/admin/qa-auth-outage', route => route.fulfill({ status: 503, json: { success: false, message: 'Layanan autentikasi sementara tidak tersedia' } }));
+  await page.evaluate(async () => { await (await import('/src/api.js')).api('/admin/qa-auth-outage').catch(() => {}); });
+  expect(await page.evaluate(() => sessionStorage.getItem('bph_cms_token'))).toBe('panel-session');
+});

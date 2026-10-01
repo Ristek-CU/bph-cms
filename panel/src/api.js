@@ -1,4 +1,11 @@
 const TOKEN_KEY = "bph_cms_token";
+let sessionGeneration = 0;
+export const getSessionGeneration = () => sessionGeneration;
+export const invalidateSession = (generation) => {
+	if (generation !== sessionGeneration) return;
+	clearToken();
+	window.dispatchEvent(new Event("bph:unauthorized"));
+};
 
 // Only a non-secret UI marker is stored; the session token lives in HttpOnly cookie.
 export const getToken = () => {
@@ -6,8 +13,8 @@ export const getToken = () => {
 	if (localStorage.getItem("bph_cms_workspace") !== "panel-session") localStorage.removeItem("bph_cms_workspace");
 	return sessionStorage.getItem(TOKEN_KEY) === "panel-session" ? "panel-session" : "";
 };
-export const setToken = () => sessionStorage.setItem(TOKEN_KEY, "panel-session");
-export const clearToken = () => sessionStorage.removeItem(TOKEN_KEY);
+export const setToken = () => { sessionGeneration++; sessionStorage.setItem(TOKEN_KEY, "panel-session"); };
+export const clearToken = () => { sessionGeneration++; sessionStorage.removeItem(TOKEN_KEY); };
 export const signOut = () => request("/api/v1/auth/panel-sign-out", { method: "POST" });
 
 export class ApiFail extends Error {
@@ -20,6 +27,7 @@ export class ApiFail extends Error {
 
 export async function api(path, { method = "GET", json, signal } = {}) {
 	const requestToken = getToken();
+	const generation = sessionGeneration;
 	const opts = { method, signal, headers: { Authorization: `Bearer ${requestToken}` } };
 	if (json !== undefined) {
 		opts.headers["Content-Type"] = "application/json";
@@ -27,11 +35,10 @@ export async function api(path, { method = "GET", json, signal } = {}) {
 	}
 	const res = await request(`/api/v1${path}`, opts);
 	const body = await res.json().catch(() => ({}));
-	if (res.status === 401 && requestToken && requestToken === getToken()) {
+	if (res.status === 401 && requestToken && requestToken === getToken() && generation === sessionGeneration) {
 		// Token kedaluarsa/dicabut — pusatkan penanganan: bersihkan token lalu
 		// beri tahu App (listener "bph:unauthorized") supaya reset state + ke login.
-		clearToken();
-		window.dispatchEvent(new Event("bph:unauthorized"));
+		invalidateSession(generation);
 	}
 	if (!res.ok || body.success === false) throw new ApiFail(body, res.status);
 	return body.data;

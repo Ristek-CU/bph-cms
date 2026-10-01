@@ -70,6 +70,18 @@ const validateField = (f: FieldInput) => {
 	}
 };
 
+// Eleven bindings per field: keep each statement below D1's 100-parameter limit.
+const fieldStatements = (db: Db, formId: string, fields: FieldInput[], now: string) => {
+	const rows = fields.map((f, i) => ({
+		id: uuidv7(), formId, label: f.label, description: f.description ?? null,
+		type: f.type, required: f.required, active: f.active, options: serializeOptions(f.options),
+		sortOrder: f.sort_order ?? i, createdAt: now, updatedAt: now,
+	}));
+	const statements = [];
+	for (let i = 0; i < rows.length; i += 8) statements.push(db.insert(formFields).values(rows.slice(i, i + 8)));
+	return statements;
+};
+
 const toAdminShape = (f: FormRow, fields: FieldRow[] = []) => ({
 	id: f.id,
 	slug: f.slug,
@@ -151,10 +163,11 @@ export const formService = {
 		for (const f of input.fields ?? []) validateField(f);
 
 		const now = new Date().toISOString();
-		const [row] = await db
+		const formId = uuidv7();
+		const insertForm = db
 			.insert(forms)
 			.values({
-				id: uuidv7(),
+				id: formId,
 				divisionId: meta.divisionId!,
 				slug,
 				title: input.title,
@@ -168,11 +181,10 @@ export const formService = {
 				updatedByUserId: meta.userId ?? null,
 				createdAt: now,
 				updatedAt: now,
-			})
-			.returning();
+			});
 
-		if (input.fields?.length) await this.replaceFields(db, row.id, input.fields);
-		return this.get(db, row.id);
+		await db.batch([insertForm, ...fieldStatements(db, formId, input.fields ?? [], now)]);
+		return this.get(db, formId);
 	},
 
 	// Ganti seluruh set pertanyaan (pattern sessions di events). Field lama yang
@@ -180,23 +192,11 @@ export const formService = {
 	// Panel selalu kirim active per field (switch dialog), jadi tidak perlu preserve.
 	async replaceFields(db: Db, formId: string, fields: FieldInput[]) {
 		for (const f of fields) validateField(f);
-		await db.delete(formFields).where(eq(formFields.formId, formId));
 		const now = new Date().toISOString();
-		await db.insert(formFields).values(
-			fields.map((f, i) => ({
-				id: uuidv7(),
-				formId,
-				label: f.label,
-				description: f.description ?? null,
-				type: f.type,
-				required: f.required,
-				active: f.active,
-				options: serializeOptions(f.options),
-				sortOrder: f.sort_order ?? i,
-				createdAt: now,
-				updatedAt: now,
-			})),
-		);
+		await db.batch([
+			db.delete(formFields).where(eq(formFields.formId, formId)),
+			...fieldStatements(db, formId, fields, now),
+		]);
 	},
 
 	async update(db: Db, id: string, input: UpdateFormInput) {
