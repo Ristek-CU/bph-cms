@@ -29,6 +29,8 @@ export type D1RateLimitOptions = {
 	prefix: string;
 	limit: number;
 	windowMs: number;
+	/** Stable route identity prevents parameter or alias changes bypassing a limit. */
+	keyPath?: string | ((c: Parameters<MiddlewareHandler<AppContext>>[0]) => string);
 	/** Tambahan identitas key selain IP, mis. email yang dicoba saat login. */
 	suffix?: (c: Parameters<MiddlewareHandler<AppContext>>[0]) => string | Promise<string>;
 };
@@ -43,7 +45,8 @@ export const d1RateLimiter =
 	async (c, next) => {
 		const db = c.get("db");
 		const suffix = opts.suffix ? `:${await opts.suffix(c)}` : "";
-		const key = `${opts.prefix}:${clientIp(c)}:${c.req.path}${suffix}`;
+		const path = typeof opts.keyPath === "function" ? opts.keyPath(c) : opts.keyPath ?? c.req.path;
+		const key = `${opts.prefix}:${clientIp(c)}:${path}${suffix}`;
 
 		const result = await consumeRateLimit(db, key, opts.limit, opts.windowMs);
 		c.header("X-RateLimit-Limit", String(opts.limit));

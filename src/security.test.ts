@@ -98,6 +98,40 @@ const cookieOnly = await h.req("/api/v1/admin/events", {
 });
 eq("Cookie saja (tanpa Bearer) → 401", cookieOnly.status, 401);
 
+const panelLogin = await h.req("/api/v1/auth/panel-sign-in", {
+	method: "POST", host: "localhost", headers: { Origin: "http://localhost" },
+	json: { email: "admin.a@example.com", password: "test-valid-password", role: "admin" },
+});
+eq("panel login returns a non-secret marker", panelLogin.body?.data?.token, "panel-session");
+const sessionCookie = panelLogin.headers.get("set-cookie") ?? "";
+for (const flag of ["HttpOnly", "Secure", "SameSite=Strict", "Path=/"]) {
+	ok(`panel session cookie has ${flag}`, sessionCookie.includes(flag), sessionCookie);
+}
+const cookieHeaders = { Cookie: "__Host-bph_session=tok-a-admin" };
+const cookieRead = await h.req("/api/v1/admin/events", { host: "localhost", token: "panel-session", headers: cookieHeaders });
+eq("panel session authorizes same-origin reads", cookieRead.status, 200);
+const cookieWrite = await h.req("/api/v1/admin/events/ev-a-draft", {
+	host: "localhost", method: "PUT", token: "panel-session",
+	headers: { ...cookieHeaders, Origin: "http://localhost" }, json: { title: "Cookie update" },
+});
+eq("panel session authorizes same-origin writes", cookieWrite.status, 200);
+for (const origin of [undefined, "http://localhost:9999"]) {
+	const csrf = await h.req("/api/v1/admin/events/ev-a-draft", {
+		host: "localhost", method: "PUT", token: "panel-session",
+		headers: { ...cookieHeaders, ...(origin ? { Origin: origin } : {}) }, json: { title: "CSRF" },
+	});
+	eq("cookie writes reject missing or foreign Origin", csrf.status, 403);
+}
+const cookieLeak = await h.req("/api/v1/admin/events", {
+	host: "localhost", token: "panel-session", headers: { ...cookieHeaders, Origin: "http://localhost:9999" },
+});
+eq("cookie reads reject foreign Origin", cookieLeak.status, 403);
+const logout = await h.req("/api/v1/auth/panel-sign-out", {
+	host: "localhost", method: "POST", headers: { Origin: "http://localhost" },
+});
+eq("panel logout succeeds", logout.status, 200);
+ok("panel logout expires cookie", (logout.headers.get("set-cookie") ?? "").includes("Max-Age=0"));
+
 // ── 2. Dev-auth fallback tidak boleh hidup di luar localhost ─────────────────
 section("Dev-auth fallback");
 
@@ -392,6 +426,24 @@ const badRange = await h.req("/api/v1/admin/events", {
 	json: { ...validEvent, starts_at: E, ends_at: S },
 });
 eq("ends_at <= starts_at → 422", badRange.status, 422);
+const oversizedEvent = await h.req("/api/v1/admin/events", {
+	method: "POST", token: "tok-a-admin", json: { ...validEvent, description: "x".repeat(1024 * 1024) },
+});
+eq("oversized event JSON rejected before parsing", oversizedEvent.status, 413);
+const oversizedAuth = await h.req("/api/v1/auth/sign-in", {
+	method: "POST", json: { email: "admin.a@example.com", password: "x".repeat(16 * 1024) },
+});
+eq("oversized authentication JSON rejected", oversizedAuth.status, 413);
+const credentialUrl = await h.req("/api/v1/admin/events", {
+	method: "POST", token: "tok-a-admin", json: { ...validEvent, registration_url: "https://user:password@example.com/register" },
+});
+eq("event links cannot embed credentials", credentialUrl.status, 422);
+for (const patch of [{ starts_at: "2099-01-01T00:00:00+07:00" }, { ends_at: "2000-01-01T00:00:00+07:00" }]) {
+	const invalidPartialRange = await h.req("/api/v1/admin/events/ev-a-draft", {
+		method: "PUT", token: "tok-a-admin", json: patch,
+	});
+	eq("partial update cannot invert persisted event range", invalidPartialRange.status, 422);
+}
 ok("422 membawa errors per field", Array.isArray(badRange.body?.errors?.ends_at), badRange.body?.errors);
 
 const badSlug = await h.req("/api/v1/admin/events", {

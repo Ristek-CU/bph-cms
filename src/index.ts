@@ -3,6 +3,9 @@ import type { Handler, Next } from "hono";
 import { lt } from "drizzle-orm";
 import { requestId } from "hono/request-id";
 import { cors } from "hono/cors";
+import { setCookie, deleteCookie, getCookie } from "hono/cookie";
+import { bodyLimit } from "hono/body-limit";
+import { z } from "zod";
 import { openAPIRouteHandler, describeRoute, resolver } from "hono-openapi";
 import { successWrapper, errorWrapper, authDataSchema } from "./modules/openapi/schemas";
 import { errorHandler } from "./shared/error-handler";
@@ -43,6 +46,8 @@ app.use("*", async (c, next) => {
 	c.header("X-Content-Type-Options", "nosniff");
 	c.header("Referrer-Policy", "no-referrer");
 	c.header("X-Frame-Options", "DENY");
+	c.header("Strict-Transport-Security", "max-age=31536000");
+	if (/^\/api\/v1\/(admin|auth|me|openapi)(\/|$)/.test(c.req.path)) c.header("Cache-Control", "private, no-store");
 	c.header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
 });
 
@@ -175,20 +180,25 @@ const describeAuth = (summary: string, description: string) =>
 	});
 
 const proxyAuth =
-	(options: { path: string; native?: boolean }) =>
+	(options: { path: string; native?: boolean; panel?: boolean }) =>
 	async (c: Parameters<import("hono").Handler>[0]) => {
 		const raw = await c.req.text();
 		// Tolak body kosong/bukan JSON dengan 400 rapi — sebelumnya 500 "Malformed JSON"
 		// dari service auth saat parsing gagal.
-		if (!raw || /{|\[/.test(raw) === false) {
-			throw ApiError.badRequest("Body JSON wajib: { email, password }");
-		}
+		let parsed: unknown;
+		try { parsed = JSON.parse(raw); } catch { throw ApiError.badRequest("Body JSON wajib: { email, password }"); }
+		const schema = z.object({
+			email: z.email().max(254), password: z.string().min(options.native ? 8 : 1).max(1024),
+			...(options.native ? { name: z.string().trim().min(1).max(200) } : {}),
+		});
+		const validated = schema.safeParse(parsed);
+		if (!validated.success) throw ApiError.badRequest("Permintaan autentikasi tidak valid");
 		const res = await c.env.AUTH_SERVICE.fetch(
 			// Path service auth redeploy: /v1/auth/* kini /v1/access/*
 			new Request(`http://internal/v1/access/${options.path}`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: raw,
+				body: JSON.stringify(validated.data),
 			}),
 		);
 
@@ -201,7 +211,16 @@ const proxyAuth =
 			const message = status === 401 ? "Email atau password salah" : status === 429 ? "Terlalu banyak permintaan. Coba beberapa saat lagi." : status >= 500 ? "Layanan autentikasi sedang bermasalah" : "Permintaan autentikasi tidak valid";
 			throw new ApiError(status as StatusCode, message, status === 401 ? { code: "INVALID_EMAIL_OR_PASSWORD" } : undefined);
 		}
-		if (!options.native) return new Response(JSON.stringify(body), { status: res.status, headers: { "Content-Type": "application/json" } });
+		if (options.panel) {
+			const data = (body as { data?: { token?: string; user?: unknown } })?.data;
+			if (!data?.token || typeof data.token !== "string") throw ApiError.server("Invalid authentication response");
+			setCookie(c, "__Host-bph_session", data.token, {
+				httpOnly: true, secure: true, sameSite: "Strict", path: "/", maxAge: 8 * 60 * 60,
+			});
+			c.header("Cache-Control", "no-store");
+			return ApiResponse.ok(c, "Signed in", { token: "panel-session", user: data.user });
+		}
+		if (!options.native) return new Response(JSON.stringify(body), { status: res.status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 		return ApiResponse.ok(c, "Sign up berhasil", body);
 	};
@@ -211,6 +230,7 @@ const proxyAuth =
 // Hono meng-cache body request, jadi membaca email di sini tidak menghabiskan
 // body yang nanti dipakai proxyAuth.
 const FIFTEEN_MIN = 15 * 60_000;
+v1.use("/auth/*", bodyLimit({ maxSize: 16 * 1024, onError: () => { throw new ApiError(STATUS_CODES.PAYLOAD_TOO_LARGE, "Request body too large"); } }));
 const authEmail = async (c: Parameters<Handler<AppContext>>[0]) => {
 	try {
 		const body = JSON.parse(await c.req.text()) as { email?: unknown };
@@ -227,16 +247,39 @@ const signInPerEmailLimiter = d1RateLimiter({
 	limit: 20,
 	windowMs: FIFTEEN_MIN,
 	suffix: authEmail,
+	keyPath: "/auth/sign-in",
 });
 const signInPerIpLimiter = d1RateLimiter({
 	prefix: "auth:sign-in-ip",
 	limit: 60,
 	windowMs: FIFTEEN_MIN,
+	keyPath: "/auth/sign-in",
 });
 const signUpLimiter = d1RateLimiter({
 	prefix: "auth:sign-up",
 	limit: 10,
 	windowMs: FIFTEEN_MIN,
+});
+
+const panelOrigin: Handler<AppContext> = async (c, next) => {
+	if (c.req.header("Origin") !== new URL(c.req.url).origin) {
+		throw ApiError.forbidden("Invalid session request origin");
+	}
+	return next();
+};
+v1.post("/auth/panel-sign-in", panelOrigin, signInPerEmailLimiter, signInPerIpLimiter,
+	proxyAuth({ path: "sign-in", panel: true }));
+v1.post("/auth/panel-sign-out", panelOrigin, async (c) => {
+	const token = getCookie(c, "__Host-bph_session");
+	if (token) {
+		const response = await c.env.AUTH_SERVICE.fetch(new Request("http://internal/v1/access/sign-out", {
+			method: "POST", headers: { Authorization: `Bearer ${token}` },
+		}));
+		if (!response.ok && response.status !== 401) throw ApiError.server("Logout belum berhasil. Coba lagi.");
+	}
+	deleteCookie(c, "__Host-bph_session", { secure: true, path: "/" });
+	c.header("Cache-Control", "no-store");
+	return ApiResponse.ok(c, "Signed out");
 });
 
 v1.post(

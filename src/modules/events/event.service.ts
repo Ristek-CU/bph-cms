@@ -197,6 +197,11 @@ export const eventService = {
 
 		const startsAt = input.starts_at ?? ev.startsAt;
 		const endsAt = input.ends_at ?? ev.endsAt;
+		if (Date.parse(endsAt) <= Date.parse(startsAt)) {
+			throw ApiError.validation("Validation failed", {
+				ends_at: ["ends_at must be after starts_at"],
+			});
+		}
 
 		if (input.sessions !== undefined) {
 			const errors = validateSessionsInRange(

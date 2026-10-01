@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { getCookie } from "hono/cookie";
 import { eq } from "drizzle-orm";
 import { ApiError } from "../shared/api-error";
 import { cmsMemberships, divisions } from "../db/schema";
@@ -10,10 +11,20 @@ import type { AppContext, UserMembership } from "../types";
  * Memuat profil user dan membership CMS, lalu menetapkan permission dan activeDivisionId.
  */
 export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
-	// Hanya Bearer. Cookie sengaja tidak diterima: panel dan halaman docs memakai
-	// Authorization header, dan menerima cookie menambah permukaan CSRF tanpa ada
-	// satu pun klien yang membutuhkannya.
-	const authHeader = c.req.header("Authorization");
+	// Integrations use Bearer; the panel uses a marker plus HttpOnly cookie.
+	// Origin checks guard cookie requests against CSRF and data disclosure.
+	let authHeader = c.req.header("Authorization");
+	if (authHeader === "Bearer panel-session") {
+		const origin = c.req.header("Origin");
+		const ownOrigin = new URL(c.req.url).origin;
+		if ((origin && origin !== ownOrigin) ||
+			(!["GET", "HEAD"].includes(c.req.method) && origin !== ownOrigin) ||
+			c.req.header("Sec-Fetch-Site") === "cross-site") {
+			throw ApiError.forbidden("Invalid session request origin");
+		}
+		const token = getCookie(c, "__Host-bph_session");
+		authHeader = token ? `Bearer ${token}` : undefined;
+	}
 	if (!authHeader?.startsWith("Bearer ")) {
 		throw ApiError.unauthorized();
 	}

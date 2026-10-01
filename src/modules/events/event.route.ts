@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { bodyLimit } from "hono/body-limit";
+import { STATUS_CODES } from "../../shared/status-codes";
 import { describeRoute, resolver } from "hono-openapi";
 import type { AppContext } from "../../types";
 import { adminAuth } from "../../middlewares/admin-auth";
@@ -56,6 +58,11 @@ const eventOk = (summary: string, description: string, extra: Record<number, { d
 	ok(summary, description, successWrapper(adminEventSchema), extra);
 
 export const adminEventRouter = new Hono<AppContext>();
+
+// Bound JSON parsing while accommodating the schema's 100 sessions.
+adminEventRouter.use("*", bodyLimit({ maxSize: 1024 * 1024, onError: () => {
+	throw new ApiError(STATUS_CODES.PAYLOAD_TOO_LARGE, "Request body too large");
+} }));
 
 // Semua endpoint admin wajib session valid + role admin (SDD §5/§6).
 adminEventRouter.use("*", adminAuth);

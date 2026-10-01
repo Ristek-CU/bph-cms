@@ -19,7 +19,7 @@ import {
 const listQuerySchema = z.object({
 	status: z.enum(["ongoing", "upcoming", "past"]).optional(),
 	limit: z.coerce.number().int().positive().max(50).default(12),
-	page: z.coerce.number().int().positive().default(1),
+	page: z.coerce.number().int().positive().max(10000).default(1),
 });
 
 const monthQuerySchema = z.object({
@@ -67,7 +67,10 @@ export const publicEventRouter = new Hono<AppContext>();
 publicEventRouter.use("*", publicRateLimiter);
 publicEventRouter.use(
 	"*",
-	d1RateLimiter({ prefix: "public:events", limit: 120, windowMs: 60_000 }),
+	d1RateLimiter({ prefix: "public:events", limit: 120, windowMs: 60_000,
+		keyPath: (c) => ["/api/v1/events", "/api/v1/events/", "/api/v1/events/calendar"].includes(c.req.path)
+			? c.req.path : "/api/v1/events/:slug",
+	}),
 );
 
 // PENTING: /calendar didaftarkan sebelum /:slug agar tidak tertelan param.

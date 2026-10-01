@@ -13,6 +13,10 @@ const isoDatetime = z
 const urlField = z
 	.url("Must be a valid URL")
 	.refine((v) => v.startsWith("http://") || v.startsWith("https://"), "URL harus diawali http:// atau https://")
+	.refine((v) => {
+		try { const url = new URL(v); return !url.username && !url.password; }
+		catch { return false; }
+	}, "URL tidak boleh mengandung kredensial")
 	.max(2048);
 
 export const sessionInputSchema = z

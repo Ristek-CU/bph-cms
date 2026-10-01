@@ -7,12 +7,12 @@ const workspaces = [{ id: 'hub', label: 'CMS Hub', kind: 'cms_hub' }, { id: 'ext
 
 async function setup(page, { signedIn = true, permissions = admin, workspace = false, eventStatus = 'draft', formStatus = 'draft', oversight = false } = {}) {
   const state = { events: [{ ...event, status: eventStatus }], form: structuredClone({ ...form, status: formStatus }), calls: [], failEvents: false, failMe: false, failSave: false, expire: false };
-  await page.addInitScript(({ signedIn }) => { if (signedIn) { localStorage.setItem('bph_cms_token', 'fixture-token'); localStorage.setItem('bph_cms_workspace', 'fixture-token'); } }, { signedIn });
+  await page.addInitScript(({ signedIn }) => { if (signedIn) { sessionStorage.setItem('bph_cms_token', 'panel-session'); localStorage.setItem('bph_cms_workspace', 'panel-session'); } }, { signedIn });
   await page.route('**/api/v1/**', async route => {
     const req = route.request(); const path = new URL(req.url()).pathname.replace('/api/v1', ''); const method = req.method();
     state.calls.push({ path, method, body: req.postDataJSON() });
     const reply = (data, status = 200, message = 'OK') => route.fulfill({ status, json: { success: status < 400, data, message } });
-    if (path === '/auth/sign-in') return reply({ token: 'fixture-token', user: { email: 'test@example.com' } });
+    if (path === '/auth/panel-sign-in') return reply({ token: 'panel-session', user: { email: 'test@example.com' } });
     if (state.expire) return reply(null, 401, 'Sesi berakhir');
     if (path === '/me') return state.failMe ? reply(null, 503, 'Layanan belum tersedia') : reply({ can_access_oversight: oversight, user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', name: 'BPH' }, role: 'platform_admin', permissions }], workspace_options: workspace ? workspaces : [workspaces[0]] });
     if (path === '/admin/events') {
@@ -168,7 +168,7 @@ test('QPR maintenance blocks unreleased admin and public forms', async ({ page }
   await visit(page, '/qpr');
   await expect(page.getByText('Fitur QPR sedang dalam tahap pengembangan.')).toBeVisible();
   await expect(page.getByRole('button', { name: '+ Periode baru' })).toHaveCount(0);
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
   await page.setViewportSize({ width: 390, height: 844 });
   await visit(page, '/qpr/period-1');
   await expect(page.getByText('Fitur QPR sedang dalam tahap pengembangan.')).toBeVisible();

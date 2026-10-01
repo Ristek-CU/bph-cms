@@ -1,8 +1,14 @@
 const TOKEN_KEY = "bph_cms_token";
 
-export const getToken = () => localStorage.getItem(TOKEN_KEY) || "";
-export const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
-export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+// Only a non-secret UI marker is stored; the session token lives in HttpOnly cookie.
+export const getToken = () => {
+	localStorage.removeItem(TOKEN_KEY);
+	if (localStorage.getItem("bph_cms_workspace") !== "panel-session") localStorage.removeItem("bph_cms_workspace");
+	return sessionStorage.getItem(TOKEN_KEY) === "panel-session" ? "panel-session" : "";
+};
+export const setToken = () => sessionStorage.setItem(TOKEN_KEY, "panel-session");
+export const clearToken = () => sessionStorage.removeItem(TOKEN_KEY);
+export const signOut = () => request("/api/v1/auth/panel-sign-out", { method: "POST" });
 
 export class ApiFail extends Error {
 	constructor(body, status) {
@@ -33,7 +39,7 @@ export async function api(path, { method = "GET", json, signal } = {}) {
 
 // Login lewat proxy /auth/sign-in (binding AUTH_SERVICE).
 export async function signIn(email, password) {
-	const res = await request("/api/v1/auth/sign-in", {
+	const res = await request("/api/v1/auth/panel-sign-in", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ email, password }),

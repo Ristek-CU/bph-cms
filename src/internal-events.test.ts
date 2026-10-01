@@ -280,7 +280,7 @@ eq("diberi nosniff", viewerServe.headers.get("x-content-type-options"), "nosniff
 eq(
 	"cache-control private, bukan public",
 	viewerServe.headers.get("cache-control"),
-	"private, max-age=31536000, immutable",
+	"private, no-store",
 );
 
 const crossDivServe = await h.req(`/api/v1/admin/internal-media/${internalFilename}`, { token: "tok-b-admin" });

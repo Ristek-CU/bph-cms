@@ -151,6 +151,9 @@ export const startHarness = async (
 
 					if (path === "/v1/access/sign-in" && request.method === "POST") {
 						const submitted = await request.json();
+						if (submitted.email === "admin.a@example.com" && submitted.password === "test-valid-password") {
+							return json({ success: true, data: { token: "tok-a-admin", user: USERS["tok-a-admin"] } }, 200);
+						}
 						return json(
 							{
 								success: false,

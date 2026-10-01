@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HashRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { api, errText, setToken as persistToken, clearToken, signIn, requestWorkspaceHandoff } from "./api.js";
+import { api, errText, setToken as persistToken, clearToken, signIn, requestWorkspaceHandoff, getToken, signOut } from "./api.js";
 import { ToastProvider, SkeletonCard, ErrorState } from "./components/ui.jsx";
 import { Login, Shell } from "./components/Shell.jsx";
 import { IconCalendar, IconPlus } from "./components/Icons.jsx";
@@ -39,7 +39,7 @@ const EMPTY_PERMISSIONS = [];
 const WS_KEY = "bph_cms_workspace";
 
 function App() {
-	const [token, setToken] = useState(localStorage.getItem("bph_cms_token"));
+	const [token, setToken] = useState(getToken());
 	const [user, setUser] = useState(null);
 	const [workspaces, setWorkspaces] = useState([]);
 	// Pilihan workspace dipersist: modal pilih dashboard HANYA muncul saat login
@@ -79,7 +79,7 @@ function App() {
 				// tampilkan hanya jika token BARU login (belum ada pilihan
 				// tersimpan untuk token ini).
 				const seenFor = localStorage.getItem(WS_KEY);
-				if (!seenFor || seenFor !== String(localStorage.getItem("bph_cms_token"))) {
+				if (!seenFor || seenFor !== String(getToken())) {
 					setShowWorkspaceModal(true);
 				}
 			}
@@ -159,7 +159,7 @@ function App() {
 
 	const handleSelectWorkspace = async (ws) => {
 		setWsErr("");
-		localStorage.setItem(WS_KEY, String(localStorage.getItem("bph_cms_token")));
+		localStorage.setItem(WS_KEY, String(getToken()));
 
 		// cms_hub (atau workspace tanpa URL): perilaku lama sudah benar —
 		// tutup modal dan jatuh ke <Routes>. Dibuat eksplisit.
@@ -186,7 +186,11 @@ function App() {
 
 	// Logout harus me-reset state App (token/user/events) — clearToken() saja tidak
 	// cukup: /login me-redirect ke "/" dan app tetap render dengan user basi.
-	const handleLogout = useCallback(() => {
+	const handleLogout = useCallback(async () => {
+		try { await signOut(); } catch {
+			setAuthErr("Logout belum berhasil. Periksa koneksi dan coba lagi.");
+			return;
+		}
 		authGeneration.current++;
 		clearToken();
 		resetRoroSession();
@@ -515,7 +519,7 @@ function App() {
 			<Route path="*" element={<Navigate to="/" replace />} />
 		</Routes>
 		{showWorkspaceModal && workspaces.length > 1 && <WorkspaceModal workspaces={workspaces} onSelect={handleSelectWorkspace} busy={wsBusy} error={wsErr} onCancel={wsBusy ? undefined : () => {
-			localStorage.setItem(WS_KEY, String(localStorage.getItem("bph_cms_token")));
+			localStorage.setItem(WS_KEY, String(getToken()));
 			setShowWorkspaceModal(false);
 		}} />}
 		</>
