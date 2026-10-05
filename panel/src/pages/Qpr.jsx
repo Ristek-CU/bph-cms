@@ -89,6 +89,7 @@ function AdminView() {
 function CreatePeriodModal({ open, onClose, onDone, toast }) {
 	const [title, setTitle] = useState("");
 	const [desc, setDesc] = useState("");
+	const [formKind, setFormKind] = useState("bph");
 	const [busy, setBusy] = useState(false);
 	const modalRef = useFocusTrap(open);
 	useEscape(() => open && !busy && onClose());
@@ -103,11 +104,15 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 				json: {
 					title: title.trim(),
 					description: desc.trim() || null,
-					questions: [
-						{ label: "Menyelesaikan tugas tepat waktu", category: "Kinerja" },
-						{ label: "Berkolaborasi dengan baik", category: "Kolaborasi" },
-						{ label: "Menunjukkan inisiatif", category: "Inisiatif" },
-					],
+					form_kind: formKind,
+					// form bph: pertanyaan dari template resmi server; legacy: default 3 kategori.
+					...(formKind === "legacy" && {
+						questions: [
+							{ label: "Menyelesaikan tugas tepat waktu", category: "Kinerja" },
+							{ label: "Berkolaborasi dengan baik", category: "Kolaborasi" },
+							{ label: "Menunjukkan inisiatif", category: "Inisiatif" },
+						],
+					}),
 				},
 			});
 			toast("Periode draft dibuat — tambahkan nama pengisi lalu buka.");
@@ -126,15 +131,27 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Periode baru">
 				<h3>Periode baru</h3>
 				<div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+					<fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+						<legend className="field-label">Jenis penilaian</legend>
+						<div style={{ display: "grid", gap: 6, marginTop: 4 }}>
+							<label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+								<input type="radio" name="qp-kind" value="bph" checked={formKind === "bph"} onChange={() => setFormKind("bph")} style={{ marginTop: 3 }} />
+								<span><strong>QPR Penilaian BPH</strong><span className="muted small" style={{ display: "block" }}>7 section resmi (Controller, Bendahara, Sekretaris, Ketua, Wakil) — jalur otomatis per jabatan pengisi.</span></span>
+							</label>
+							<label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+								<input type="radio" name="qp-kind" value="legacy" checked={formKind === "legacy"} onChange={() => setFormKind("legacy")} style={{ marginTop: 3 }} />
+								<span><strong>Penilaian sederhana</strong><span className="muted small" style={{ display: "block" }}>3 pertanyaan bawaan: Kinerja, Kolaborasi, Inisiatif (skala 1–5).</span></span>
+							</label>
+						</div>
+					</fieldset>
 					<div>
 						<label className="field-label" htmlFor="qp-title">Judul periode</label>
-						<input id="qp-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Penilaian September 2026" required maxLength={160} />
+						<input id="qp-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="QPR BPH Oktober 2026" required maxLength={160} />
 					</div>
 					<div>
-						<label className="field-label" htmlFor="qp-desc">Yang dinilai (opsional)</label>
-						<input id="qp-desc" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Menilai: Ketua Ristek" />
+						<label className="field-label" htmlFor="qp-desc">Deskripsi (opsional)</label>
+						<input id="qp-desc" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Penilaian pengurus BPH" />
 					</div>
-					<p className="muted small">Pertanyaan bawaan: Kinerja, Kolaborasi, Inisiatif (skala 1–5).</p>
 				</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
 					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
@@ -497,8 +514,8 @@ function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 	const submit = async (e) => {
 		e.preventDefault();
 		const items = raw.trim().split("\n").map((line) => {
-			const [name, division] = line.split("|").map((s) => s.trim());
-			return { name, division: division || null };
+			const [name, division, role] = line.split("|").map((s) => s.trim());
+			return { name, division: division || null, role: role || null };
 		}).filter((a) => a.name);
 		if (!items.length) { toast("Format tidak terbaca.", "err"); return; }
 		setBusy(true);
@@ -520,8 +537,9 @@ function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Tambah nama pengisi">
 				<h3>Tambah nama pengisi</h3>
 				<div style={{ marginTop: 10 }}>
-					<label className="field-label" htmlFor="qp-entries">Nama (satu per baris, opsional "Nama | Divisi")</label>
-					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={"Raka Pratama | Ristek\nSinta Dewi | Ristek"} required />
+					<label className="field-label" htmlFor="qp-entries">Nama (satu per baris, "Nama | Divisi | Jabatan")</label>
+					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={"Raka Pratama | Ristek | kadiv\nSinta Dewi | Ristek | anggota"} required />
+					<p className="muted small">Jabatan (khusus QPR BPH) menentukan jalur penilaian: anggota, kadiv, wakadiv, bendiv, sekdiv, bendum, sekum, controller, ketum, waketum. Kosong = anggota.</p>
 				</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
 					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
