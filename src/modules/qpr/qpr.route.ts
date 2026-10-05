@@ -12,7 +12,7 @@ import { idParamSchema } from "../forms/form.schema";
 import { getDb } from "../../db/connection";
 import { publicRateLimiter, d1RateLimiter } from "../../middlewares/rate-limiter";
 import { qprService } from "./qpr.service";
-import { createEntriesSchema, createPeriodSchema, saveDraftSchema, submitAnswersSchema, updatePeriodSchema } from "./qpr.schema";
+import { createEntriesSchema, createPeriodSchema, saveDraftSchema, submitAnswersSchema, submitV2Schema, updatePeriodSchema } from "./qpr.schema";
 import { successWrapper, errorWrapper } from "../openapi/schemas";
 
 const describe = (
@@ -126,6 +126,31 @@ publicQprRouter.post(
 		const input = await parseJson(c, submitAnswersSchema);
 		const result = await qprService.submitPublic(getDb(c.env.DB), periodId, input);
 		await recordAuditLog(c, { action: "qpr.public_submit", resourceType: "qpr_entry", resourceId: result.entry_id });
+		return ApiResponse.ok(c, "Penilaian terkirim. Terima kasih!", result);
+	},
+);
+
+// Submit final v2 (snapshot berversi): exact set + batch atomik.
+publicQprRouter.post(
+	"/:periodId/submit-v2",
+	describeRoute({
+		summary: "Kirim penilaian final (format v2)",
+		description: "Body: { entry_id, expected_version?, answers: [{ question_id, value }] }. Exact set jawaban wajib; sekali kirim terkunci atomik.",
+		tags: ["Public QPR"],
+		responses: {
+			200: { description: "Success", content: { "application/json": { schema: resolver(successWrapper(z.object({}))) } } },
+			404: { description: "Periode/nama tidak tersedia" },
+			409: { description: "Sudah mengirim final" },
+			422: { description: "Jawaban kurang/berlebih/tidak valid" },
+		},
+	}),
+	d1RateLimiter({ prefix: "public:qpr", limit: 10, windowMs: 60_000 }),
+	async (c) => {
+		const { periodId } = c.req.param();
+		c.header("Cache-Control", "no-store");
+		const input = await parseJson(c, submitV2Schema);
+		const result = await qprService.submitV2(getDb(c.env.DB), periodId, input);
+		await recordAuditLog(c, { action: "qpr.public_submit_v2", resourceType: "qpr_entry", resourceId: result.entry_id });
 		return ApiResponse.ok(c, "Penilaian terkirim. Terima kasih!", result);
 	},
 );

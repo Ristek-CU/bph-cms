@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 import { ApiError } from "../../shared/api-error";
 import { qprAnswers, qprEntries, qprPeriods } from "../../db/schema";
@@ -331,6 +331,62 @@ export const qprService = {
 			.returning({ id: qprEntries.id, draftVersion: qprEntries.draftVersion });
 		if (!updated.length) throw ApiError.conflict("Draft sudah diperbarui perangkat lain — muat ulang sebelum menyimpan.");
 		return { draft_version: updated[0].draftVersion, saved_at: now };
+	},
+
+	/**
+	 * Submit final v2: exact-set lengkap, satu D1 batch atomik. Insert final
+	 * bersyarat (WHERE done=false) jadi dasar — UPDATE done dan DELETE draft
+	 * hanya jalan bila row operasi ini yang masuk. Dua submit paralel: satu
+	 * insert, yang lain 409. Tidak ada keadaan setengah berhasil.
+	 */
+	async submitV2(db: Db, periodId: string, input: SubmitV2Input) {
+		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
+		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, input.entry_id), eq(qprEntries.periodId, periodId))).limit(1);
+		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
+		if (entry.done) throw ApiError.conflict("Nama ini sudah mengirim penilaian final.");
+		const v2 = parseV2(period);
+		if (!v2) throw ApiError.validation("Periode ini memakai format lama — gunakan submit lama");
+		const role = (entry.memberRole ?? "anggota") as Parameters<typeof resolveBphPath>[0];
+		const targets = resolveBphPath(role, { controllers: ["controller"], bendahara: ["bendum1"], sekretaris: ["sekum1"] });
+		const questions = resolveQuestions(v2.sections, targets);
+		validateDraftAnswers(questions, input.answers);
+		// Exact set: semua wajib terisi, tidak ada di luar jalur, tidak berulang.
+		const required = questions.filter((q) => q.required);
+		const byId = new Map(input.answers.map((a) => [a.question_id, a]));
+		const missing = required.filter((q) => {
+			const a = byId.get(q.id);
+			return !a || (q.type === "text" ? (typeof a.value !== "string" || !a.value.trim()) : typeof a.value !== "number");
+		});
+		if (missing.length) {
+			throw ApiError.validation(`Jawaban wajib belum lengkap (${missing.length} kurang)`, { answers: missing.map((q) => q.id) });
+		}
+		const extra = input.answers.filter((a) => !questions.some((q) => q.id === a.question_id));
+		if (extra.length) throw ApiError.validation("Jawaban di luar jalur responden", { answers: extra.map((a) => a.question_id) });
+
+		const now = new Date().toISOString();
+		const answerId = uuidv7();
+		// Guard DB pada operasi, bukan cuma pengecekan sebelum batch. Tabel
+		// qpr_answers hanya punya SATU unique constraint (entry_id) — jadi
+		// onConflictDoNothing hanya pernah diam pada race final nama yang sama,
+		// bukan menyembunyikan kegagalan lain (constraint lain tetap melempar).
+		// UPDATE hanya jalan bila row final operasi INI yang masuk (EXISTS id
+		// operasi), jadi yang kalah race tidak mengubah apa pun.
+		const results = await db.batch([
+			db.insert(qprAnswers)
+				.values({ id: answerId, entryId: entry.id, answers: JSON.stringify(input.answers), submittedAt: now })
+				.onConflictDoNothing({ target: qprAnswers.entryId }),
+			db.update(qprEntries)
+				.set({ done: true, submittedAt: now })
+				.where(and(eq(qprEntries.id, entry.id), eq(qprEntries.done, false), sql`EXISTS (SELECT 1 FROM qpr_answers WHERE id = ${answerId})`)),
+			db.update(qprEntries)
+				.set({ draftAnswers: null, draftUpdatedAt: null })
+				.where(and(eq(qprEntries.id, entry.id), sql`EXISTS (SELECT 1 FROM qpr_answers WHERE id = ${answerId})`)),
+		]);
+		// changes 0 pada insert = kalah race (sudah final) — bukan sukses diam.
+		const inserted = (results[0] as unknown as { meta?: { changes?: number } })?.meta?.changes ?? 0;
+		if (!inserted) throw ApiError.conflict("Nama ini sudah mengirim penilaian final.");
+		return { entry_id: entry.id, name: entry.name, submitted_at: now };
 	},
 
 	/** Rekap: rata-rata skor per kategori + partisipasi (siapa sudah/belum). */

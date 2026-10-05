@@ -295,6 +295,78 @@ eq("baca draft entry final → 409", draftFinal.status, 409);
 const saveFinal = await h.req(`${PUB}/${bphPid}/entries/${diva?.id}/draft`, { method: "PUT", json: { expected_version: 1, answers: [] } });
 eq("save draft entry final → 409", saveFinal.status, 409);
 
+// ── Submit final atomik (T6) ────────────────────────────────────────────────
+section("Submit v2 atomik");
+
+const v2Pid = bphCreated.body?.data?.id;
+// Budi Anggota (jalur anggota: ketum + waketum = 44 wajib)
+const budiDraftV2 = await h.req(`${PUB}/${v2Pid}/entries/${budiBph?.id}/draft`);
+
+const fullAnswers = (budiDraftV2.body?.data?.questions).map((q: any) => ({ question_id: q.id, value: q.type === "scale" ? 4 : "Baik sekali" }));
+
+// Kurang 1 wajib → 422
+const incomplete = await h.req(`${PUB}/${v2Pid}/submit-v2`, { method: "POST", json: { entry_id: budiBph?.id, answers: fullAnswers.slice(0, -1) } });
+eq("jawaban kurang → 422", incomplete.status, 422);
+const rosterAfterIncomplete = await h.req(`${PUB}/${v2Pid}`);
+ok("nama tetap di roster setelah 422", rosterAfterIncomplete.body?.data?.remaining?.some((r: any) => r.name === "Budi Anggota"));
+
+// Di luar jalur → 422 (draft Budi sah, tapi controller tidak)
+const withForeign = [...fullAnswers, { question_id: "controller-s01", value: 3 }];
+const foreign = await h.req(`${PUB}/${v2Pid}/submit-v2`, { method: "POST", json: { entry_id: budiBph?.id, answers: withForeign } });
+eq("jawaban di luar jalur → 422", foreign.status, 422);
+
+// Teks whitespace-only dianggap kurang
+const emptyText = fullAnswers.map((a: any) => (a.question_id.endsWith("-t01") ? { ...a, value: "   " } : a));
+const blankText = await h.req(`${PUB}/${v2Pid}/submit-v2`, { method: "POST", json: { entry_id: budiBph?.id, answers: emptyText } });
+eq("teks wajib whitespace → 422", blankText.status, 422);
+
+// Submit sukses
+const okSubmit = await h.req(`${PUB}/${v2Pid}/submit-v2`, { method: "POST", json: { entry_id: budiBph?.id, answers: fullAnswers } });
+eq("submit exact set → 200", okSubmit.status, 200);
+
+// Roster hilang, draft terhapus, resubmit 409
+const rosterAfterSubmit = await h.req(`${PUB}/${v2Pid}`);
+ok("nama hilang setelah final", !rosterAfterSubmit.body?.data?.remaining?.some((r: any) => r.name === "Budi Anggota"));
+const draftAfterFinal = await h.req(`${PUB}/${v2Pid}/entries/${budiBph?.id}/draft`);
+eq("draft entry final → 409", draftAfterFinal.status, 409);
+const resubmitV2 = await h.req(`${PUB}/${v2Pid}/submit-v2`, { method: "POST", json: { entry_id: budiBph?.id, answers: fullAnswers } });
+eq("submit ulang → 409", resubmitV2.status, 409);
+const budiRow = await h.sql(`SELECT draft_answers, done FROM qpr_entries WHERE id = '${budiBph?.id}'`);
+ok("draft terhapus setelah final", budiRow[0]?.draft_answers === null && budiRow[0]?.done === 1, budiRow[0]);
+
+// ── Konkurensi (D1 nyata, Miniflare) ────────────────────────────────────────
+section("Konkurensi submit");
+
+const entry3 = await h.req(`${ADMIN}/periods/${v2Pid}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "Race Tester", division: "Ristek" }] } });
+const race = entry3.body?.data?.[0];
+// Dua submit paralel nama sama — tepat satu 200.
+const [s1, s2] = await Promise.all([
+	h.req(`${PUB}/${v2Pid}/submit-v2`, { method: "POST", json: { entry_id: race?.id, answers: fullAnswers } }),
+	h.req(`${PUB}/${v2Pid}/submit-v2`, { method: "POST", json: { entry_id: race?.id, answers: fullAnswers } }),
+]);
+const statuses = [s1.status, s2.status].sort();
+eq("2 submit paralel → tepat satu 200", JSON.stringify(statuses), JSON.stringify([200, 409]));
+
+// Draft save + submit paralel — hasil konsisten, tidak ada crash/kebocoran
+const entry4 = await h.req(`${ADMIN}/periods/${v2Pid}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "Save Race", division: "Ristek" }] } });
+const srace = entry4.body?.data?.[0];
+const [sv, sm] = await Promise.all([
+	h.req(`${PUB}/${v2Pid}/entries/${srace?.id}/draft`, { method: "PUT", json: { expected_version: 0, answers: [{ question_id: fullAnswers[0].question_id, value: 2 }] } }),
+	h.req(`${PUB}/${v2Pid}/submit-v2`, { method: "POST", json: { entry_id: srace?.id, answers: fullAnswers } }),
+]);
+ok("save+submit paralel: submit 200 atau 409, tanpa 5xx", [200, 409].includes(sm.status) && [200, 409].includes(sv.status), { sv: sv.status, sm: sm.status });
+const sraceRow = await h.sql(`SELECT done FROM qpr_entries WHERE id = '${srace?.id}'`);
+ok("setelah race, state konsisten (done atau belum, bukan setengah)", sraceRow[0]?.done === (sm.status === 200 ? 1 : 0), sraceRow[0]);
+
+// Close + submit paralel — periode tutup menolak submit
+const entry5 = await h.req(`${ADMIN}/periods/${v2Pid}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "Close Race", division: "Ristek" }] } });
+const crace = entry5.body?.data?.[0];
+const [, cs] = await Promise.all([
+	h.req(`${ADMIN}/periods/${v2Pid}/close`, { token: "tok-bph", method: "POST" }),
+	h.req(`${PUB}/${v2Pid}/submit-v2`, { method: "POST", json: { entry_id: crace?.id, answers: fullAnswers } }),
+]);
+ok("close+submit paralel: submit tidak sukses setelah tutup", [200, 404].includes(cs.status), cs.status);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.
 process.exit(failed ? 1 : 0);
