@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errText } from "../api.js";
 import { useToast, Confirm, SkeletonCard, Card, copyText, ErrorState, useEscape, useFocusTrap } from "../components/ui.jsx";
 
@@ -11,7 +11,11 @@ const PUBLIC_BASE = "https://cms.sga-cakrawala.org/#/qpr";
 
 // ponytail: fitur belum dirilis — wall maintenance untuk panel + halaman publik.
 // Aktifkan fitur: ganti jadi false (badge nav "Segera" di Shell.jsx ikut dikembalikan).
-const QPR_MAINTENANCE = true;
+// VITE_QPR_MAINTENANCE=false untuk dev lokal; window.__QPR_MAINTENANCE__ = false
+// untuk test UI (Playwright) yang tidak me-restart Vite.
+const QPR_MAINTENANCE = typeof window !== "undefined" && window.__QPR_MAINTENANCE__ === false
+	? false
+	: import.meta.env.VITE_QPR_MAINTENANCE !== "false";
 
 function MaintenanceNote() {
 	return (
@@ -428,9 +432,24 @@ function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 	);
 }
 
-/** Halaman publik pengisian (no-login): dropdown nama + form skala 1-5. */
+/** Halaman publik pengisian (no-login): dispatcher format — v2 snapshot vs legacy. */
 export function PublicFill({ periodId }) {
-	return QPR_MAINTENANCE ? <MaintenanceNote /> : <PublicFillForm periodId={periodId} />;
+	return QPR_MAINTENANCE ? <MaintenanceNote /> : <PublicFillDispatch periodId={periodId} />;
+}
+
+function PublicFillDispatch({ periodId }) {
+	const [roster, setRoster] = useState(null);
+	const [err, setErr] = useState("");
+	useEffect(() => {
+		if (!periodId) return;
+		api(`/qpr/${periodId}`)
+			.then((d) => { setRoster(d); setErr(""); })
+			.catch((e) => setErr(e?.message || "Periode tidak ditemukan atau sudah ditutup."));
+	}, [periodId]);
+	if (err) return <ErrorState message={err} />;
+	if (!roster) return <SkeletonCard lines={5} />;
+	// Snapshot v2: questions berupa {version:2, sections} — renderer bertahap + draft.
+	return roster.questions?.version === 2 ? <PublicFillV2 periodId={periodId} /> : <PublicFillForm periodId={periodId} />;
 }
 
 function PublicFillForm({ periodId }) {
@@ -515,6 +534,160 @@ function PublicFillForm({ periodId }) {
 					<button className="btn" disabled={busy || !name || questions.some((q) => !scores[q.label])} onClick={submit}>{busy ? "Mengirim…" : "Kirim penilaian"}</button>
 				</div>
 			</div>}
+		</Card>
+	);
+}
+
+/** Halaman publik pengisian v2 (snapshot berversi): pilih nama → draft autosave → submit. */
+function PublicFillV2({ periodId }) {
+	const toast = useToast();
+	const [roster, setRoster] = useState(null);
+	const [err, setErr] = useState("");
+	// entry = { id, name } terpilih; draft = { answers, version }.
+	const [entry, setEntry] = useState(null);
+	const [draft, setDraft] = useState(null);
+	const [meta, setMeta] = useState(null); // questions, sections, progress, legend
+	const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | conflict | error
+	const [busy, setBusy] = useState(false);
+	const [doneMsg, setDoneMsg] = useState(false);
+	const saveTimer = useRef(null);
+	const saveSeq = useRef(0);
+
+	useEffect(() => {
+		if (!periodId) return;
+		api(`/qpr/${periodId}`)
+			.then((d) => { setRoster(d); setErr(""); })
+			.catch((e) => setErr(e?.message || "Periode tidak ditemukan atau sudah ditutup."));
+		return () => setEntry(null); // pindah periode: isolasi state entry sebelumnya
+	}, [periodId]);
+
+	// Pilih nama → ambil draft (sumber utama lintas perangkat).
+	const pickEntry = async (r) => {
+		// Isolasi: batalkan autosave entry sebelumnya.
+		clearTimeout(saveTimer.current);
+		saveSeq.current += 1;
+		setEntry({ id: r.id, name: r.name });
+		setDraft(null); setSaveState("idle");
+		try {
+			const d = await api(`/qpr/${periodId}/entries/${r.id}/draft`);
+			setMeta(d);
+			setDraft({ answers: Object.fromEntries(d.draft.map((a) => [a.question_id, a.value])), version: d.draft_version });
+		} catch (e) {
+			if (e?.statusCode === 409) { toast("Nama ini sudah mengirim penilaian final.", "err"); setEntry(null); }
+			else setErr(errText(e));
+		}
+	};
+
+	// Autosave 800ms setelah perubahan terakhir — satu request dalam satu waktu.
+	const scheduleSave = (nextAnswers) => {
+		clearTimeout(saveTimer.current);
+		setSaveState("saving");
+		const seq = ++saveSeq.current;
+		saveTimer.current = setTimeout(async () => {
+			try {
+				const answers = Object.entries(nextAnswers).map(([question_id, value]) => ({ question_id, value }));
+				const res = await api(`/qpr/${periodId}/entries/${entry.id}/draft`, {
+					method: "PUT", json: { expected_version: draft.version, answers },
+				});
+				if (seq === saveSeq.current) { setDraft((d) => ({ ...d, version: res.draft_version })); setSaveState("saved"); }
+			} catch (e) {
+				if (seq !== saveSeq.current) return; // respons entry lama — abaikan
+				if (e?.statusCode === 409) {
+					setSaveState("conflict");
+					toast("Draft diperbarui perangkat lain — muat ulang halaman untuk melihat versi terbaru.", "err");
+				} else { setSaveState("error"); toast(errText(e), "err"); }
+			}
+		}, 800);
+	};
+
+	const setAnswer = (questionId, value) => {
+		const next = { ...draft.answers, [questionId]: value };
+		setDraft((d) => ({ ...d, answers: next }));
+		scheduleSave(next);
+	};
+
+	const submitFinal = async () => {
+		if (busy) return;
+		setBusy(true);
+		try {
+			clearTimeout(saveTimer.current);
+			const answers = Object.entries(draft.answers).map(([question_id, value]) => ({ question_id, value }));
+			await api(`/qpr/${periodId}/submit-v2`, { method: "POST", json: { entry_id: entry.id, answers } });
+			setDoneMsg(true);
+		} catch (e) {
+			toast(errText(e), "err");
+			if (e?.statusCode === 422 || e?.statusCode === 409) api(`/qpr/${periodId}`).then(setRoster).catch(() => {});
+		} finally { setBusy(false); }
+	};
+
+	if (err) return <ErrorState message={err} onRetry={() => { setErr(""); api(`/qpr/${periodId}`).then(setRoster).catch((e) => setErr(errText(e))); }} />;
+	if (doneMsg) return <div className="card qpr-success" role="status"><span aria-hidden>✓</span><h2>Terima kasih!</h2><p>Penilaian terkirim. Terima kasih!</p><p className="muted">Jawabanmu sudah tersimpan. Halaman ini boleh ditutup.</p></div>;
+	if (!roster) return <SkeletonCard lines={5} />;
+	if (!entry) {
+		return (
+			<Card style={{ maxWidth: 560, margin: "0 auto" }}>
+				<p className="studio-kicker">PENILAIAN PENGURUS</p><h1 className="qpr-title">{roster.title}</h1>
+				{roster.description && <div className="muted small" style={{ marginTop: 2 }}>{roster.description}</div>}
+				{/* Model kejuhuran — wajib terlihat, jangan sebut anonim. */}
+				<p className="login-notice">Form ini tanpa login: pilih namamu dari daftar. Orang lain yang memilih namamu bisa melihat/melanjutkan isianmu, jadi jangan bagikan link di luar anggota SGA.</p>
+				{roster.remaining.length === 0 ? <p className="login-notice">Semua nama telah mengisi penilaian ini.</p> : (
+					<div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+						<div>
+							<label className="field-label" htmlFor="qpr-name-v2">Namamu</label>
+							<select id="qpr-name-v2" value="" onChange={(e) => { const r = roster.remaining.find((x) => x.id === e.target.value); if (r) pickEntry(r); }}>
+								<option value="" disabled>Pilih namamu…</option>
+								{roster.remaining.map((r) => (
+									<option key={r.id} value={r.id}>{r.name}{r.division ? ` — ${r.division}` : ""}</option>
+								))}
+							</select>
+							<div className="muted small" style={{ marginTop: 4 }}>{roster.remaining.length} orang belum mengisi</div>
+						</div>
+					</div>
+				)}
+			</Card>
+		);
+	}
+
+	const questions = meta?.questions ?? [];
+	const progress = meta?.progress ?? { required: questions.filter((q) => q.required).length, filled: 0 };
+	const filledCount = questions.filter((q) => q.required && draft?.answers?.[q.id] !== undefined && String(draft.answers[q.id]).trim() !== "").length;
+
+	return (
+		<Card style={{ maxWidth: 640, margin: "0 auto" }}>
+			<p className="studio-kicker">PENILAIAN PENGURUS</p>
+			<h1 className="qpr-title">{roster.title}</h1>
+			<p className="muted small">Mengisi sebagai <strong>{entry.name}</strong> · <button className="btn ghost" onClick={() => { clearTimeout(saveTimer.current); setEntry(null); setDraft(null); }}>Ganti nama</button></p>
+			<p className="field-help" role="status" aria-live="polite">
+				{saveState === "saving" ? "Menyimpan…" : saveState === "saved" ? "Tersimpan" : saveState === "conflict" ? "Gagal tersimpan — versi berubah" : saveState === "error" ? "Gagal tersimpan — coba lagi" : `${filledCount} dari ${progress.required} wajib terisi`}
+			</p>
+			{(meta?.sections ?? []).map((s) => (
+				<section key={s.id} style={{ marginTop: 18 }}>
+					<h2 style={{ fontSize: "1.05rem" }}>{s.title}</h2>
+					{s.questions.map((q) => (
+						<fieldset key={q.id} className="qpr-question" style={{ margin: "0 0 10px", padding: "8px 10px 10px", border: "1px solid var(--line)", borderRadius: 8 }}>
+							<legend className="small" style={{ padding: "0 4px" }}>{q.label}{q.required ? " *" : ""}</legend>
+							{q.type === "scale" ? (
+								<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+									{[1, 2, 3, 4, 5].map((n) => (
+										<label key={n} className="qpr-scale" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, minHeight: 24, padding: "2px 8px" }}>
+											<input type="radio" disabled={busy} aria-label={`${n} — ${meta.scale_legend[n]}`} name={`q_${q.id}`} checked={draft?.answers?.[q.id] === n}
+												onChange={() => setAnswer(q.id, n)} /> {n}
+										</label>
+									))}
+									<span className="muted small" style={{ alignSelf: "center" }}>{meta.scale_legend[draft?.answers?.[q.id]] ?? ""}</span>
+								</div>
+							) : (
+								<textarea rows={3} disabled={busy} maxLength={5000} value={typeof draft?.answers?.[q.id] === "string" ? draft.answers[q.id] : ""}
+									onChange={(e) => setAnswer(q.id, e.target.value)} />
+							)}
+						</fieldset>
+					))}
+				</section>
+			))}
+			<div style={{ marginTop: 14 }}>
+				<p className="field-help" role="status">{filledCount} dari {progress.required} pertanyaan wajib terisi</p>
+				<button className="btn" disabled={busy || filledCount < progress.required} onClick={submitFinal}>{busy ? "Mengirim…" : "Kirim penilaian"}</button>
+			</div>
 		</Card>
 	);
 }
