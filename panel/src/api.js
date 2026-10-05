@@ -44,6 +44,23 @@ export async function api(path, { method = "GET", json, signal } = {}) {
 	return body.data;
 }
 
+/** Seperti api() tapi response mentah (blob CSV, dsb.). Error tetap JSON envelope. */
+export async function apiRaw(path, { method = "GET", json, signal } = {}) {
+	const requestToken = getToken();
+	const opts = { method, signal, headers: { Authorization: `Bearer ${requestToken}` } };
+	if (json !== undefined) {
+		opts.headers["Content-Type"] = "application/json";
+		opts.body = JSON.stringify(json);
+	}
+	const res = await request(`/api/v1${path}`, opts);
+	if (res.status === 401 && requestToken && requestToken === getToken()) invalidateSession(sessionGeneration);
+	if (!res.ok) {
+		const body = await res.json().catch(() => ({}));
+		throw new ApiFail(body, res.status);
+	}
+	return res;
+}
+
 // Login lewat proxy /auth/sign-in (binding AUTH_SERVICE).
 export async function signIn(email, password) {
 	const res = await request("/api/v1/auth/panel-sign-in", {

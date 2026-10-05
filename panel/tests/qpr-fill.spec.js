@@ -97,3 +97,40 @@ test('submit final sukses menampilkan layar terima kasih', async ({ page }) => {
 	await page.getByRole('button', { name: 'Kirim penilaian' }).click();
 	await expect(page.getByRole('heading', { name: 'Terima kasih!' })).toBeVisible();
 });
+
+test('rekap v2 tampil di panel admin dengan distribusi dan tombol ekspor', async ({ page }) => {
+	await page.addInitScript(() => {
+		sessionStorage.setItem('bph_cms_token', 'panel-session');
+		window.__QPR_MAINTENANCE__ = false;
+	});
+	const RECAP = {
+		period: { id: 'period-v2', title: 'QPR BPH Oktober 2026', status: 'open', form_kind: 'bph' },
+		total_entries: 2,
+		done_entries: 1,
+		pending: [{ id: 'entry-2', name: 'Fauzan', division: 'UKM', role: null }],
+		sections: [
+			{
+				id: 'section-ketum', title: 'Ketua Umum', target_id: 'ketum', target_label: 'Ketua Umum',
+				questions: [
+					{ id: 'ketum-s01', type: 'scale', label: 'Pertanyaan skala 1 untuk Ketua Umum?', required: true, responses: 1, distribution: [{ value: 1, count: 0 }, { value: 2, count: 0 }, { value: 3, count: 0 }, { value: 4, count: 1 }, { value: 5, count: 0 }], mean: 4 },
+					{ id: 'ketum-t01', type: 'text', label: 'Apa saran untuk Ketua Umum?', required: true, responses: 1, texts: ['Lanjutkan!'] },
+				],
+			},
+		],
+	};
+	await page.route('**/api/v1/**', (route) => {
+		const url = new URL(route.request().url());
+		const path = url.pathname.replace('/api/v1', '');
+		const reply = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: true, data: body }) });
+		if (path === '/me') return reply({ can_access_oversight: false, user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', name: 'BPH' }, role: 'platform_admin', permissions: ['qpr.manage'] }], workspace_options: [] });
+		if (path === '/admin/qpr/periods') return reply([{ id: 'period-v2', title: 'QPR BPH Oktober 2026', status: 'open', formKind: 'bph', description: '', total_entries: 2, done_entries: 1, questions: [] }]);
+		if (path === '/admin/qpr/periods/period-v2/recap-v2') return reply(RECAP);
+		return reply({});
+	});
+	await page.goto('/#/qpr');
+	await page.getByRole('button', { name: 'Rekap' }).click();
+	await expect(page.getByRole('heading', { name: 'Ketua Umum' })).toBeVisible();
+	await expect(page.getByText('4 — Baik')).toBeVisible();
+	await expect(page.getByText('Lanjutkan!')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Ekspor CSV' })).toBeEnabled();
+});

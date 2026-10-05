@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, errText } from "../api.js";
+import { api, apiRaw, errText } from "../api.js";
 import { useToast, Confirm, SkeletonCard, Card, copyText, ErrorState, useEscape, useFocusTrap } from "../components/ui.jsx";
 
 // QPR v2 — tanpa login (model kejujuran). BPH kelola periode + roster nama;
@@ -145,6 +145,85 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 	);
 }
 
+/** Rekap v2: partisipasi + distribusi skor per pertanyaan + teks, per section target. */
+const SCALE_LABEL = { 1: "Sangat Kurang", 2: "Kurang", 3: "Cukup", 4: "Baik", 5: "Sangat Baik" };
+
+function RecapV2({ recap, onExport, onExportDisabled }) {
+	const total = recap.done_entries;
+	return (
+		<>
+			<div className="muted small" style={{ marginBottom: 6 }}>
+				Rekap — {recap.done_entries}/{recap.total_entries} sudah isi
+			</div>
+			{recap.pending.length > 0 && (
+				<div className="small" style={{ marginBottom: 8 }}>
+					<strong>Belum isi:</strong> {recap.pending.map((p) => `${p.name}${p.role ? ` (${p.role})` : ""}`).join(", ")}
+				</div>
+			)}
+			{total === 0 && <p className="muted small">Belum ada penilaian final.</p>}
+			{recap.sections.map((s) => (
+				<div key={s.id} style={{ marginBottom: 16 }}>
+					<h3 style={{ fontSize: 14, margin: "0 0 6px" }}>{s.target_label || s.title}</h3>
+					<div className="tbl-wrap">
+						<table className="tbl">
+						<thead>
+							<tr>
+								<th scope="col">Pertanyaan</th>
+								<th scope="col" style={{ minWidth: 180 }}>Distribusi skor</th>
+								<th scope="col">N</th>
+								<th scope="col">Rata-rata</th>
+							</tr>
+						</thead>
+						<tbody>
+							{s.questions.map((q) => (
+								<tr key={q.id}>
+									<td style={{ maxWidth: 340 }}>{q.label}</td>
+									{q.type === "scale" ? (
+										<>
+											<td>
+												<div className="poll-bars" role="img" aria-label={q.distribution.map((d) => `${d.value} ${SCALE_LABEL[d.value]}: ${d.count}`).join(", ") || "Belum ada jawaban"}>
+													{q.distribution.map((d) => (
+														<div key={d.value} className="poll-bar-row">
+															<div className="poll-bar-top">
+																<span className="poll-bar-name">{d.value} — {SCALE_LABEL[d.value]}</span>
+																<strong className="poll-bar-count">{d.count}</strong>
+															</div>
+															<div className="poll-bar-track">
+																<div className="poll-bar-fill" style={{ width: total ? `${(d.count / total) * 100}%` : 0 }} />
+															</div>
+														</div>
+													))}
+												</div>
+											</td>
+											<td>{q.responses}</td>
+											<td>{q.mean === null ? "—" : q.mean}</td>
+										</>
+									) : (
+										<>
+											<td>
+												{q.texts.length === 0 ? (
+													<span className="muted small">Belum ada jawaban.</span>
+												) : (
+													<ul style={{ margin: 0, paddingLeft: 18 }} className="small">
+														{q.texts.map((t, i) => <li key={i}>{t}</li>)}
+													</ul>
+												)}
+											</td>
+											<td colSpan={2}></td>
+										</>
+									)}
+								</tr>
+							))}
+						</tbody>
+						</table>
+					</div>
+				</div>
+			))}
+			<button className="btn ghost sm" disabled={onExportDisabled || total === 0} onClick={onExport}>Ekspor CSV</button>
+		</>
+	);
+}
+
 function PeriodRow({ period, open, onToggle, onDone, toast }) {
 	const [detail, setDetail] = useState(null);
 	const [recap, setRecap] = useState(null);
@@ -174,7 +253,22 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 		setDetail(null);
 		setRecap(null);
 		if (!open) onToggle();
-		try { setRecap(await api(`/admin/qpr/periods/${period.id}/recap`)); } catch (e) { toast(errText(e), "err"); }
+		// form bph/divisi (snapshot v2) pakai rekap per pertanyaan; legacy → rekap kategori.
+		const v2Path = period.formKind && period.formKind !== "legacy" ? "recap-v2" : "recap";
+		try { setRecap(await api(`/admin/qpr/periods/${period.id}/${v2Path}`)); } catch (e) { toast(errText(e), "err"); }
+	};
+
+	const exportCsv = async () => {
+		try {
+			const res = await apiRaw(`/admin/qpr/periods/${period.id}/export`);
+			const url = URL.createObjectURL(await res.blob());
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = `qpr-${period.id.slice(0, 8)}.csv`;
+			link.click();
+			URL.revokeObjectURL(url);
+			toast("CSV diekspor.");
+		} catch (e) { toast(errText(e), "err"); }
 	};
 
 	const copyLink = () => {
@@ -262,33 +356,39 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 			)}
 			{open && recap && (
 				<div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-					<div className="muted small" style={{ marginBottom: 6 }}>
-						Rekap — {recap.done_entries}/{recap.total_entries} sudah isi
-						{recap.overall_average !== null ? ` · rata-rata keseluruhan ${recap.overall_average}` : ""}
-					</div>
-					{recap.pending.length > 0 && (
-						<div className="small" style={{ marginBottom: 8 }}>
-							<strong>Belum isi:</strong> {recap.pending.map((p) => p.name).join(", ")}
-						</div>
-					)}
-					<div className="tbl-wrap">
-						<table className="tbl">
-						<thead><tr><th>Kategori</th><th>Rata-rata</th></tr></thead>
-						<tbody>
-							{Object.entries(recap.category_averages).map(([k, v]) => (
-								<tr key={k}><td>{k}</td><td>{v}</td></tr>
-							))}
-							{Object.keys(recap.category_averages).length === 0 && <tr><td colSpan={2} className="muted">Belum ada penilaian masuk.</td></tr>}
-						</tbody>
-						</table>
-					</div>
-					{recap.notes.length > 0 && (
-						<div className="small" style={{ marginTop: 8 }}>
-							<strong>Catatan:</strong>
-							<ul style={{ margin: "4px 0 0 18px" }}>
-								{recap.notes.map((n, i) => <li key={i}>{n}</li>)}
-							</ul>
-						</div>
+					{recap.sections ? (
+						<RecapV2 recap={recap} onExport={exportCsv} onExportDisabled={busy} />
+					) : (
+						<>
+							<div className="muted small" style={{ marginBottom: 6 }}>
+								Rekap — {recap.done_entries}/{recap.total_entries} sudah isi
+								{recap.overall_average !== null ? ` · rata-rata keseluruhan ${recap.overall_average}` : ""}
+							</div>
+							{recap.pending.length > 0 && (
+								<div className="small" style={{ marginBottom: 8 }}>
+									<strong>Belum isi:</strong> {recap.pending.map((p) => p.name).join(", ")}
+								</div>
+							)}
+							<div className="tbl-wrap">
+								<table className="tbl">
+								<thead><tr><th>Kategori</th><th>Rata-rata</th></tr></thead>
+								<tbody>
+									{Object.entries(recap.category_averages).map(([k, v]) => (
+										<tr key={k}><td>{k}</td><td>{v}</td></tr>
+									))}
+									{Object.keys(recap.category_averages).length === 0 && <tr><td colSpan={2} className="muted">Belum ada penilaian masuk.</td></tr>}
+								</tbody>
+								</table>
+							</div>
+							{recap.notes.length > 0 && (
+								<div className="small" style={{ marginTop: 8 }}>
+									<strong>Catatan:</strong>
+									<ul style={{ margin: "4px 0 0 18px" }}>
+										{recap.notes.map((n, i) => <li key={i}>{n}</li>)}
+									</ul>
+								</div>
+							)}
+						</>
 					)}
 					<button className="btn ghost" style={{ marginTop: 8 }} onClick={() => setRecap(null)}>Tutup rekap</button>
 				</div>
