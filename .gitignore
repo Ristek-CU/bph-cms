@@ -22,3 +22,7 @@ docs/PRODUCTION-READINESS-*.md
 # Local browser test artifacts
 test-results/
 playwright-report/
+
+# Workbook jawaban QPR — data pribadi, jangan push
+"QPR BPH (Jawaban).xlsx"
+*.xlsx

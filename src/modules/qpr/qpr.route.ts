@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { describeRoute, resolver } from "hono-openapi";
 import type { AppContext } from "../../types";
+import type { MiddlewareHandler } from "hono";
 import { adminAuth } from "../../middlewares/admin-auth";
-import { requirePermission } from "../../middlewares/require-permission";
 import { ApiResponse } from "../../shared/api-response";
 import { ApiError } from "../../shared/api-error";
 import { recordAuditLog } from "../audit/audit.service";
@@ -86,22 +86,36 @@ publicQprRouter.post(
 	},
 );
 
-// --- Endpoint admin (qpr.manage, khusus BPH) ---
+// --- Endpoint admin (qpr.manage + membership BPH, khusus BPH) ---
+
+/**
+ * Guard QPR: qpr.manage saja tidak cukup — platform_admin bisa punya membership
+ * aktif di divisi lain. Kelola/hasil QPR hanya untuk membership aktif di
+ * workspace slug "bph". activeDivisionId dipilih server (adminAuth), bukan klien.
+ */
+const requireBphQpr: MiddlewareHandler<AppContext> = async (c, next) => {
+	const memberships = c.get("memberships") ?? [];
+	const activeDivisionId = c.get("activeDivisionId");
+	const active = memberships.find((m) => m.division.id === activeDivisionId);
+	if (!active || active.division.slug !== "bph" || !active.permissions.includes("qpr.manage")) {
+		throw ApiError.forbidden("Khusus BPH: tidak memiliki akses ke pengelolaan/hasil QPR");
+	}
+	await next();
+};
 
 export const adminQprRouter = new Hono<AppContext>();
 
 adminQprRouter.use("*", adminAuth);
+adminQprRouter.use("*", requireBphQpr);
 
 adminQprRouter.get(
 	"/periods",
-	requirePermission("qpr.manage"),
 	describe("List periode QPR", "Termasuk hitungan sudah/belum mengisi.", successWrapper(z.array(z.object({})))),
 	async (c) => ApiResponse.ok(c, "OK", await qprService.listPeriods(getDb(c.env.DB))),
 );
 
 adminQprRouter.post(
 	"/periods",
-	requirePermission("qpr.manage"),
 	describe("Buat periode QPR", "Status awal draft. Questions: [{ label, category }].", successWrapper(z.object({})), { 409: { description: "Judul sudah dipakai" } }),
 	async (c) => {
 		const input = await parseJson(c, createPeriodSchema);
@@ -113,7 +127,6 @@ adminQprRouter.post(
 
 adminQprRouter.get(
 	"/periods/:id",
-	requirePermission("qpr.manage"),
 	describe("Detail periode", "Periode + roster nama (sudah/belum isi).", successWrapper(z.object({})), { 404: { description: "Not found" } }),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);
@@ -123,7 +136,6 @@ adminQprRouter.get(
 
 adminQprRouter.put(
 	"/periods/:id",
-	requirePermission("qpr.manage"),
 	describe("Update periode (parsial)", "Periode closed menolak perubahan judul/pertanyaan.", successWrapper(z.object({})), { 404: { description: "Not found" } }),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);
@@ -136,27 +148,28 @@ adminQprRouter.put(
 
 adminQprRouter.post(
 	"/periods/:id/open",
-	requirePermission("qpr.manage"),
 	describe("Buka periode", "Link publik mulai aktif.", successWrapper(z.object({}))),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);
-		return ApiResponse.ok(c, "Periode dibuka", await qprService.setStatus(getDb(c.env.DB), id, "open"));
+		const result = await qprService.setStatus(getDb(c.env.DB), id, "open");
+		await recordAuditLog(c, { action: "qpr.period_open", resourceType: "qpr_period", resourceId: id });
+		return ApiResponse.ok(c, "Periode dibuka", result);
 	},
 );
 
 adminQprRouter.post(
 	"/periods/:id/close",
-	requirePermission("qpr.manage"),
 	describe("Tutup periode", "Link publik 404, submit ditolak.", successWrapper(z.object({}))),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);
-		return ApiResponse.ok(c, "Periode ditutup", await qprService.setStatus(getDb(c.env.DB), id, "closed"));
+		const result = await qprService.setStatus(getDb(c.env.DB), id, "closed");
+		await recordAuditLog(c, { action: "qpr.period_close", resourceType: "qpr_period", resourceId: id });
+		return ApiResponse.ok(c, "Periode ditutup", result);
 	},
 );
 
 adminQprRouter.delete(
 	"/periods/:id",
-	requirePermission("qpr.manage"),
 	describe("Hapus periode", "Ditolak 409 bila sudah ada penilaian tersimpan.", successWrapper(z.object({})), { 409: { description: "Masih ada penilaian" } }),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);
@@ -168,7 +181,6 @@ adminQprRouter.delete(
 
 adminQprRouter.post(
 	"/periods/:id/entries",
-	requirePermission("qpr.manage"),
 	describe("Tambah nama pengisi", "Body: { entries: [{ name, division? }] }.", successWrapper(z.array(z.object({}))), {
 		404: { description: "Periode tidak ditemukan" },
 	}),
@@ -183,7 +195,6 @@ adminQprRouter.post(
 
 adminQprRouter.delete(
 	"/periods/:id/entries/:entryId",
-	requirePermission("qpr.manage"),
 	describe("Hapus nama", "Jawaban nama itu ikut terhapus.", successWrapper(z.object({})), { 404: { description: "Not found" } }),
 	async (c) => {
 		const { id, entryId } = c.req.param();
@@ -196,7 +207,6 @@ adminQprRouter.delete(
 
 adminQprRouter.get(
 	"/periods/:id/recap",
-	requirePermission("qpr.manage"),
 	describe("Rekap periode", "Partisipasi (sudah/belum isi, nama pending), rata-rata per kategori, catatan.", successWrapper(z.object({})), {
 		404: { description: "Not found" },
 	}),

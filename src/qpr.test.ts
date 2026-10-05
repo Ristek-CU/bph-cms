@@ -37,6 +37,10 @@ const noAuth = await h.req(`${ADMIN}/periods`, { method: "POST", json: { title: 
 eq("tanpa token → 401", noAuth.status, 401);
 const nonBph = await h.req(`${ADMIN}/periods`, { token: "tok-a-admin" });
 eq("division_admin kelola → 403", nonBph.status, 403);
+const paNonBph = await h.req(`${ADMIN}/periods`, { token: "tok-pa-nonbph" });
+eq("platform_admin non-BPH kelola → 403", paNonBph.status, 403);
+const paNonBphRecap = await h.req(`${ADMIN}/periods/p/rest` && `${ADMIN}/periods/00000000-0000-0000-0000-000000000000/recap`, { token: "tok-pa-nonbph" });
+eq("platform_admin non-BPH rekap → 403 (bukan 404)", paNonBphRecap.status, 403);
 
 // ── BPH: periode + roster ───────────────────────────────────────────────────
 section("Periode & roster (BPH)");
@@ -149,6 +153,8 @@ eq("rata-rata keseluruhan 3.5", recap.body?.data?.overall_average, 3.5);
 ok("catatan ikut rekap", recap.body?.data?.notes?.includes("Sangat membantu"), recap.body?.data?.notes);
 const recapDenied = await h.req(`${ADMIN}/periods/${pid}/recap`, { token: "tok-a-admin" });
 eq("rekap oleh non-BPH → 403", recapDenied.status, 403);
+const recapPaNonBph = await h.req(`${ADMIN}/periods/${pid}/recap`, { token: "tok-pa-nonbph" });
+eq("rekap oleh platform_admin non-BPH → 403", recapPaNonBph.status, 403);
 
 // ── Delete guard ────────────────────────────────────────────────────────────
 section("Delete guard");
@@ -160,6 +166,17 @@ const delEntry = await h.req(`${ADMIN}/periods/${pid}/entries/${budi?.id}`, { to
 eq("hapus nama belum isi → 200", delEntry.status, 200);
 const delNow = await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph", method: "DELETE" });
 eq("hapus periode masih ada submission → tetap 409", delNow.status, 409);
+
+// ── Entry final tak boleh dihapus (T1) ──────────────────────────────────────
+section("Entry final protected");
+
+const entries2 = await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph" });
+const raka = entries2.body?.data?.entries?.find((e: any) => e.name === "Raka Pratama");
+ok("Raka punya entry final", Boolean(raka?.done));
+const delFinal = await h.req(`${ADMIN}/periods/${pid}/entries/${raka?.id}`, { token: "tok-bph", method: "DELETE" });
+eq("hapus nama sudah isi → 409", delFinal.status, 409);
+const stillThere = await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph" });
+ok("Raka masih ada setelah attempt hapus", stillThere.body?.data?.entries?.some((e: any) => e.name === "Raka Pratama"));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.

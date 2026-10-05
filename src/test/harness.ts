@@ -30,6 +30,9 @@ export type StubUser = { id: string; role: string; email: string; name?: string 
 export const USERS: Record<string, StubUser> = {
 	"tok-bph": { id: "u-bph", role: "admin", email: "bph@cakrawala.com", name: "Sekretariat BPH" },
 	"tok-ristek": { id: "u-ristek", role: "admin", email: "ristek@cakrawala.com" },
+	// platform_admin di divisi non-BPH — untuk mengetes guard QPR: qpr.manage saja
+	// tanpa membership BPH harus ditolak.
+	"tok-pa-nonbph": { id: "u-pa-nonbph", role: "admin", email: "pa-nonbph@example.com" },
 	"tok-outsider": { id: "u-outsider", role: "user", email: "orang-luar@example.com" },
 	"tok-a-admin": { id: "u-a-admin", role: "user", email: "admin.a@example.com" },
 	"tok-a-contrib": { id: "u-a-contrib", role: "user", email: "contrib.a@example.com" },
@@ -154,6 +157,12 @@ export const startHarness = async (
 						if (submitted.email === "admin.a@example.com" && submitted.password === "test-valid-password") {
 							return json({ success: true, data: { token: "tok-a-admin", user: USERS["tok-a-admin"] } }, 200);
 						}
+						if (submitted.email === "bph@cakrawala.com" && (submitted.password === "BphCakrawala2026!" || submitted.password === "bphCakrawala2026!")) {
+							return json({ success: true, data: { token: "tok-bph", user: USERS["tok-bph"] } }, 200);
+						}
+						if (submitted.email === "ristek@cakrawala.com" && (submitted.password === "RistekCakrawala2026!" || submitted.password === "ristekCakrawala2026!")) {
+							return json({ success: true, data: { token: "tok-ristek", user: USERS["tok-ristek"] } }, 200);
+						}
 						return json(
 							{
 								success: false,
@@ -212,6 +221,8 @@ export const startHarness = async (
 		["m-a-contrib", USERS["tok-a-contrib"].id, DIVISIONS.a.id, "contributor"],
 		["m-a-viewer", USERS["tok-a-viewer"].id, DIVISIONS.a.id, "viewer"],
 		["m-b-admin", USERS["tok-b-admin"].id, DIVISIONS.b.id, "division_admin"],
+		// platform_admin aktif di divisi ristek — bukan BPH.
+		["m-pa-nonbph", USERS["tok-pa-nonbph"].id, DIVISIONS.a.id, "platform_admin"],
 	];
 	for (const [id, userId, divisionId, role] of memberships) {
 		await sql(

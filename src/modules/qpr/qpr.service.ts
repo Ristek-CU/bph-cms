@@ -94,6 +94,7 @@ export const qprService = {
 	async setStatus(db: Db, id: string, status: "draft" | "open" | "closed") {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
+		if (period.status === status) return { ...period, questions: parseFieldOptions(period.questions) };
 		const now = new Date().toISOString();
 		const [updated] = await db.update(qprPeriods).set({ status, updatedAt: now }).where(eq(qprPeriods.id, id)).returning();
 		return { ...updated, questions: parseFieldOptions(updated.questions) };
@@ -140,6 +141,9 @@ export const qprService = {
 			.where(and(eq(qprEntries.id, entryId), eq(qprEntries.periodId, periodId)))
 			.limit(1);
 		if (!row) throw ApiError.notFound("Nama tidak ditemukan");
+		// Entry final menyimpan jawaban penilaian — cascade hapus jawaban lewat
+		// penghapusan nama tidak boleh lewat jalur biasa.
+		if (row.done) throw ApiError.conflict("Nama ini sudah mengisi penilaian — jawaban tidak boleh dihapus lewat sini");
 		await db.delete(qprEntries).where(eq(qprEntries.id, entryId));
 		return row;
 	},
