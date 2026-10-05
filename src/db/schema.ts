@@ -423,8 +423,14 @@ export const qprPeriods = sqliteTable(
 		title: text("title").notNull().unique(),
 		// Mis. "Menilai: Ketua Ristek" — konteks untuk pengisi.
 		description: text("description"),
-		// JSON array [{ label, category }] — tanpa builder terpisah.
+		// JSON array [{ label, category }] (legacy) ATAU snapshot berversi
+		// {"version":2,"sections":[...]} (form bph/division). Satu kolom, dua
+		// format — discriminator membedakan, tidak ada migrasi data.
 		questions: text("questions").notNull(),
+		// legacy = periode lama; bph = penilaian BPH; division = QPR divisi.
+		formKind: text("form_kind", { enum: ["legacy", "bph", "division"] })
+			.notNull()
+			.default("legacy"),
 		status: text("status", { enum: ["draft", "open", "closed"] })
 			.notNull()
 			.default("draft"),
@@ -447,8 +453,17 @@ export const qprEntries = sqliteTable(
 			.references(() => qprPeriods.id, { onDelete: "cascade" }),
 		name: text("name").notNull(),
 		division: text("division"),
+		// Snapshot identitas dari roster (bukan input bebas pengisi). Null = entry
+		// legacy sebelum kolom ini ada — baca tetap jalan lewat nama.
+		memberRole: text("member_role"), // jabatan organisasi, mis. 'kadiv'
+		divisionSlug: text("division_slug"), // slug divisi kanonis
+		memberKey: text("member_key"), // ID anggota stabil — nama kembar terbedakan
 		done: integer("done", { mode: "boolean" }).notNull().default(false),
 		submittedAt: text("submitted_at"),
+		// Draft autosave lintas perangkat (model kejuhuran: cukup pilih nama).
+		draftAnswers: text("draft_answers"), // JSON [{question_id, value}], null = belum pernah simpan
+		draftVersion: integer("draft_version").notNull().default(0), // CAS: PUT bawa expected_version
+		draftUpdatedAt: text("draft_updated_at"),
 		createdAt: text("created_at").notNull(),
 	},
 	(table) => [

@@ -33,6 +33,27 @@ const PUB = "/api/v1/qpr";
 // ── Akses admin ─────────────────────────────────────────────────────────────
 section("Akses");
 
+// Periode legacy (form_kind default dari migrasi 0015) tetap terbaca penuh.
+await h.sql(
+	`INSERT INTO qpr_periods (id, title, questions, status, created_by_user_id, created_at, updated_at)
+	 VALUES ('legacy-periode-1', 'Legacy Sep 2026', '[{"label":"Menyelesaikan tugas tepat waktu","category":"Kinerja"}]', 'open', 'u-bph', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`,
+);
+await h.sql(
+	`INSERT INTO qpr_entries (id, period_id, name, division, done, created_at)
+	 VALUES ('legacy-entry-1', 'legacy-periode-1', 'Raka Legacy', 'Ristek', 1, '2026-09-01T00:00:00Z')`,
+);
+await h.sql(
+	`INSERT INTO qpr_answers (id, entry_id, answers, submitted_at)
+	 VALUES ('legacy-answer-1', 'legacy-entry-1', '[{"label":"Menyelesaikan tugas tepat waktu","category":"Kinerja","score":4}]', '2026-09-01T00:00:00Z')`,
+);
+const legacyList = await h.req(`${ADMIN}/periods`, { token: "tok-bph" });
+const legacyPeriod = legacyList.body?.data?.find((p: any) => p.id === "legacy-periode-1");
+ok("periode legacy terbaca di list", Boolean(legacyPeriod));
+eq("periode legacy form_kind=legacy", legacyPeriod?.formKind, "legacy");
+const legacyRoster = await h.req(`${PUB}/legacy-periode-1`);
+eq("roster publik periode legacy → 200", legacyRoster.status, 200);
+eq("nama legacy done hilang dari roster", legacyRoster.body?.data?.remaining?.length, 0);
+
 const noAuth = await h.req(`${ADMIN}/periods`, { method: "POST", json: { title: "x", questions: [{ label: "a", category: "b" }] } });
 eq("tanpa token → 401", noAuth.status, 401);
 const nonBph = await h.req(`${ADMIN}/periods`, { token: "tok-a-admin" });
