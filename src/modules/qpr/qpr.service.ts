@@ -5,6 +5,7 @@ import { qprAnswers, qprEntries, qprPeriods } from "../../db/schema";
 import { parseFieldOptions } from "../forms/form.service";
 import type { Db } from "../../db/connection";
 import type { QprQuestion, SubmitAnswersInput } from "./qpr.schema";
+import { buildBphSections, validateBphTemplate } from "./qpr.templates";
 
 
 const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: string | null }) => {
@@ -47,17 +48,31 @@ export const qprService = {
 		return { ...period, questions: parseFieldOptions(period.questions), entries };
 	},
 
-	async createPeriod(db: Db, input: { title: string; description?: string | null; questions: QprQuestion[]; opens_at?: string | null; closes_at?: string | null; userId: string }) {
+	async createPeriod(db: Db, input: { title: string; description?: string | null; questions?: QprQuestion[] | null; form_kind?: "legacy" | "bph" | "division" | null; opens_at?: string | null; closes_at?: string | null; userId: string }) {
 		const now = new Date().toISOString();
 		const [existing] = await db.select({ id: qprPeriods.id }).from(qprPeriods).where(eq(qprPeriods.title, input.title)).limit(1);
 		if (existing) throw ApiError.conflict("Periode dengan judul ini sudah ada");
+		// form_kind bph = snapshot dari template resmi (bukan pertanyaan bebas
+		// klien). Template rusak / target belum lengkap = blocker, bukan jalur kosong.
+		let formKind: "legacy" | "bph" | "division" = input.form_kind ?? "legacy";
+		let questionsJson: string;
+		if (formKind === "bph") {
+			const sections = buildBphSections();
+			const errors = validateBphTemplate(sections);
+			if (errors.length) throw ApiError.validation("Template QPR BPH tidak valid", { template: errors });
+			questionsJson = JSON.stringify({ version: 2, sections });
+		} else {
+			if (!input.questions?.length) throw ApiError.validation("Pertanyaan wajib diisi untuk periode legacy/division");
+			questionsJson = JSON.stringify(input.questions);
+		}
 		const [period] = await db
 			.insert(qprPeriods)
 			.values({
 				id: uuidv7(),
 				title: input.title,
 				description: input.description ?? null,
-				questions: JSON.stringify(input.questions),
+				questions: questionsJson,
+				formKind,
 				status: "draft",
 				opensAt: input.opens_at ?? null,
 				closesAt: input.closes_at ?? null,
@@ -66,10 +81,10 @@ export const qprService = {
 				updatedAt: now,
 			})
 			.returning();
-		return { ...period, questions: input.questions };
+		return { ...period, questions: formKind === "bph" ? { version: 2, sections: buildBphSections() } : input.questions };
 	},
 
-	async updatePeriod(db: Db, id: string, input: Partial<{ title: string; description: string | null; questions: QprQuestion[]; opens_at: string | null; closes_at: string | null }>) {
+	async updatePeriod(db: Db, id: string, input: Partial<{ title: string; description: string | null; questions: QprQuestion[] | null; opens_at: string | null; closes_at: string | null; form_kind: "legacy" | "bph" | "division" | null }>) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
 		if (period.status === "closed" && (input.questions || input.title)) {

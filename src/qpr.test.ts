@@ -199,6 +199,39 @@ eq("hapus nama sudah isi → 409", delFinal.status, 409);
 const stillThere = await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph" });
 ok("Raka masih ada setelah attempt hapus", stillThere.body?.data?.entries?.some((e: any) => e.name === "Raka Pratama"));
 
+// ── Template BPH (T3) ───────────────────────────────────────────────────────
+section("Template BPH");
+
+const bphCreated = await h.req(`${ADMIN}/periods`, {
+	token: "tok-bph",
+	method: "POST",
+	json: { form_kind: "bph", title: "QPR BPH Oktober 2026", description: "Penilaian pengurus BPH" },
+});
+eq("buat periode bph (tanpa questions) → 201", bphCreated.status, 201);
+eq("form_kind=bph", bphCreated.body?.data?.formKind, "bph");
+const bphQ = bphCreated.body?.data?.questions;
+eq("snapshot v2", bphQ?.version, 2);
+eq("7 section", bphQ?.sections?.length, 7);
+ok(
+	"tiap section 20 skala + 2 teks",
+	bphQ?.sections?.every((s: any) => s.questions.filter((q: any) => q.type === "scale").length === 20 && s.questions.filter((q: any) => q.type === "text").length === 2),
+	bphQ?.sections?.map((s: any) => [s.targetId, s.questions.length]),
+);
+const waketum = bphQ?.sections?.find((s: any) => s.targetId === "waketum");
+ok("waketum s17/s18 wording sama", waketum?.questions?.[16]?.label === waketum?.questions?.[17]?.label);
+ok("waketum s17/s18 ID beda", waketum?.questions?.[16]?.id !== waketum?.questions?.[17]?.id);
+
+// Resolver: jalur responden konsisten dengan template
+const { resolveBphPath } = await import("./modules/qpr/qpr.templates");
+const pathKadiv = resolveBphPath("kadiv", { controllers: ["controller"], bendahara: [], sekretaris: [] });
+eq("kadiv → controller+ketum+waketum", pathKadiv.length, 3);
+const pathSekdiv2 = resolveBphPath("sekdiv", { controllers: [], bendahara: [], sekretaris: ["sekum1", "sekum2"] });
+eq("sekdiv 2 sekum → 4 target", pathSekdiv2.length, 4);
+
+// Legacy tanpa questions tetap ditolak (bukan form bph)
+const noQ = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { title: "Tanpa pertanyaan" } });
+eq("legacy tanpa questions → 422", noQ.status, 422);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.
 process.exit(failed ? 1 : 0);

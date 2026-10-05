@@ -49,7 +49,9 @@ export const createPeriodSchema = z.object({
 	form_kind: z.enum(["legacy", "bph", "division"]).default("legacy").nullish(),
 	title: z.string().min(1).max(200),
 	description: z.string().max(500).nullish(),
-	questions: z.array(qprQuestionSchema).min(1).max(50),
+	// form bph: pertanyaan dibentuk dari template resmi server — klien tidak
+	// mengirim questions. legacy/division: wajib.
+	questions: z.array(qprQuestionSchema).min(1).max(50).nullish(),
 	opens_at: z
 		.string()
 		.regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([+-]\d{2}:\d{2}|Z)$/)
