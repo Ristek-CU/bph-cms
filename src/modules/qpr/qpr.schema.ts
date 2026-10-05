@@ -71,6 +71,11 @@ export const createEntriesSchema = z.object({
 			z.object({
 				name: z.string().min(1).max(200),
 				division: z.string().max(200).nullish(),
+				// Snapshot identitas roster (jabatan organisasi, bukan role CMS).
+				role: z.string().max(100).nullish(),
+				division_slug: z.string().max(100).nullish(),
+				// ID anggota stabil — pembeda nama kembar; dibuat sistem bila kosong.
+				member_key: z.string().max(100).nullish(),
 			}),
 		)
 		.min(1)
@@ -95,3 +100,25 @@ export const submitAnswersSchema = z.object({
 	note: z.string().max(2000).nullish(),
 });
 export type SubmitAnswersInput = z.infer<typeof submitAnswersSchema>;
+
+// ── Draft (snapshot v2, model kejuhuran: cukup pilih nama) ──────────────────
+
+export const draftAnswerSchema = z.object({
+	question_id: z.string().min(1).max(100),
+	// scale = int 1-5; text = string maks 5000 (whitespace-only = belum dianggap isi).
+	value: z.union([z.number().int().min(1).max(5), z.string().max(5000)]),
+});
+export type DraftAnswer = z.infer<typeof draftAnswerSchema>;
+
+export const saveDraftSchema = z.object({
+	expected_version: z.number().int().min(0),
+	answers: z.array(draftAnswerSchema).max(500),
+});
+export type SaveDraftInput = z.infer<typeof saveDraftSchema>;
+
+export const submitV2Schema = z.object({
+	entry_id: z.string().min(1).max(100),
+	expected_version: z.number().int().min(0).nullish(),
+	answers: z.array(draftAnswerSchema).min(1).max(500),
+});
+export type SubmitV2Input = z.infer<typeof submitV2Schema>;

@@ -12,7 +12,7 @@ import { idParamSchema } from "../forms/form.schema";
 import { getDb } from "../../db/connection";
 import { publicRateLimiter, d1RateLimiter } from "../../middlewares/rate-limiter";
 import { qprService } from "./qpr.service";
-import { createEntriesSchema, createPeriodSchema, submitAnswersSchema, updatePeriodSchema } from "./qpr.schema";
+import { createEntriesSchema, createPeriodSchema, saveDraftSchema, submitAnswersSchema, updatePeriodSchema } from "./qpr.schema";
 import { successWrapper, errorWrapper } from "../openapi/schemas";
 
 const describe = (
@@ -45,6 +45,50 @@ export const publicQprRouter = new Hono<AppContext>();
 // --- Endpoint publik (tanpa login) ---
 
 publicQprRouter.use("*", publicRateLimiter);
+
+// Draft publik (model kejuhuran): baca/tulis draft cukup pilih nama.
+// no-store — draft/roster tidak boleh tercache CDN. Rate limit autosave
+// terpisah dari submit (banyak anggota satu Wi-Fi kampus).
+publicQprRouter.get(
+	"/:periodId/entries/:entryId/draft",
+	describeRoute({
+		summary: "Baca draft pengisian",
+		description: "Tanpa login (model kejuhuran). Mengembalikan pertanyaan jalur responden, draft tersimpan, versi, dan progres. 409 bila sudah final.",
+		tags: ["Public QPR"],
+		responses: {
+			200: { description: "Success", content: { "application/json": { schema: resolver(successWrapper(z.object({}))) } } },
+			404: { description: "Periode/nama tidak tersedia" },
+			409: { description: "Sudah mengirim final" },
+		},
+	}),
+	async (c) => {
+		const { periodId, entryId } = c.req.param();
+		c.header("Cache-Control", "no-store");
+		return ApiResponse.ok(c, "OK", await qprService.getDraft(getDb(c.env.DB), periodId, entryId));
+	},
+);
+
+publicQprRouter.put(
+	"/:periodId/entries/:entryId/draft",
+	describeRoute({
+		summary: "Simpan draft (autosave)",
+		description: "Body: { expected_version, answers: [{ question_id, value }] }. CAS — versi usang ditolak 409 tanpa menimpa perangkat lain.",
+		tags: ["Public QPR"],
+		responses: {
+			200: { description: "Success", content: { "application/json": { schema: resolver(successWrapper(z.object({}))) } } },
+			404: { description: "Periode/nama tidak tersedia" },
+			409: { description: "Konflik versi / sudah final" },
+			422: { description: "Jawaban tidak valid" },
+		},
+	}),
+	d1RateLimiter({ prefix: "public:qpr-draft", limit: 60, windowMs: 60_000 }),
+	async (c) => {
+		const { periodId, entryId } = c.req.param();
+		c.header("Cache-Control", "no-store");
+		const input = await parseJson(c, saveDraftSchema);
+		return ApiResponse.ok(c, "Draft tersimpan", await qprService.saveDraft(getDb(c.env.DB), periodId, entryId, input));
+	},
+);
 
 publicQprRouter.get(
 	"/:periodId",

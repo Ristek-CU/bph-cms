@@ -5,7 +5,8 @@ import { qprAnswers, qprEntries, qprPeriods } from "../../db/schema";
 import { parseFieldOptions } from "../forms/form.service";
 import type { Db } from "../../db/connection";
 import type { QprQuestion, SubmitAnswersInput } from "./qpr.schema";
-import { buildBphSections, validateBphTemplate } from "./qpr.templates";
+import type { DraftAnswer, SaveDraftInput, SnapshotQuestion, SubmitV2Input } from "./qpr.schema";
+import { SCALE_LEGEND, buildBphSections, resolveBphPath, validateBphTemplate } from "./qpr.templates";
 
 
 const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: string | null }) => {
@@ -16,6 +17,49 @@ const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: str
 	if (p.opensAt && new Date(p.opensAt) > now) return false;
 	if (p.closesAt && new Date(p.closesAt) < now) return false;
 	return true;
+};
+
+// ── Draft & submit v2 (snapshot berversi) ───────────────────────────────────
+
+type V2Period = { questions: string; formKind: string };
+
+/** Parse snapshot v2 dari kolom questions; periode legacy → null. */
+const parseV2 = (p: V2Period) => {
+	if (p.formKind === "legacy") return null;
+	const parsed = JSON.parse(p.questions);
+	if (parsed?.version !== 2) return null;
+	return parsed as { version: 2; sections: Array<{ id: string; title: string; targetId: string | null; targetLabel?: string | null; questions: SnapshotQuestion[] }> };
+};
+
+/**
+ * Pertanyaan berlaku untuk satu jalur responden. Sumber tunggal bersama
+ * preview/rekap — frontend tidak punya logika percabangan kedua.
+ */
+const resolveQuestions = (sections: NonNullable<ReturnType<typeof parseV2>>["sections"], targets: readonly string[]): SnapshotQuestion[] => {
+	const wanted = new Set<string>(targets);
+	return sections
+		.filter((s) => s.targetId && wanted.has(s.targetId))
+		.flatMap((s) => s.questions);
+};
+
+const wantedTarget = (targets: readonly string[], targetId: string) => targets.includes(targetId);
+
+const validateDraftAnswers = (questions: SnapshotQuestion[], answers: DraftAnswer[]) => {
+	const byId = new Map(questions.map((q) => [q.id, q]));
+	const seen = new Set<string>();
+	for (const a of answers) {
+		const q = byId.get(a.question_id);
+		if (!q) throw ApiError.validation("Jawaban tidak sesuai pertanyaan periode ini", { answers: [`ID tidak dikenal: ${a.question_id}`] });
+		if (seen.has(a.question_id)) throw ApiError.validation("ID pertanyaan berulang", { answers: [a.question_id] });
+		seen.add(a.question_id);
+		if (q.type === "scale" && (typeof a.value !== "number" || !Number.isInteger(a.value) || a.value < 1 || a.value > 5)) {
+			throw ApiError.validation("Skor skala harus 1-5", { answers: [a.question_id] });
+		}
+		if (q.type === "text") {
+			if (typeof a.value !== "string") throw ApiError.validation("Jawaban teks harus string", { answers: [a.question_id] });
+			if (a.value.trim().length > 5000) throw ApiError.validation("Jawaban teks maksimal 5000 karakter", { answers: [a.question_id] });
+		}
+	}
 };
 
 export const qprService = {
@@ -129,7 +173,7 @@ export const qprService = {
 		return period;
 	},
 
-	async addEntries(db: Db, periodId: string, items: Array<{ name: string; division?: string | null }>) {
+	async addEntries(db: Db, periodId: string, items: Array<{ name: string; division?: string | null; role?: string | null; division_slug?: string | null; member_key?: string | null }>) {
 		const [period] = await db.select({ id: qprPeriods.id }).from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
 		const existing = await db.select({ name: qprEntries.name }).from(qprEntries).where(eq(qprEntries.periodId, periodId));
@@ -142,6 +186,9 @@ export const qprService = {
 			periodId,
 			name: a.name,
 			division: a.division ?? null,
+			memberRole: a.role ?? null,
+			divisionSlug: a.division_slug ?? null,
+			memberKey: a.member_key ?? null,
 			done: false,
 			createdAt: now,
 		}));
@@ -221,6 +268,69 @@ export const qprService = {
 			throw e;
 		}
 		return { entry_id: entry.id, name: entry.name };
+	},
+
+	// ── Draft v2: server-side autosave, lanjut lintas perangkat cukup pilih nama ──
+
+	/** GET draft: pertanyaan jalur + draft tersimpan + progres. Tanpa login (model kejuhuran). */
+	async getDraft(db: Db, periodId: string, entryId: string) {
+		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
+		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, entryId), eq(qprEntries.periodId, periodId))).limit(1);
+		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
+		if (entry.done) throw ApiError.conflict("Nama ini sudah mengirim penilaian final.");
+		const v2 = parseV2(period);
+		if (!v2) throw ApiError.validation("Periode ini memakai format lama — draft tidak tersedia");
+		// Jalur responden dari snapshot identitas roster; entry legacy tanpa
+		// member_role diperlakukan anggota biasa (ketum+waketum).
+		const role = (entry.memberRole ?? "anggota") as Parameters<typeof resolveBphPath>[0];
+		const targets = resolveBphPath(role, { controllers: ["controller"], bendahara: ["bendum1"], sekretaris: ["sekum1"] });
+		const questions = resolveQuestions(v2.sections, targets);
+		const draft = entry.draftAnswers ? (parseFieldOptions(entry.draftAnswers) as DraftAnswer[]) : [];
+		const requiredIds = new Set(questions.filter((q) => q.required).map((q) => q.id));
+		const filled = draft.filter((a) => {
+			const q = questions.find((x) => x.id === a.question_id);
+			if (!q) return false;
+			return q.type === "scale" ? typeof a.value === "number" : typeof a.value === "string" && a.value.trim().length > 0;
+		});
+		const nextUnanswered = questions.find((q) => q.required && !filled.some((f) => f.question_id === q.id));
+		return {
+			entry: { id: entry.id, name: entry.name, division: entry.division, role: entry.memberRole },
+			sections: v2.sections.filter((s) => s.targetId && wantedTarget(targets, s.targetId)),
+			questions,
+			draft,
+			draft_version: entry.draftVersion,
+			draft_updated_at: entry.draftUpdatedAt,
+			progress: {
+				required: requiredIds.size,
+				filled: filled.filter((f) => requiredIds.has(f.question_id)).length,
+				next_question_id: nextUnanswered?.id ?? null,
+			},
+			scale_legend: SCALE_LEGEND,
+		};
+	},
+
+	/** PUT draft: CAS — expected_version harus cocok, kalau tidak 409 (jangan timpa). */
+	async saveDraft(db: Db, periodId: string, entryId: string, input: SaveDraftInput) {
+		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
+		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, entryId), eq(qprEntries.periodId, periodId))).limit(1);
+		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
+		if (entry.done) throw ApiError.conflict("Nama ini sudah mengirim penilaian final.");
+		const v2 = parseV2(period);
+		if (!v2) throw ApiError.validation("Periode ini memakai format lama — draft tidak tersedia");
+		const role = (entry.memberRole ?? "anggota") as Parameters<typeof resolveBphPath>[0];
+		const targets = resolveBphPath(role, { controllers: ["controller"], bendahara: ["bendum1"], sekretaris: ["sekum1"] });
+		const questions = resolveQuestions(v2.sections, targets);
+		validateDraftAnswers(questions, input.answers);
+		const now = new Date().toISOString();
+		const updated = await db
+			.update(qprEntries)
+			.set({ draftAnswers: JSON.stringify(input.answers), draftVersion: entry.draftVersion + 1, draftUpdatedAt: now })
+			.where(and(eq(qprEntries.id, entryId), eq(qprEntries.done, false), eq(qprEntries.draftVersion, input.expected_version)))
+			.returning({ id: qprEntries.id, draftVersion: qprEntries.draftVersion });
+		if (!updated.length) throw ApiError.conflict("Draft sudah diperbarui perangkat lain — muat ulang sebelum menyimpan.");
+		return { draft_version: updated[0].draftVersion, saved_at: now };
 	},
 
 	/** Rekap: rata-rata skor per kategori + partisipasi (siapa sudah/belum). */

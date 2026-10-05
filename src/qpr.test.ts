@@ -232,6 +232,69 @@ eq("sekdiv 2 sekum → 4 target", pathSekdiv2.length, 4);
 const noQ = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { title: "Tanpa pertanyaan" } });
 eq("legacy tanpa questions → 422", noQ.status, 422);
 
+// ── Draft + CAS (T5) ────────────────────────────────────────────────────────
+section("Draft server + CAS");
+
+const bphPid = bphCreated.body?.data?.id;
+// Roster entry dengan role kadiv (jalur: controller + ketum + waketum = 66 wajib)
+const bphEntries = await h.req(`${ADMIN}/periods/${bphPid}/entries`, {
+	token: "tok-bph",
+	method: "POST",
+	json: { entries: [{ name: "Diva Kadiv", division: "Ristek", role: "kadiv" }, { name: "Budi Anggota", division: "Ristek" }] },
+});
+eq("tambah roster bph → 201", bphEntries.status, 201);
+const diva = bphEntries.body?.data?.find((e: any) => e.name === "Diva Kadiv");
+const budiBph = bphEntries.body?.data?.find((e: any) => e.name === "Budi Anggota");
+
+await h.req(`${ADMIN}/periods/${bphPid}/open`, { token: "tok-bph", method: "POST" });
+
+const draft0 = await h.req(`${PUB}/${bphPid}/entries/${diva?.id}/draft`);
+eq("baca draft → 200", draft0.status, 200);
+eq("draft_version awal 0", draft0.body?.data?.draft_version, 0);
+eq("jalur kadiv: 3 section", draft0.body?.data?.sections?.length, 3);
+ok("progress kosong", draft0.body?.data?.progress?.required === 66 && draft0.body?.data?.progress?.filled === 0, draft0.body?.data?.progress);
+const q0 = draft0.body?.data?.questions?.[0];
+eq("next = pertanyaan wajib pertama", draft0.body?.data?.progress?.next_question_id, q0?.id);
+
+// Save parsial ok — tidak menandai selesai
+const save1 = await h.req(`${PUB}/${bphPid}/entries/${diva?.id}/draft`, {
+	method: "PUT",
+	json: { expected_version: 0, answers: [{ question_id: q0?.id, value: 4 }] },
+});
+eq("save parsial → 200", save1.status, 200);
+eq("draft_version naik ke 1", save1.body?.data?.draft_version, 1);
+
+const rosterMid = await h.req(`${PUB}/${bphPid}`);
+ok("nama masih di roster setelah draft separuh", rosterMid.body?.data?.remaining?.some((r: any) => r.name === "Diva Kadiv"));
+
+// CAS: klien bawa versi lama → 409, draft tidak tertimpa
+const stale = await h.req(`${PUB}/${bphPid}/entries/${diva?.id}/draft`, {
+	method: "PUT",
+	json: { expected_version: 0, answers: [{ question_id: q0?.id, value: 1 }] },
+});
+eq("CAS versi usang → 409", stale.status, 409);
+const draft1 = await h.req(`${PUB}/${bphPid}/entries/${diva?.id}/draft`);
+eq("draft versi tetap 1", draft1.body?.data?.draft_version, 1);
+eq("nilai tetap 4 (tidak tertimpa 1)", draft1.body?.data?.draft?.[0]?.value, 4);
+
+// Jawaban di luar jalur ditolak (anggota menilai controller → jalur anggota tak punya)
+const outsider = await h.req(`${PUB}/${bphPid}/entries/${budiBph?.id}/draft`, {
+	method: "PUT",
+	json: { expected_version: 0, answers: [{ question_id: "controller-s01", value: 3 }] },
+});
+eq("anggota isi jalur controller → 422", outsider.status, 422);
+
+// Draft terisolasi per entry
+const budiDraft = await h.req(`${PUB}/${bphPid}/entries/${budiBph?.id}/draft`);
+eq("draft Budi kosong (tidak tercemar Diva)", budiDraft.body?.data?.draft?.length, 0);
+
+// Entry final → draft 409
+await h.sql(`UPDATE qpr_entries SET done=1, submitted_at='2026-10-05T00:00:00Z' WHERE id='${diva?.id}'`);
+const draftFinal = await h.req(`${PUB}/${bphPid}/entries/${diva?.id}/draft`);
+eq("baca draft entry final → 409", draftFinal.status, 409);
+const saveFinal = await h.req(`${PUB}/${bphPid}/entries/${diva?.id}/draft`, { method: "PUT", json: { expected_version: 1, answers: [] } });
+eq("save draft entry final → 409", saveFinal.status, 409);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.
 process.exit(failed ? 1 : 0);
