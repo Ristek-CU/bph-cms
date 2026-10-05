@@ -390,6 +390,104 @@ export const qprService = {
 	},
 
 	/** Rekap: rata-rata skor per kategori + partisipasi (siapa sudah/belum). */
+	/** Rekap v2: distribusi skor 1–5 + mean per pertanyaan, teks per target. Hanya final. */
+	async recapV2(db: Db, periodId: string) {
+		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
+		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
+		const v2 = parseV2(period);
+		if (!v2) throw ApiError.validation("Periode ini memakai format lama — gunakan rekap lama");
+		const entries = await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId));
+		const doneEntries = entries.filter((e) => e.done);
+		const answerRows = doneEntries.length
+			? await db
+					.select({ entryId: qprAnswers.entryId, answers: qprAnswers.answers })
+					.from(qprAnswers)
+					.where(inArray(qprAnswers.entryId, doneEntries.map((e) => e.id)))
+			: [];
+		// Skor terkumpul per question_id — hanya dari jalur responden yang
+		// menilai target itu (denominator = jumlah jawaban final pertanyaan itu).
+		const scores = new Map<string, number[]>();
+		const texts = new Map<string, string[]>();
+		for (const row of answerRows) {
+			const parsed = JSON.parse(row.answers) as Array<{ question_id: string; value: number | string }>;
+			for (const a of parsed) {
+				if (typeof a.value === "number") {
+					const list = scores.get(a.question_id) ?? [];
+					list.push(a.value);
+					scores.set(a.question_id, list);
+				} else if (typeof a.value === "string" && a.value.trim()) {
+					const list = texts.get(a.question_id) ?? [];
+					list.push(a.value.trim());
+					texts.set(a.question_id, list);
+				}
+			}
+		}
+		const sections = v2.sections.map((s) => ({
+			id: s.id,
+			title: s.title,
+			target_id: s.targetId,
+			target_label: s.targetLabel ?? null,
+			questions: s.questions.map((q) => {
+				if (q.type === "text") {
+					const list = texts.get(q.id) ?? [];
+					return { id: q.id, type: q.type, label: q.label, required: q.required, responses: list.length, texts: list };
+				}
+				const list = scores.get(q.id) ?? [];
+				const dist = [1, 2, 3, 4, 5].map((v) => ({ value: v, count: list.filter((x) => x === v).length }));
+				const mean = list.length ? Math.round((list.reduce((x, y) => x + y, 0) / list.length) * 100) / 100 : null;
+				return { id: q.id, type: q.type, label: q.label, required: q.required, responses: list.length, distribution: dist, mean };
+			}),
+		}));
+		return {
+			period: { id: period.id, title: period.title, description: period.description, status: period.status, form_kind: period.formKind },
+			total_entries: entries.length,
+			done_entries: doneEntries.length,
+			pending: entries.filter((e) => !e.done).map((e) => ({ id: e.id, name: e.name, division: e.division, role: e.memberRole ?? null })),
+			sections,
+		};
+	},
+
+	/** Ekspor CSV lebar: satu baris per submit final, kolom per pertanyaan jalur itu. */
+	async exportCsv(db: Db, periodId: string) {
+		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
+		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
+		const v2 = parseV2(period);
+		if (!v2) throw ApiError.validation("Periode ini memakai format lama — ekspor belum didukung");
+		const entries = await db.select().from(qprEntries).where(and(eq(qprEntries.periodId, periodId), eq(qprEntries.done, true)));
+		const answerRows = entries.length
+			? await db
+					.select({ entryId: qprAnswers.entryId, answers: qprAnswers.answers, submittedAt: qprAnswers.submittedAt })
+					.from(qprAnswers)
+					.where(inArray(qprAnswers.entryId, entries.map((e) => e.id)))
+			: [];
+		const byEntry = new Map(answerRows.map((r) => [r.entryId, r]));
+		// Header = superset kolom semua jalur; kolom tak berlaku untuk responden kosong.
+		const header = v2.sections.flatMap((s) => s.questions.map((q) => [s.targetLabel || s.title, q.id, q.label] as const));
+		const escape = (v: unknown) => {
+			// Formula injection: awalan = + - @ tab/CR di-prefix ' agar Excel
+			// memperlakukan sebagai teks, bukan formula.
+			const s = String(v ?? "");
+			const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+			return `"${safe.replace(/"/g, '""')}"`;
+		};
+		const lines = [
+			["waktu_kirim", "nama", "divisi", "jabatan", ...header.map(([, qid]) => qid)].map(escape).join(","),
+			...entries.map((e) => {
+				const row = byEntry.get(e.id);
+				const answers = row ? (JSON.parse(row.answers) as Array<{ question_id: string; value: number | string }>) : [];
+				const byId = new Map(answers.map((a) => [a.question_id, a.value]));
+				return [
+					row?.submittedAt ?? e.submittedAt ?? "",
+					e.name,
+					e.division ?? "",
+					e.memberRole ?? "",
+					...header.map(([, qid]) => byId.get(qid) ?? ""),
+				].map(escape).join(",");
+			}),
+		];
+		return { filename: `qpr-${period.id.slice(0, 8)}.csv`, csv: lines.join("\r\n") };
+	},
+
 	async recap(db: Db, periodId: string) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");

@@ -284,3 +284,33 @@ adminQprRouter.get(
 		return ApiResponse.ok(c, "OK", await qprService.recap(getDb(c.env.DB), id));
 	},
 );
+
+adminQprRouter.get(
+	"/periods/:id/recap-v2",
+	describe("Rekap v2 per pertanyaan", "Distribusi skor 1-5 + mean per pertanyaan, teks per target, partisipasi. Hanya jawaban final.", successWrapper(z.object({})), {
+		404: { description: "Not found" },
+	}),
+	async (c) => {
+		const { id } = parseParams(c, idParamSchema);
+		return ApiResponse.ok(c, "OK", await qprService.recapV2(getDb(c.env.DB), id));
+	},
+);
+
+adminQprRouter.get(
+	"/periods/:id/export",
+	describe("Ekspor CSV", "Satu baris per submit final, kolom per pertanyaan jalur itu. Aman formula injection.", successWrapper(z.object({})), {
+		404: { description: "Not found" },
+	}),
+	async (c) => {
+		const { id } = parseParams(c, idParamSchema);
+		const { filename, csv } = await qprService.exportCsv(getDb(c.env.DB), id);
+		await recordAuditLog(c, { action: "qpr.export", resourceType: "qpr_period", resourceId: id });
+		return new Response("﻿" + csv, {
+			headers: {
+				"Content-Type": "text/csv; charset=utf-8",
+				"Content-Disposition": `attachment; filename="${filename}"`,
+				"Cache-Control": "no-store",
+			},
+		});
+	},
+);

@@ -367,6 +367,63 @@ const [, cs] = await Promise.all([
 ]);
 ok("close+submit paralel: submit tidak sukses setelah tutup", [200, 404].includes(cs.status), cs.status);
 
+// ── Rekap v2 + ekspor CSV (T8) ──────────────────────────────────────────────
+section("Rekap v2 + ekspor CSV");
+
+// Periode baru, 3 final dengan skor 1/4/5 pada pertanyaan skala pertama ketum
+// + 1 draft (tidak dihitung).
+const rPeriod = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "bph", title: "QPR Rekap Test" } });
+eq("buat periode rekap → 201", rPeriod.status, 201);
+const rPid = rPeriod.body?.data?.id;
+const rEntries = await h.req(`${ADMIN}/periods/${rPid}/entries`, {
+	token: "tok-bph",
+	method: "POST",
+	json: { entries: [{ name: "R1", division: "D1" }, { name: "R2", division: "D1" }, { name: "R3", division: "D2" }, { name: "R4 Draft", division: "D1" }] },
+});
+const rIds = rEntries.body?.data?.map((e: any) => e.id);
+await h.req(`${ADMIN}/periods/${rPid}/open`, { token: "tok-bph", method: "POST" });
+const rDraft = await h.req(`${PUB}/${rPid}/entries/${rIds[0]}/draft`);
+const rQuestions = rDraft.body?.data?.questions;
+const firstScale = rQuestions.find((q: any) => q.type === "scale" && q.id.startsWith("ketum"));
+const rFull = (answersValue: number) => rQuestions.map((q: any) => ({ question_id: q.id, value: q.type === "scale" ? answersValue : `Komen ${answersValue}` }));
+for (const [i, val] of [1, 4, 5].entries()) {
+	const s = await h.req(`${PUB}/${rPid}/submit-v2`, { method: "POST", json: { entry_id: rIds[i], answers: rFull(val) } });
+	eq(`submit R${i + 1} skor ${val} → 200`, s.status, 200);
+}
+// R4 hanya draft — tidak boleh masuk rekap/ekspor
+await h.req(`${PUB}/${rPid}/entries/${rIds[3]}/draft`, { method: "PUT", json: { expected_version: 0, answers: [{ question_id: firstScale.id, value: 5 }] } });
+
+const rv2 = await h.req(`${ADMIN}/periods/${rPid}/recap-v2`, { token: "tok-bph" });
+eq("recap-v2 → 200", rv2.status, 200);
+eq("done 3", rv2.body?.data?.done_entries, 3);
+const rSection = rv2.body?.data?.sections?.find((s: any) => s.target_id === "ketum");
+const rQ = rSection?.questions?.find((q: any) => q.id === firstScale.id);
+ok("distribusi 1/4/5 masing-masing 1", rQ?.distribution?.filter((d: any) => d.count > 0).length === 3 && rQ.distribution.every((d: any) => [1, 4, 5].includes(d.value) ? d.count === 1 : d.count === 0), rQ?.distribution);
+eq("mean 3.33", rQ?.mean, 3.33);
+eq("denominator 3 (bukan 4 — draft tidak dihitung)", rQ?.responses, 3);
+const rText = rSection?.questions?.find((q: any) => q.type === "text");
+ok("teks terkumpul 3", rText?.texts?.length === 3, rText?.texts);
+
+// Legacy periode → recap-v2 menolak (arahkan ke recap lama)
+const legacyRecap = await h.req(`${ADMIN}/periods/legacy-periode-1/recap-v2`, { token: "tok-bph" });
+eq("recap-v2 periode legacy → 422", legacyRecap.status, 422);
+
+const csvRes = await h.req(`${ADMIN}/periods/${rPid}/export`, { token: "tok-bph" });
+eq("export → 200", csvRes.status, 200);
+const csvText = typeof csvRes.body === "string" ? csvRes.body : "";
+ok("CSV 3 baris data + header", csvText.split("\r\n").length === 4, csvText.split("\r\n").length);
+	ok("kolom header pakai question_id unik", csvText.replace(/^\ufeff/, "").startsWith("\"waktu_kirim\"") && csvText.includes(firstScale.id));
+ok("hanya 3 baris final (draft tidak diekspor)", !csvText.includes("R4 Draft"));
+
+// Formula injection: teks berawalan = + - @ di-quote+prefix ' oleh Excel
+const injEntry = await h.req(`${ADMIN}/periods/${rPid}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "=INJECT", division: "@D" }] } });
+const injId = injEntry.body?.data?.[0]?.id;
+const injSubmit = await h.req(`${PUB}/${rPid}/submit-v2`, { method: "POST", json: { entry_id: injId, answers: rFull(3).map((a: any) => (a.question_id.endsWith("-t01") ? { ...a, value: "=cmd|' /C calc'!A0" } : a)) } });
+eq("submit injeksi → 200", injSubmit.status, 200);
+const injCsv = await h.req(`${ADMIN}/periods/${rPid}/export`, { token: "tok-bph" });
+const injText = typeof injCsv.body === "string" ? injCsv.body : "";
+ok("formula injection dineutralkan (prefix ')", injText.includes("'=cmd"), injText.split("\r\n").find((l: string) => l.includes("cmd")));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.
 process.exit(failed ? 1 : 0);
