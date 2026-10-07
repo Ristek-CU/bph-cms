@@ -218,13 +218,13 @@ function Fill({ periodId }) {
 				<h2 ref={heading} tabIndex={-1}>{section ? `Langkah ${step + 1} dari ${sections.length}: ${targetTitle(section)}` : "Tinjau penilaian"}</h2>
 				{section ? <>
 					<p className="small">{Object.entries(session.scale_legend ?? {}).map(([n, label]) => `${n} — ${label}`).join("; ")}</p>
-					{section.questions.map((q) => <fieldset key={q.id} className="qpr-question" style={{ marginBottom: 12, minWidth: 0, padding: 10, border: "1px solid var(--line)", borderRadius: 8 }}>
-						<legend>{q.label}{q.required ? " *" : ""}</legend>
-						{q.type === "scale" ? <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-							{[1, 2, 3, 4, 5].map((n) => <label key={n} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 44, padding: "4px 8px" }}>
+					{section.questions.map((q) => <fieldset key={q.id} className="qpr-question">
+						<legend id={`qpr-l-${q.id}`}>{q.label}{q.required ? " *" : ""}</legend>
+						{q.type === "scale" ? <div className="qpr-scale-row">
+							{[1, 2, 3, 4, 5].map((n) => <label key={n} className="qpr-scale">
 								<input type="radio" name={q.id} required={q.required} disabled={busy} aria-label={`${n} — ${session.scale_legend?.[n] ?? n}`} checked={session.answers[q.id] === n} onChange={() => change(q.id, n)} />{n}
 							</label>)}
-						</div> : <><label className="field-label" htmlFor={`qpr-${q.id}`}>{q.label}</label><textarea id={`qpr-${q.id}`} rows={3} required={q.required} maxLength={5000} disabled={busy} value={typeof session.answers[q.id] === "string" ? session.answers[q.id] : ""} onChange={(e) => { e.target.setCustomValidity(q.required && !e.target.value.trim() ? "Isi jawaban, bukan hanya spasi." : ""); change(q.id, e.target.value); }} /></>}
+						</div> : <textarea id={`qpr-${q.id}`} rows={3} required={q.required} maxLength={5000} disabled={busy} aria-labelledby={`qpr-l-${q.id}`} value={typeof session.answers[q.id] === "string" ? session.answers[q.id] : ""} onChange={(e) => { e.target.setCustomValidity(q.required && !e.target.value.trim() ? "Isi jawaban, bukan hanya spasi." : ""); change(q.id, e.target.value); }} />}
 					</fieldset>)}
 				</> : <>
 					{sections.map((s, index) => <section key={s.id}>

@@ -1056,6 +1056,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 .public-brand { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; font-weight: 700; margin-bottom: 28px; color: var(--navy); }
 .public-brand span { font-size: 12px; font-weight: 500; color: var(--muted); }
 .qpr-title { font-size: 24px; line-height: 1.35; }
+.qpr-question { margin: 0 0 12px; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.qpr-question > legend { font-weight: 600; padding: 0 4px; }
+.qpr-scale-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .qpr-scale { flex: 1; justify-content: center; min-height: 44px !important; padding: 8px !important; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
 .qpr-scale:has(input:checked) { background: #e0f2eb; border-color: var(--teal); color: var(--navy); font-weight: 700; }
 .qpr-success { text-align: center; padding: 48px 24px; }
