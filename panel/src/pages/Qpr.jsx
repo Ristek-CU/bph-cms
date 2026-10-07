@@ -486,6 +486,10 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 	const snapshot = isSnapshot(period.questions);
 	const frozen = isFrozen(period);
 	const [qraw, setQraw] = useState(Array.isArray(period.questions) ? period.questions.map((q) => `${q.category} | ${q.label}`).join("\n") : "");
+	// Kustomisasi label pertanyaan snapshot v3 (id & struktur tetap; hanya periode yang belum dibuka).
+	const [labels, setLabels] = useState(() => snapshot && !frozen
+		? Object.fromEntries(period.questions.sections.flatMap((s) => s.questions.map((q) => [q.id, q.label])))
+		: {});
 	const [config, setConfig] = useState(() => period.questions?.target_config || {
 		targets: TARGET_IDS.map((id) => ({ id, label: "", template: id.startsWith("controller") ? "controller" : id })),
 		controller_by_division: {},
@@ -512,7 +516,7 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 				json: { title: title.trim(), description: desc.trim() || null,
 					opens_at: opensAt ? toIsoWib(opensAt) : null,
 					closes_at: closesAt ? toIsoWib(closesAt) : null,
-					...(!frozen && (snapshot ? period.questions.version === 3 ? { target_config: config } : {} : { questions })),
+					...(!frozen && (snapshot ? period.questions.version === 3 ? { target_config: config, question_labels: { ...labels } } : {} : { questions })),
 				},
 			});
 			toast("Periode diperbarui.");
@@ -541,7 +545,14 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 					<div><label className="field-label" htmlFor="qe-opens">Jadwal buka WIB (opsional)</label><input id="qe-opens" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} /></div>
 					<div><label className="field-label" htmlFor="qe-closes">Jadwal tutup WIB (opsional)</label><input id="qe-closes" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} /></div>
 					{snapshot ? <>
-						<p className="muted small">Pertanyaan template PDF hanya baca.</p>
+						{frozen ? <p className="muted small">Pertanyaan template PDF hanya baca.</p>
+							: period.questions.version === 3 && <details style={{ marginBottom: 8 }}><summary className="field-label">Kustomisasi pertanyaan ({Object.keys(labels).length})</summary>
+								<p className="muted small">Ubah redaksi pertanyaan bila perlu. ID dan struktur (skala/teks, wajib) tetap dari template.</p>
+								{period.questions.sections.map((s) => <div key={s.id} style={{ marginBottom: 10 }}>
+									<strong className="small">{s.title}</strong>
+									{s.questions.map((q) => <div key={q.id}><label className="field-label" htmlFor={`ql-${q.id}`} style={{ marginTop: 6 }}>{q.id}</label><input id={`ql-${q.id}`} value={labels[q.id] ?? ""} maxLength={2000} onChange={(e) => setLabels({ ...labels, [q.id]: e.target.value })} /></div>)}
+								</div>)}
+							</details>}
 						{period.questions.version === 3 && <fieldset disabled={frozen} style={{ minWidth: 0 }}><legend>Target dan pemetaan Controller</legend>
 							{config.targets.map((target, i) => <div key={target.id}><label htmlFor={`target-${target.id}`}>Nama {target.id}</label><input id={`target-${target.id}`} value={target.label} maxLength={160} onChange={(e) => setConfig({ ...config, targets: config.targets.map((t, n) => n === i ? { ...t, label: e.target.value } : t) })} /></div>)}
 							{DIVISIONS.map((slug) => <div key={slug}><label htmlFor={`controller-${slug}`}>Controller untuk {slug}</label><select id={`controller-${slug}`} value={config.controller_by_division[slug] || ""} onChange={(e) => { const mapping = { ...config.controller_by_division }; if (e.target.value) mapping[slug] = e.target.value; else delete mapping[slug]; setConfig({ ...config, controller_by_division: mapping }); }}><option value="">Belum dipetakan</option>{config.targets.filter((t) => t.template === "controller").map((t) => <option key={t.id} value={t.id}>{t.label || t.id}</option>)}</select></div>)}

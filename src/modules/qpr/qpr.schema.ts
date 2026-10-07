@@ -85,7 +85,9 @@ export const createPeriodSchema = z.object({
 });
 export type CreatePeriodInput = z.infer<typeof createPeriodSchema>;
 
-export const updatePeriodSchema = createPeriodSchema.partial().extend({ form_kind: z.enum(["legacy", "bph", "division"]).nullish() });
+// question_labels: kustomisasi label pertanyaan snapshot v3 (id & struktur
+// tetap dari template) — hanya periode yang belum pernah dibuka.
+export const updatePeriodSchema = createPeriodSchema.partial().extend({ form_kind: z.enum(["legacy", "bph", "division"]).nullish(), question_labels: z.record(z.string(), z.string().min(1).max(2000)).optional() });
 
 export const createEntriesSchema = z.object({
 	entries: z

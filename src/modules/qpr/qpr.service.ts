@@ -211,15 +211,30 @@ export const qprService = {
 		return { ...period, questions: parseFieldOptions(period.questions) };
 	},
 
-	async updatePeriod(db: Db, id: string, input: Partial<{ title: string; description: string | null; questions: QprQuestion[] | null; opens_at: string | null; closes_at: string | null; form_kind: "legacy" | "bph" | "division" | null; target_config: TargetConfig }>) {
+	async updatePeriod(db: Db, id: string, input: Partial<{ title: string; description: string | null; questions: QprQuestion[] | null; opens_at: string | null; closes_at: string | null; form_kind: "legacy" | "bph" | "division" | null; target_config: TargetConfig; question_labels: Record<string, string> }>) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
-        const changingSnapshot = input.questions !== undefined || input.target_config !== undefined || (input.form_kind != null && input.form_kind !== period.formKind);
+        const changingSnapshot = input.questions !== undefined || input.target_config !== undefined || input.question_labels !== undefined || (input.form_kind != null && input.form_kind !== period.formKind);
         if (input.questions !== undefined && !input.questions?.length) throw ApiError.validation("Pertanyaan wajib diisi");
         if (changingSnapshot && period.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — snapshot terkunci");
         if (input.form_kind != null && input.form_kind !== period.formKind) throw ApiError.validation("Jenis periode tidak bisa diubah");
         if (period.formKind === "bph" && input.questions !== undefined) throw ApiError.validation("Pertanyaan BPH berasal dari template");
         if (input.target_config && parseV2(period)?.version !== 3) throw ApiError.validation("Target hanya untuk snapshot v3");
+        // Kustomisasi label pertanyaan snapshot v3: id harus ada di snapshot, label tak boleh kosong.
+        // Diterapkan SETELAH rebuild dari target_config agar keduanya bisa dikirim bersamaan.
+        let questionsJson: string | undefined;
+        const base = input.target_config
+            ? buildBphSnapshot(input.target_config)
+            : input.question_labels !== undefined ? parseV2(period) : null;
+        if (input.question_labels) {
+            if (base?.version !== 3) throw ApiError.validation("Kustomisasi label hanya untuk snapshot v3");
+            if (Object.values(input.question_labels).some((l) => !l.trim())) throw ApiError.validation("Label pertanyaan tidak boleh kosong");
+            const unknown = Object.keys(input.question_labels).filter((qid) => !base.sections.some((s) => s.questions.some((q) => q.id === qid)));
+            if (unknown.length) throw ApiError.validation("ID pertanyaan tidak dikenal", { question_labels: unknown });
+            questionsJson = JSON.stringify({ ...base, sections: base.sections.map((s) => ({ ...s, questions: s.questions.map((q) => input.question_labels![q.id] ? { ...q, label: input.question_labels![q.id].trim() } : q) })) });
+        } else if (input.target_config) {
+            questionsJson = JSON.stringify(buildBphSnapshot(input.target_config));
+        }
         const configErrors = input.target_config ? validateTargetConfig(input.target_config) : [];
         if (configErrors.length) throw ApiError.validation("Konfigurasi target tidak valid", { target_config: configErrors });
         validateSchedule(input.opens_at === undefined ? period.opensAt : input.opens_at, input.closes_at === undefined ? period.closesAt : input.closes_at);
@@ -230,7 +245,7 @@ export const qprService = {
 				...(input.title !== undefined ? { title: input.title } : {}),
 				...(input.description !== undefined ? { description: input.description } : {}),
 				...(input.questions !== undefined ? { questions: JSON.stringify(input.questions) } : {}),
-				...(input.target_config ? { questions: JSON.stringify(buildBphSnapshot(input.target_config)) } : {}),
+				...(questionsJson !== undefined ? { questions: questionsJson } : {}),
 				...(input.opens_at !== undefined ? { opensAt: input.opens_at } : {}),
 				...(input.closes_at !== undefined ? { closesAt: input.closes_at } : {}),
 				updatedAt: now,

@@ -45,16 +45,19 @@ test('BPH without permission gets status only', async ({ page }) => {
 test('snapshot Kelola and edit configure fixed targets without question editor', async ({ page }) => {
   const calls = await setup(page);
   await page.getByRole('button', { name: 'Kelola', exact: true }).click();
-  await expect(page.getByText('Pertanyaan template PDF — hanya baca (snapshot v3).')).toBeVisible();
   await page.getByRole('button', { name: 'Edit periode', exact: true }).click();
+  await expect(page.getByText('Kustomisasi pertanyaan (1)')).toBeVisible();
   await expect(page.getByLabel('Pertanyaan (satu per baris')).toHaveCount(0);
   for (const id of ids) await page.getByLabel(`Nama ${id}`, { exact: true }).fill(`Target ${id}`);
   await page.getByLabel('Controller untuk ristek', { exact: true }).selectOption('controller2');
+  await page.getByText('Kustomisasi pertanyaan (1)').click();
+  await page.getByLabel('k1', { exact: true }).fill('Pertanyaan PDF versi baru');
   await page.getByRole('button', { name: 'Simpan', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const put = calls.find(c => c.method === 'PUT');
   expect(put.body.target_config.targets).toHaveLength(10);
   expect(put.body.target_config.controller_by_division.ristek).toBe('controller2');
+  expect(put.body.question_labels).toEqual({ k1: 'Pertanyaan PDF versi baru' });
   expect(put.body).not.toHaveProperty('questions');
   expect(new Date(put.body.opens_at).toISOString()).toBe('2026-10-01T08:00:00.000Z');
   expect(new Date(put.body.closes_at).toISOString()).toBe('2026-10-31T08:00:00.000Z');
@@ -73,7 +76,9 @@ test('frozen snapshot locks roster/config, preserves metadata editing', async ({
   await page.getByRole('button', { name: 'Kelola', exact: true }).click();
   await expect(page.getByRole('button', { name: '+ Tambah nama' })).toBeDisabled();
   await page.getByRole('button', { name: 'Edit periode', exact: true }).click();
+  await expect(page.getByText('Pertanyaan template PDF hanya baca.')).toBeVisible();
   await expect(page.getByLabel('Nama controller1', { exact: true })).toBeDisabled();
+  await expect(page.getByLabel('k1', { exact: true })).toHaveCount(0);
   await page.getByLabel('Judul periode', { exact: true }).fill('Metadata baru');
   await page.getByRole('button', { name: 'Simpan', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
