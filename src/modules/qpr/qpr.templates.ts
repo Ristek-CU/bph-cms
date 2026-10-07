@@ -332,10 +332,14 @@ export function validateTargetConfig(config: TargetConfig): string[] {
 }
 
 export function buildBphSnapshot(config: TargetConfig = defaultTargetConfig()): QuestionnaireV3 {
+ // Keputusan BPH (7 Okt 2026): Controller = BPH, DINILAI semua kadiv/wakadiv
+ // (bukan pemetaan 1 controller per divisi). Kadiv/wakadiv menilai 4 controller
+ // + ketum + waketum. bendiv → 2 bendum, sekdiv → 2 sekum.
+ const CONTROLLER_IDS = config.targets.filter((t) => t.template === "controller").map((t) => t.id);
  return {
   version: 3, target_config: config,
   routing: Object.fromEntries(QPR_ROLES.map((role) => [role,
-   [...(role === "kadiv" || role === "wakadiv" ? ["$controller"] : role === "bendiv" ? ["bendum1", "bendum2"] : role === "sekdiv" ? ["sekum1", "sekum2"] : []), "ketum", "waketum"]])),
+   [...(role === "kadiv" || role === "wakadiv" ? CONTROLLER_IDS : role === "bendiv" ? ["bendum1", "bendum2"] : role === "sekdiv" ? ["sekum1", "sekum2"] : []), "ketum", "waketum"]])),
   sections: config.targets.map((t) => ({
    id: `section-${t.id}`, targetId: t.id, targetLabel: t.label,
    title: `${BPH_TARGETS.find((b) => b.id === t.template)!.label}${t.label ? `: ${t.label}` : ""}`,

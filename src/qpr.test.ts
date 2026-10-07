@@ -429,7 +429,9 @@ section("Snapshot v3, canonical roster, freeze, privacy");
 const { defaultTargetConfig } = await import("./modules/qpr/qpr.templates");
 const config = defaultTargetConfig();
 config.targets.forEach((t) => t.label = `Nama sintetis ${t.id}`);
-config.controller_by_division = { ristek: "controller1", ukm: "controller2" };
+// Keputusan BPH 7 Okt 2026: kadiv/wakadiv menilai KEEMPAT controller —
+// controller_by_division tidak lagi menentukan routing (kosong = valid).
+config.controller_by_division = {};
 const v3 = await h.req(`${ADMIN}/periods`, {token:"tok-bph",method:"POST",json:{form_kind:"bph",title:"V3 regression",target_config:config}});
 eq("v3 configured create", v3.status, 201);
 const v3id = v3.body.data.id;
@@ -457,7 +459,9 @@ const badKey = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",
 eq("v3 stable member key required",badKey.status,422);
 const preview = await h.req(`${ADMIN}/periods/${v3id}/preview`,{token:"tok-bph"});
 eq("preview zero blockers",preview.body.data.blockers,[]);
-eq("44/66/88/88 role paths",preview.body.data.entries.filter((e:any)=>["same-1","ka","bend","sek"].includes(e.member_key)).map((e:any)=>e.required).sort(),[44,66,88,88]);
+// Keputusan BPH: kadiv/wakadiv = 4 controller + ketum + waketum = 6 section × 22 = 132.
+// anggota = 44, bendiv = 88 (2 bendum + ketum + waketum), sekdiv = 88.
+eq("44/132/88/88 role paths",preview.body.data.entries.filter((e:any)=>["same-1","ka","bend","sek"].includes(e.member_key)).map((e:any)=>e.required).sort(),[132,44,88,88]);
 eq("v3 open",(await h.req(`${ADMIN}/periods/${v3id}/open`,{token:"tok-bph",method:"POST"})).status,200);
 const findV3=(key:string)=>v3rows.body.data.find((e:any)=>e.memberKey===key);
 const frozenAdd = await h.req(`${ADMIN}/periods/${v3id}/entries`,{token:"tok-bph",method:"POST",json:{entries:v3Items}});
@@ -470,7 +474,7 @@ ok("duplicate names display distinct",new Set(pub3.body.data.remaining.filter((e
 ok("roster no-store",pub3.headers.get("Cache-Control")?.includes("no-store")===true);
 const da=await h.req(`${PUB}/${v3id}/entries/${findV3("ka").id}/draft`);
 const dbb=await h.req(`${PUB}/${v3id}/entries/${findV3("kb").id}/draft`);
-eq("controller per division distinct",[da.body.data.sections[0].targetId,dbb.body.data.sections[0].targetId],["controller1","controller2"]);
+eq("kadiv/wakadiv same 4-controller path",[da.body.data.sections.map((s:any)=>s.targetId),dbb.body.data.sections.map((s:any)=>s.targetId)],[["controller1","controller2","controller3","controller4","ketum","waketum"],["controller1","controller2","controller3","controller4","ketum","waketum"]]);
 const full=(d:any,value:number=4)=>d.questions.map((q:any)=>({question_id:q.id,value:q.type==="scale"?value:'Unicode 你好, "quote"\nnext'}));
 const va=full(da.body.data);
 const missingVersion=await h.req(`${PUB}/${v3id}/submit-v2`,{method:"POST",json:{entry_id:findV3("ka").id,answers:va}});
@@ -498,8 +502,8 @@ eq("own final changes status",statusAfter.body.data.done_entries,1);
 const ownB=await h.req(`/api/v1/qpr-participation/${v3id}`,{token:"tok-b-admin"});
 eq("division B isolated count",ownB.body.data.total_entries,2);
 const recap3=await h.req(`${ADMIN}/periods/${v3id}/recap-v2`,{token:"tok-bph"});
-eq("controller1 response denominator one",recap3.body.data.sections.find((s:any)=>s.target_id==="controller1").questions[0].responses,1);
-eq("controller2 not mixed",recap3.body.data.sections.find((s:any)=>s.target_id==="controller2").questions[0].responses,0);
+eq("controller1 response from kadiv",recap3.body.data.sections.find((s:any)=>s.target_id==="controller1").questions[0].responses,1);
+eq("controller2 also rated by same kadiv",recap3.body.data.sections.find((s:any)=>s.target_id==="controller2").questions[0].responses,1);
 const csv3=await h.req(`${ADMIN}/periods/${v3id}/export`,{token:"tok-bph"});
 ok("CSV target ID label header",csv3.body.includes('Nama sintetis controller1 | controller1-s01 | Controller'));
 ok("CSV multiline quote Unicode preserved",csv3.body.includes('Unicode 你好, ""quote""\nnext'));
