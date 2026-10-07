@@ -436,6 +436,7 @@ export const qprPeriods = sqliteTable(
 			.default("draft"),
 		opensAt: text("opens_at"),
 		closesAt: text("closes_at"),
+		firstOpenedAt: text("first_opened_at"),
 		createdByUserId: text("created_by_user_id").notNull(),
 		createdAt: text("created_at").notNull(),
 		updatedAt: text("updated_at").notNull(),
@@ -468,7 +469,7 @@ export const qprEntries = sqliteTable(
 	},
 	(table) => [
 			index("qpr_entries_period_idx").on(table.periodId),
-			uniqueIndex("qpr_entries_period_name_unique").on(table.periodId, table.name),
+			uniqueIndex("qpr_entries_period_member_unique").on(table.periodId, table.memberKey),
 		],
 );
 

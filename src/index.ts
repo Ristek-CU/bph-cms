@@ -22,7 +22,7 @@ import { publicEventRouter } from "./modules/events/event.public.route";
 import { adminFormRouter, adminFormSubmissionRouter } from "./modules/forms/form.route";
 import { internalFormRouter } from "./modules/forms/form.internal.route";
 import { publicFormRouter } from "./modules/forms/form.public.route";
-import { adminQprRouter, publicQprRouter } from "./modules/qpr/qpr.route";
+import { adminQprRouter, publicQprRouter, participationQprRouter } from "./modules/qpr/qpr.route";
 import { mediaRouter } from "./modules/media/media.route";
 import { meRouter } from "./modules/me/me.route";
 import { adminAccountRouter } from "./modules/accounts/account.route";
@@ -47,7 +47,7 @@ app.use("*", async (c, next) => {
 	c.header("Referrer-Policy", "no-referrer");
 	c.header("X-Frame-Options", "DENY");
 	c.header("Strict-Transport-Security", "max-age=31536000");
-	if (/^\/api\/v1\/(admin|auth|me|openapi)(\/|$)/.test(c.req.path)) c.header("Cache-Control", "private, no-store");
+	if (/^\/api\/v1\/(admin|auth|me|openapi|qpr|qpr-participation)(\/|$)/.test(c.req.path)) c.header("Cache-Control", "private, no-store");
 	c.header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
 });
 
@@ -115,6 +115,7 @@ v1.route("/admin/forms/submissions", adminFormSubmissionRouter);
 v1.route("/admin/forms", adminFormRouter);
 v1.route("/admin/qpr", adminQprRouter);
 v1.route("/qpr", publicQprRouter);
+v1.route("/qpr-participation", participationQprRouter);
 v1.route("/forms", publicFormRouter);
 v1.route("/admin/media", mediaRouter);
 // Cover internal event (K-6) — prefix R2 terpisah + servis ber-auth, berbeda dari

@@ -2,6 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+  testIgnore: 'qpr-integration.spec.js',
   fullyParallel: true,
   workers: 2,
   use: {

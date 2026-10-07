@@ -1,4 +1,4 @@
-import type { QuestionnaireV2, SnapshotQuestion, SnapshotSection } from "./qpr.schema";
+import { QPR_DIVISIONS, QPR_ROLES, type QuestionnaireSnapshot, type QuestionnaireV3, type TargetConfig, type SnapshotQuestion, type SnapshotSection } from "./qpr.schema";
 
 /**
  * Template kuesioner QPR Penilaian BPH — 7 section, masing-masing 20 skala
@@ -265,8 +265,13 @@ export function validateBphTemplate(sections: SnapshotSection[]): string[] {
 			if (ids.has(q.id)) errors.push(`ID pertanyaan ganda: ${q.id}`);
 			ids.add(q.id);
 			if (!q.label.trim()) errors.push(`${q.id}: label kosong`);
+			if (!q.required) errors.push(`${q.id}: harus wajib`);
+			const position = s.questions.indexOf(q);
+			if (q.type !== (position < 20 ? "scale" : "text")) errors.push(`${q.id}: urutan skala/teks salah`);
 		}
 	}
+    const deputy = sections.find((s) => s.targetId === "waketum");
+    if (!deputy || deputy.questions[16]?.label !== deputy.questions[17]?.label || deputy.questions[16]?.id === deputy.questions[17]?.id) errors.push("Waketum 17/18 harus dua ID dengan wording identik");
 	return errors;
 }
 
@@ -302,4 +307,57 @@ export function resolveBphPath(
 			// anggota, controller, sekum, bendum, ketum, waketum: hanya leaders.
 			return leaders;
 	}
+}
+
+export const defaultTargetConfig = (): TargetConfig => ({
+ targets: [...[1, 2, 3, 4].map((n) => ({ id: `controller${n}`, label: "", template: "controller" as const })),
+  ...BPH_TARGETS.filter((t) => t.id !== "controller").map((t) => ({ id: t.id, label: "", template: t.id }))],
+ controller_by_division: {},
+});
+
+export function validateTargetConfig(config: TargetConfig): string[] {
+ const errors: string[] = [];
+ const ids = new Set<string>();
+ for (const t of config.targets) {
+  if (ids.has(t.id)) errors.push(`Target ID berulang: ${t.id}`);
+  ids.add(t.id);
+  if (t.template !== "controller" && t.id !== t.template) errors.push(`ID target harus ${t.template}`);
+  if (t.template === "controller" && BPH_TARGETS.some((b) => b.id === t.id)) errors.push(`ID Controller tidak boleh ${t.id}`);
+ }
+ for (const [slug, id] of Object.entries(config.controller_by_division)) {
+  if (!(QPR_DIVISIONS as readonly string[]).includes(slug)) errors.push(`Divisi tidak dikenal: ${slug}`);
+  if (id && !config.targets.some((t) => t.id === id && t.template === "controller")) errors.push(`Controller tidak dikenal: ${id}`);
+ }
+ return errors;
+}
+
+export function buildBphSnapshot(config: TargetConfig = defaultTargetConfig()): QuestionnaireV3 {
+ return {
+  version: 3, target_config: config,
+  routing: Object.fromEntries(QPR_ROLES.map((role) => [role,
+   [...(role === "kadiv" || role === "wakadiv" ? ["$controller"] : role === "bendiv" ? ["bendum1", "bendum2"] : role === "sekdiv" ? ["sekum1", "sekum2"] : []), "ketum", "waketum"]])),
+  sections: config.targets.map((t) => ({
+   id: `section-${t.id}`, targetId: t.id, targetLabel: t.label,
+   title: `${BPH_TARGETS.find((b) => b.id === t.template)!.label}${t.label ? `: ${t.label}` : ""}`,
+   questions: QUESTIONS_BY_TARGET[t.template].map((q) => ({ ...q, id: q.id.replace(`${t.template}-`, `${t.id}-`) })),
+  })),
+ };
+}
+
+/** v2 keeps its original one-bendum/one-sekum path, including legacy role fallback. */
+export function resolveSnapshotPath(snapshot: QuestionnaireSnapshot, entry: { memberRole: string | null; divisionSlug: string | null }): SnapshotSection[] {
+ let targets: string[];
+ if (snapshot.version === 2) {
+  targets = resolveBphPath((entry.memberRole ?? "anggota") as BphRole, { controllers: ["controller"], bendahara: ["bendum1"], sekretaris: ["sekum1"] });
+ } else {
+  const route = snapshot.routing[entry.memberRole ?? ""];
+  if (!route || !(QPR_ROLES as readonly string[]).includes(entry.memberRole ?? "")) throw new Error("Jabatan pengisi tidak dikenal");
+  if (!(QPR_DIVISIONS as readonly string[]).includes(entry.divisionSlug ?? "")) throw new Error("Divisi perlu pemetaan BPH");
+  targets = route.map((id) => id === "$controller" ? snapshot.target_config.controller_by_division[entry.divisionSlug!] : id);
+ }
+ return targets.map((id) => {
+  const section = snapshot.sections.find((s) => s.targetId === id);
+  if (!section) throw new Error(`Target belum dikonfigurasi: ${id ?? "Controller divisi"}`);
+  return section;
+ });
 }

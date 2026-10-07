@@ -35,13 +35,34 @@ export const questionnaireV2Schema = z.object({
 });
 export type QuestionnaireV2 = z.infer<typeof questionnaireV2Schema>;
 
-/** Parse kolom questions: snapshot v2 atau array legacy [{label, category}]. */
-export const parseQuestions = (raw: string | null): QuestionnaireV2 | QprQuestion[] | null => {
+export const QPR_DIVISIONS = ["bph", "ristek", "ukm", "advo", "bnp", "icd", "pr", "media"] as const;
+export const QPR_ROLES = ["anggota", "controller", "sekum", "bendum", "kadiv", "wakadiv", "bendiv", "sekdiv"] as const;
+export const targetConfigSchema = z.object({
+	targets: z.array(z.object({
+		id: z.string().regex(/^[a-z][a-z0-9_-]{0,59}$/),
+		label: z.string().trim().max(200),
+		template: z.enum(["controller", "bendum1", "bendum2", "sekum1", "sekum2", "ketum", "waketum"]),
+	})).max(10),
+	controller_by_division: z.record(z.string(), z.string().max(60)),
+});
+export type TargetConfig = z.infer<typeof targetConfigSchema>;
+export const questionnaireV3Schema = z.object({
+	version: z.literal(3),
+	sections: z.array(snapshotSectionSchema).max(10),
+	target_config: targetConfigSchema,
+	routing: z.record(z.string(), z.array(z.string())),
+});
+export type QuestionnaireV3 = z.infer<typeof questionnaireV3Schema>;
+export type QuestionnaireSnapshot = QuestionnaireV2 | QuestionnaireV3;
+
+/** Parse legacy/v2/v3 without changing historical routes. */
+export const parseQuestions = (raw: string | null): QuestionnaireSnapshot | QprQuestion[] | null => {
 	if (!raw) return null;
 	const parsed = JSON.parse(raw);
 	if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.version === 2) {
 		return questionnaireV2Schema.parse(parsed);
 	}
+	if (parsed?.version === 3) return questionnaireV3Schema.parse(parsed);
 	return z.array(qprQuestionSchema).parse(parsed);
 };
 
@@ -52,18 +73,19 @@ export const createPeriodSchema = z.object({
 	// form bph: pertanyaan dibentuk dari template resmi server — klien tidak
 	// mengirim questions. legacy/division: wajib.
 	questions: z.array(qprQuestionSchema).min(1).max(50).nullish(),
+	target_config: targetConfigSchema.optional(),
 	opens_at: z
 		.string()
-		.regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([+-]\d{2}:\d{2}|Z)$/)
+		.datetime({ offset: true })
 		.nullish(),
 	closes_at: z
 		.string()
-		.regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([+-]\d{2}:\d{2}|Z)$/)
+		.datetime({ offset: true })
 		.nullish(),
 });
 export type CreatePeriodInput = z.infer<typeof createPeriodSchema>;
 
-export const updatePeriodSchema = createPeriodSchema.partial();
+export const updatePeriodSchema = createPeriodSchema.partial().extend({ form_kind: z.enum(["legacy", "bph", "division"]).nullish() });
 
 export const createEntriesSchema = z.object({
 	entries: z

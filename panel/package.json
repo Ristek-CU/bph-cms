@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "oxlint src vite.config.js",
     "preview": "vite preview",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "test:qpr-integration": "playwright test --config playwright.qpr-integration.config.js"
   },
   "dependencies": {
     "qrcode": "^1.5.4",

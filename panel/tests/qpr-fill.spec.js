@@ -32,9 +32,6 @@ const V2_ROSTER = {
 
 async function setup(page, draft = [], version = 0) {
 	await page.addInitScript(() => {
-		sessionStorage.setItem('bph_cms_token', 'panel-session');
-		// Maintenance wall mati untuk test (Qpr.jsx baca flag ini saat modul load).
-		window.__QPR_MAINTENANCE__ = false;
 	});
 	await page.route('**/api/v1/**', (route) => {
 		const url = new URL(route.request().url());
@@ -65,8 +62,9 @@ async function setup(page, draft = [], version = 0) {
 test('pilih nama memuat draft dan autosave berjalan', async ({ page }) => {
 	await setup(page, [{ question_id: 'ketum-s01', value: 4 }], 1);
 	await page.goto('/#/qpr/period-v2');
+	await page.getByLabel('Divisimu').selectOption('Ristek');
 	await page.getByLabel('Namamu').selectOption('entry-1');
-	await expect(page.getByText('Mengisis sebagai').or(page.getByText('Mengisi sebagai'))).toBeVisible();
+	await expect(page.getByText('Mengisi sebagai', { exact: false })).toBeVisible();
 	// Draft lama terbaca: radio pertama tercentang 4
 	await expect(page.getByRole('radio', { name: /^4 — Baik/ }).first()).toBeChecked();
 	// Ubah jawaban → autosave (PUT dengan expected_version 1)
@@ -74,7 +72,7 @@ test('pilih nama memuat draft dan autosave berjalan', async ({ page }) => {
 	await expect(page.getByText('Tersimpan')).toBeVisible({ timeout: 4000 });
 });
 
-test('ganti nama mengisolasi state dan konflik CAS tidak menimpa', async ({ page }) => {
+test('konflik CAS tidak menimpa draft server', async ({ page }) => {
 	// setup dulu (mock umum), lalu PUT dioverride selalu 409 — konflik paksa.
 	await setup(page, [], 0);
 	await page.route('**/api/v1/qpr/period-v2/entries/entry-1/draft', (route) => {
@@ -83,9 +81,10 @@ test('ganti nama mengisolasi state dan konflik CAS tidak menimpa', async ({ page
 		return route.fallback();
 	});
 	await page.goto('/#/qpr/period-v2');
+	await page.getByLabel('Divisimu').selectOption('Ristek');
 	await page.getByLabel('Namamu').selectOption('entry-1');
 	await page.getByRole('radio', { name: /^2 — Kurang/ }).first().click();
-	await expect(page.getByText('Gagal tersimpan — versi berubah')).toBeVisible({ timeout: 4000 });
+	await expect(page.getByText('Konflik — edit lokal belum tersimpan.', { exact: false })).toBeVisible({ timeout: 4000 });
 });
 
 test('submit final sukses menampilkan layar terima kasih', async ({ page }) => {
@@ -93,7 +92,9 @@ test('submit final sukses menampilkan layar terima kasih', async ({ page }) => {
 	const draftFull = [...SCALE_QUESTIONS.map((q) => ({ question_id: q.id, value: 4 })), { question_id: 'ketum-t01', value: 'Baik' }];
 	await setup(page, draftFull, 3);
 	await page.goto('/#/qpr/period-v2');
+	await page.getByLabel('Divisimu').selectOption('Ristek');
 	await page.getByLabel('Namamu').selectOption('entry-1');
+	await page.getByRole('checkbox', { name: 'Saya sudah meninjau jawaban', exact: false }).check();
 	await page.getByRole('button', { name: 'Kirim penilaian' }).click();
 	await expect(page.getByRole('heading', { name: 'Terima kasih!' })).toBeVisible();
 });
@@ -101,7 +102,6 @@ test('submit final sukses menampilkan layar terima kasih', async ({ page }) => {
 test('rekap v2 tampil di panel admin dengan distribusi dan tombol ekspor', async ({ page }) => {
 	await page.addInitScript(() => {
 		sessionStorage.setItem('bph_cms_token', 'panel-session');
-		window.__QPR_MAINTENANCE__ = false;
 	});
 	const RECAP = {
 		period: { id: 'period-v2', title: 'QPR BPH Oktober 2026', status: 'open', form_kind: 'bph' },
@@ -122,8 +122,9 @@ test('rekap v2 tampil di panel admin dengan distribusi dan tombol ekspor', async
 		const url = new URL(route.request().url());
 		const path = url.pathname.replace('/api/v1', '');
 		const reply = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: true, data: body }) });
-		if (path === '/me') return reply({ can_access_oversight: false, user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', name: 'BPH' }, role: 'platform_admin', permissions: ['qpr.manage'] }], workspace_options: [] });
-		if (path === '/admin/qpr/periods') return reply([{ id: 'period-v2', title: 'QPR BPH Oktober 2026', status: 'open', formKind: 'bph', description: '', total_entries: 2, done_entries: 1, questions: [] }]);
+		if (path === '/me') return reply({ can_access_oversight: false, user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', slug: 'bph', name: 'BPH' }, role: 'platform_admin', permissions: ['qpr.manage'] }], workspace_options: [] });
+		if (path === '/admin/qpr/periods') return reply([{ id: 'period-v2', title: 'QPR BPH Oktober 2026', status: 'open', formKind: 'bph', description: '', total_entries: 2, done_entries: 1, questions: V2_ROSTER.questions }]);
+		if (path === '/admin/qpr/periods/period-v2') return reply({ questions: V2_ROSTER.questions });
 		if (path === '/admin/qpr/periods/period-v2/recap-v2') return reply(RECAP);
 		return reply({});
 	});

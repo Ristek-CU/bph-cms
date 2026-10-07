@@ -115,7 +115,7 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 		.toUpperCase();
 
 	const permissions = user?.permissions || [];
-	const canManageQpr = permissions.includes("qpr.manage");
+	const canManageQpr = user?.division?.slug === "bph" && permissions.includes("qpr.manage");
 	const canSeeForms =
 		hasScoped(permissions, "forms.read") || hasScoped(permissions, "forms.submissions");
 	const canManageAccounts = permissions.includes("accounts.manage");
@@ -146,9 +146,9 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 					<span className="icon" aria-hidden><IconClipboard /></span> Form
 				</NavLink>
 			)}
-			{/* QPR: semua user punya penugasan menilai; kelola periode khusus qpr.manage */}
+			{/* BPH mengelola penilaian; divisi hanya memantau partisipasi anggotanya. */}
 			<NavLink to="/qpr" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>
-				<span className="icon" aria-hidden><IconClipboard /></span> QPR {!canManageQpr && <span className="soon">Penilaian</span>}
+				<span className="icon" aria-hidden><IconClipboard /></span> {canManageQpr ? "QPR" : "Status QPR"}
 			</NavLink>
 			{(canManageAccounts || canReadAudit) && (
 				<NavLink to="/accounts" onClick={closeDrawer} className={({ isActive }) => (isActive ? "active" : "")}>

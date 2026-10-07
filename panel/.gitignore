@@ -25,4 +25,5 @@ dist-ssr
 
 # Local browser test artifacts
 test-results/
+test-results-qpr-integration/
 playwright-report/

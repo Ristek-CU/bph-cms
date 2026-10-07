@@ -39,6 +39,12 @@ const EMPTY_PERMISSIONS = [];
 const WS_KEY = "bph_cms_workspace";
 
 function App() {
+	const { pathname } = useLocation();
+	const periodId = pathname.match(/^\/qpr\/([^/]+)\/?$/)?.[1];
+	return periodId ? <PublicQprRoute periodId={periodId} /> : <DashboardApp />;
+}
+
+function DashboardApp() {
 	const [token, setToken] = useState(getToken());
 	const [user, setUser] = useState(null);
 	const [workspaces, setWorkspaces] = useState([]);
@@ -241,11 +247,7 @@ function App() {
 		return `/${parts.slice(0, Math.max(0, parts.length - drop)).join("/")}`;
 	};
 
-	if (!token) {
-		// QPR isi tetap bisa dibuka tanpa akun (model no-login).
-		if (window.location.hash.startsWith("#/qpr/")) return <PublicQprRoute token={token} />;
-		return <Login onLogin={handleLogin} notice={loginNotice} />;
-	}
+	if (!token) return <Login onLogin={handleLogin} notice={loginNotice} />;
 	if (!user) return <main className="auth-loading" aria-label="Menyiapkan dashboard">
 		{authErr ? <ErrorState title="Dashboard belum bisa dibuka" message={authErr} onRetry={loadMe} /> : <><p role="status">Menyiapkan ruang kerja kamu…</p><SkeletonCard lines={4} /></>}
 		<button className="btn ghost" onClick={handleLogout}>Kembali ke login</button>
@@ -509,12 +511,6 @@ function App() {
 					</Shell>
 				}
 			/>
-			{/* QPR isi PUBLIK (no-login): di luar guard token. Kalau tidak, anggota
-			    tanpa akun dapat halaman Login padahal model QPR memang tanpa login. */}
-			<Route
-				path="/qpr/:periodId"
-				element={<PublicQprRoute token={token} shellProps={shellProps} />}
-			/>
 			<Route path="/docs" element={<NavigateDocs />} />
 			<Route path="*" element={<Navigate to="/" replace />} />
 		</Routes>
@@ -547,19 +543,9 @@ function NoAccess({ to = "/events", label = "Kembali ke daftar event" }) {
 	);
 }
 
-// #/qpr/:periodId — halaman isi QPR. User login dapat Shell + sidebar (L2);
-// tamu tetap standalone (model QPR no-login).
-function PublicQprRoute({ token, shellProps }) {
-	const navigate = useNavigate();
-	const periodId = window.location.hash.match(/qpr\/([^/?#]+)/)?.[1];
-	const fill = <PublicFill key={periodId} periodId={periodId} />;
-	if (!token) return <main className="public-page"><div className="public-brand">SGA Cakrawala <span>Penilaian QPR</span></div>{fill}</main>;
-	return (
-		<Shell {...shellProps} title="Isi QPR" crumb={[{ label: "Modul", to: "/" }, { label: "QPR", to: "/qpr" }, { label: "Isi" }]}
-			onBack={() => navigate("/qpr")}>
-			{fill}
-		</Shell>
-	);
+// Form publik tidak memasang dashboard atau memuat sesi, termasuk bagi akun login.
+function PublicQprRoute({ periodId }) {
+	return <main className="public-page"><div className="public-brand">SGA Cakrawala <span>Penilaian QPR</span></div><PublicFill key={periodId} periodId={periodId} /></main>;
 }
 
 function NewEventRoute({ canPublish }) {

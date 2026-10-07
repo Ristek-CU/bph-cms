@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, apiRaw, errText } from "../api.js";
+import { useCallback, useEffect, useState } from "react";
+import QprFill from "./QprFill.jsx";
+import { api, apiRaw, errText, isoToInput, toIsoWib } from "../api.js";
 import { useToast, Confirm, SkeletonCard, Card, copyText, ErrorState, useEscape, useFocusTrap } from "../components/ui.jsx";
 
 // QPR v2 — tanpa login (model kejujuran). BPH kelola periode + roster nama;
@@ -9,37 +10,55 @@ const STATUS_LABEL = { draft: "Draft", open: "Berlangsung", closed: "Selesai" };
 
 const PUBLIC_BASE = "https://cms.sga-cakrawala.org/#/qpr";
 
-// ponytail: fitur belum dirilis — wall maintenance untuk panel + halaman publik.
-// Aktifkan fitur: ganti jadi false (badge nav "Segera" di Shell.jsx ikut dikembalikan).
-// VITE_QPR_MAINTENANCE=false untuk dev lokal; window.__QPR_MAINTENANCE__ = false
-// untuk test UI (Playwright) yang tidak me-restart Vite.
-const QPR_MAINTENANCE = typeof window !== "undefined" && window.__QPR_MAINTENANCE__ === false
-	? false
-	: import.meta.env.VITE_QPR_MAINTENANCE !== "false";
-
-function MaintenanceNote() {
-	return (
-		<div className="empty-state" style={{ maxWidth: 560, margin: "0 auto" }}>
-			<p><strong>Fitur QPR sedang dalam tahap pengembangan.</strong></p>
-			<p className="muted small">Penilaian QPR belum bisa diakses. Nantikan pengumuman dari BPH.</p>
-		</div>
-	);
-}
-
 export default function Qpr({ user }) {
-	if (QPR_MAINTENANCE) return <MaintenanceNote />;
-	const canManage = user?.permissions?.includes("qpr.manage");
-	return canManage ? <AdminView /> : <NoManage />;
+	const canManage = user?.division?.slug === "bph" && user?.permissions?.includes("qpr.manage");
+	return canManage ? <AdminView key={user.division.id} /> : <ParticipationView key={user?.division?.id || user?.division?.slug} />;
 }
 
-function NoManage() {
-	// Non-BPH tidak kelola — pengisian lewat link publik, bukan panel.
-	return (
-		<div className="empty-state">
-			<p>Kamu tidak punya akses kelola QPR. Buka link publik periode yang sedang berjalan untuk mengisi penilaian.</p>
-			<p className="muted small">Minta link periode aktif kepada pengurus BPH. Kamu bisa mengisi penilaian langsung dari link tersebut.</p>
-		</div>
-	);
+function ParticipationView() {
+	const [periods, setPeriods] = useState(null);
+	const [periodId, setPeriodId] = useState("");
+	const [detail, setDetail] = useState(null);
+	const [filter, setFilter] = useState("all");
+	const [err, setErr] = useState("");
+	const [retry, setRetry] = useState(0);
+	useEffect(() => {
+		let active = true;
+		api("/qpr-participation").then((rows) => {
+			if (active) { setPeriods(rows); setPeriodId(rows[0]?.id || ""); setErr(""); }
+		}).catch((e) => active && setErr(errText(e)));
+		return () => { active = false; };
+	}, [retry]);
+	useEffect(() => {
+		let active = true;
+		if (periodId) api(`/qpr-participation/${periodId}`).then((data) => {
+			if (active) { setDetail({ ...data, requestedPeriodId: periodId, retry }); setErr(""); }
+		}).catch((e) => active && setErr(errText(e)));
+		return () => { active = false; };
+	}, [periodId, retry]);
+	return <>
+		<div className="page-intro"><h2>Status pengisian QPR</h2><p>Partisipasi anggota divisi aktif. Draft tetap dihitung belum mengisi.</p></div>
+		{err && <ErrorState message={err} onRetry={() => setRetry((n) => n + 1)} />}
+		{!err && periods === null ? <SkeletonCard /> : periods?.length === 0 ? <p>Belum ada periode yang dipublikasikan.</p> : periods && <>
+			<label className="field-label" htmlFor="participation-period">Periode</label>
+			<select id="participation-period" value={periodId} onChange={(e) => setPeriodId(e.target.value)}>{periods.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}</select>
+			{!err && detail?.requestedPeriodId === periodId && detail.retry === retry ? <div className="card" style={{ marginTop: 12 }}>
+				<p>{detail.done_entries} sudah mengisi · {detail.pending_entries} belum mengisi · {detail.total_entries} anggota</p>
+				<label htmlFor="participation-filter">Status</label>
+				<select id="participation-filter" value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Semua</option><option value="done">Sudah mengisi</option><option value="pending">Belum mengisi</option></select>
+				<ul>{detail.entries.filter((e) => filter === "all" || e.done === (filter === "done")).map((e, i) => <li key={i}>{e.display_name || e.name}{e.role ? ` (${e.role})` : ""} — {e.done ? "Sudah mengisi" : "Belum mengisi"}</li>)}</ul>
+			</div> : !err && <SkeletonCard />}
+		</>}
+	</>;
+}
+
+const DIVISIONS = ["bph", "ristek", "ukm", "advo", "bnp", "icd", "pr", "media"];
+const TARGET_IDS = ["controller1", "controller2", "controller3", "controller4", "bendum1", "bendum2", "sekum1", "sekum2", "ketum", "waketum"];
+const isSnapshot = (questions) => !Array.isArray(questions) && Array.isArray(questions?.sections);
+const isFrozen = (period) => Boolean(period.firstOpenedAt);
+
+function SnapshotQuestions({ snapshot }) {
+	return <div><p className="muted small">Pertanyaan template PDF — hanya baca (snapshot v{snapshot.version}).</p>{snapshot.sections.map((s) => <details key={s.id}><summary>{s.title || s.target_label || s.id} · {s.questions.length} pertanyaan</summary><ol>{s.questions.map((q) => <li key={q.id}>{q.label}{q.required ? " (wajib)" : ""}</li>)}</ol></details>)}</div>;
 }
 
 function AdminView() {
@@ -206,7 +225,7 @@ function RecapV2({ recap, onExport, onExportDisabled }) {
 																<strong className="poll-bar-count">{d.count}</strong>
 															</div>
 															<div className="poll-bar-track">
-																<div className="poll-bar-fill" style={{ width: total ? `${(d.count / total) * 100}%` : 0 }} />
+																<div className="poll-bar-fill" style={{ width: q.responses ? `${(d.count / q.responses) * 100}%` : 0 }} />
 															</div>
 														</div>
 													))}
@@ -222,7 +241,7 @@ function RecapV2({ recap, onExport, onExportDisabled }) {
 													<span className="muted small">Belum ada jawaban.</span>
 												) : (
 													<ul style={{ margin: 0, paddingLeft: 18 }} className="small">
-														{q.texts.map((t, i) => <li key={i}>{t}</li>)}
+														{q.texts.map((t, i) => <li key={i}>{q.text_responses?.[i] && <strong>{q.text_responses[i].name} · {q.text_responses[i].division || "—"}: </strong>}{t}</li>)}
 													</ul>
 												)}
 											</td>
@@ -249,6 +268,7 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 	const [askEntryDelete, setAskEntryDelete] = useState(null);
 	const [showAdd, setShowAdd] = useState(false);
 	const [showEdit, setShowEdit] = useState(false);
+	const [preview, setPreview] = useState(null);
 
 	const act = async (fn) => {
 		setBusy(true);
@@ -260,7 +280,7 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 	const toggle = async () => {
 		onToggle();
 		if (!open) {
-			setDetail(null); setRecap(null);
+			setDetail(null); setRecap(null); setPreview(null);
 			try { setDetail(await api(`/admin/qpr/periods/${period.id}`)); } catch (e) { toast(errText(e), "err"); }
 		}
 	};
@@ -271,8 +291,11 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 		setRecap(null);
 		if (!open) onToggle();
 		// form bph/divisi (snapshot v2) pakai rekap per pertanyaan; legacy → rekap kategori.
-		const v2Path = period.formKind && period.formKind !== "legacy" ? "recap-v2" : "recap";
-		try { setRecap(await api(`/admin/qpr/periods/${period.id}/${v2Path}`)); } catch (e) { toast(errText(e), "err"); }
+		try {
+			const current = await api(`/admin/qpr/periods/${period.id}`);
+			const path = isSnapshot(current.questions) ? "recap-v2" : "recap";
+			setRecap(await api(`/admin/qpr/periods/${period.id}/${path}`));
+		} catch (e) { toast(errText(e), "err"); }
 	};
 
 	const exportCsv = async () => {
@@ -304,7 +327,7 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 					<div className="muted small">
 						{STATUS_LABEL[period.status] ?? period.status}
 						{period.description ? ` · ${period.description}` : ""}
-						{period.closes_at ? ` · tutup ${new Date(period.closes_at).toLocaleDateString("id-ID")}` : ""}
+						{period.closesAt ? ` · tutup ${new Date(period.closesAt).toLocaleDateString("id-ID")}` : ""}
 						{` · ${period.done_entries}/${period.total_entries} sudah isi`}
 					</div>
 				</div>
@@ -314,9 +337,17 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 					{period.status !== "draft" && (
 						<button className="btn ghost" disabled={busy} onClick={copyLink}>Salin link</button>
 					)}
-					{period.status === "draft" && (
+					{(period.status === "draft" || period.status === "closed") && (
 						<button className="btn" title={period.total_entries === 0 ? "Tambahkan nama pengisi melalui Kelola terlebih dahulu" : undefined} disabled={busy || period.total_entries === 0}
-							onClick={() => act(() => api(`/admin/qpr/periods/${period.id}/open`, { method: "POST" }))}>Buka</button>
+							onClick={() => act(async () => {
+							const check = await api(`/admin/qpr/periods/${period.id}/preview`);
+							setPreview(check);
+							if (!open) onToggle();
+							setDetail(await api(`/admin/qpr/periods/${period.id}`));
+							if (check.blockers.length) { toast("Konfigurasi belum lengkap. Periksa blocker.", "err"); return; }
+							await api(`/admin/qpr/periods/${period.id}/open`, { method: "POST" });
+							setDetail(await api(`/admin/qpr/periods/${period.id}`));
+						})}>{period.status === "closed" ? "Buka kembali" : "Buka"}</button>
 					)}
 					{period.status === "open" && (
 						<button className="btn" disabled={busy} onClick={() => act(() => api(`/admin/qpr/periods/${period.id}/close`, { method: "POST" }))}>Tutup</button>
@@ -328,27 +359,32 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 			{open && detail && (
 				<div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
 					<div className="muted small" style={{ marginBottom: 6 }}>
-						Pertanyaan: {detail.questions.map((q) => `${q.category} — ${q.label}`).join(" · ")}
+						{isSnapshot(detail.questions) ? <SnapshotQuestions snapshot={detail.questions} /> : <>Pertanyaan: {detail.questions.map((q) => `${q.category} — ${q.label}`).join(" · ")}</>}
 					</div>
 					<div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-						<button className="btn ghost" disabled={busy} onClick={() => setShowAdd(true)}>+ Tambah nama</button>
-						<button className="btn ghost" disabled={busy || period.status === "closed"} onClick={() => setShowEdit(true)}>Edit periode</button>
+						<button className="btn ghost" disabled={busy || isFrozen(detail)} onClick={() => setShowAdd(true)}>+ Tambah nama</button>
+						<button className="btn ghost" disabled={busy} onClick={() => setShowEdit(true)}>Edit periode</button>
 					</div>
-					<EditPeriodModal
+					<button className="btn ghost" disabled={busy} onClick={() => act(async () => setPreview(await api(`/admin/qpr/periods/${period.id}/preview`)))}>Preview jalur</button>
+					{isFrozen(detail) && <p className="muted small">Pernah dibuka — roster, target, dan pertanyaan terkunci. Metadata masih dapat diedit.</p>}
+					{preview && <div role="status"><h3>Preview jalur</h3>{preview.blockers.length ? <ul>{preview.blockers.map((b, i) => <li key={i}>{typeof b === "string" ? b : b.message || JSON.stringify(b)}</li>)}</ul> : <p>Tidak ada blocker.</p>}<ul>{preview.entries.map((e) => <li key={e.id}>{e.display_name || e.name} · {e.division_slug} · {e.role} · {e.required} wajib · {e.targets.map((t) => typeof t === "string" ? t : t.label || t.id).join(", ")}</li>)}</ul></div>}
+					{showEdit && <EditPeriodModal
 						open={showEdit}
 						period={detail}
 						onClose={() => setShowEdit(false)}
 						onSaved={async () => {
+							setPreview(null);
 							setDetail(await api(`/admin/qpr/periods/${period.id}`));
 							await onDone();
 						}}
 						toast={toast}
-					/>
+					/>}
 					<AddEntriesModal
 						open={showAdd}
 						periodId={period.id}
+						version={detail.questions?.version}
 						onClose={() => setShowAdd(false)}
-						onAdded={async () => { setDetail(await api(`/admin/qpr/periods/${period.id}`)); await onDone(); }}
+						onAdded={async () => { setPreview(null); setDetail(await api(`/admin/qpr/periods/${period.id}`)); await onDone(); }}
 						toast={toast}
 					/>
 					<div className="tbl-wrap">
@@ -357,11 +393,11 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 						<tbody>
 							{detail.entries.map((e) => (
 								<tr key={e.id}>
-									<td>{e.name}</td>
-									<td>{e.division || "—"}</td>
+									<td>{e.display_name || e.name}{e.memberRole || e.role ? ` (${e.memberRole || e.role})` : ""}{e.memberKey ? ` · ${e.memberKey}` : ""}</td>
+									<td>{e.division_slug || e.divisionSlug || e.division || "—"}</td>
 									<td>{e.done ? `Sudah isi${e.submitted_at ? ` · ${new Date(e.submitted_at).toLocaleString("id-ID")}` : ""}` : "Belum"}</td>
 									<td>
-										<button className="btn ghost" disabled={busy} onClick={() => setAskEntryDelete(e)}>Hapus</button>
+										<button className="btn ghost" disabled={busy || isFrozen(detail)} onClick={() => setAskEntryDelete(e)}>Hapus</button>
 									</td>
 								</tr>
 							))}
@@ -430,6 +466,7 @@ function PeriodRow({ period, open, onToggle, onDone, toast }) {
 					setAskEntryDelete(null);
 					act(async () => {
 						await api(`/admin/qpr/periods/${period.id}/entries/${e.id}`, { method: "DELETE" });
+						setPreview(null);
 						setDetail(await api(`/admin/qpr/periods/${period.id}`));
 					});
 				}}
@@ -446,7 +483,15 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 	const [title, setTitle] = useState(period.title);
 	const [desc, setDesc] = useState(period.description || "");
 	// Pertanyaan editable sebagai "Kategori | Label" per baris.
-	const [qraw, setQraw] = useState(period.questions.map((q) => `${q.category} | ${q.label}`).join("\n"));
+	const snapshot = isSnapshot(period.questions);
+	const frozen = isFrozen(period);
+	const [qraw, setQraw] = useState(Array.isArray(period.questions) ? period.questions.map((q) => `${q.category} | ${q.label}`).join("\n") : "");
+	const [config, setConfig] = useState(() => period.questions?.target_config || {
+		targets: TARGET_IDS.map((id) => ({ id, label: "", template: id.startsWith("controller") ? "controller" : id })),
+		controller_by_division: {},
+	});
+	const [opensAt, setOpensAt] = useState(isoToInput(period.opensAt));
+	const [closesAt, setClosesAt] = useState(isoToInput(period.closesAt));
 	const [busy, setBusy] = useState(false);
 	const modalRef = useFocusTrap(open);
 	useEscape(() => open && !busy && onClose());
@@ -458,12 +503,17 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 			const [category, label] = line.split("|").map((s) => s.trim());
 			return { category: category || "Umum", label };
 		}).filter((q) => q.label);
-		if (!questions.length) { toast("Minimal satu pertanyaan.", "err"); return; }
+		if (!snapshot && !frozen && !questions.length) { toast("Minimal satu pertanyaan.", "err"); return; }
+		if (opensAt && closesAt && new Date(opensAt) >= new Date(closesAt)) { toast("Jadwal tutup harus setelah buka.", "err"); return; }
 		setBusy(true);
 		try {
 			await api(`/admin/qpr/periods/${period.id}`, {
 				method: "PUT",
-				json: { title: title.trim(), description: desc.trim() || null, questions },
+				json: { title: title.trim(), description: desc.trim() || null,
+					opens_at: opensAt ? toIsoWib(opensAt) : null,
+					closes_at: closesAt ? toIsoWib(closesAt) : null,
+					...(!frozen && (snapshot ? period.questions.version === 3 ? { target_config: config } : {} : { questions })),
+				},
 			});
 			toast("Periode diperbarui.");
 			onClose();
@@ -488,11 +538,16 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 						<label className="field-label" htmlFor="qe-desc">Yang dinilai (opsional)</label>
 						<input id="qe-desc" value={desc} onChange={(e) => setDesc(e.target.value)} />
 					</div>
-					<div>
-						<label className="field-label" htmlFor="qe-q">Pertanyaan (satu per baris, "Kategori | Label")</label>
-						<textarea id="qe-q" rows={5} value={qraw} onChange={(e) => setQraw(e.target.value)} required />
-					</div>
-					{period.status === "closed" && <p className="muted small">Periode selesai — judul/pertanyaan terkunci, hanya meta.</p>}
+					<div><label className="field-label" htmlFor="qe-opens">Jadwal buka WIB (opsional)</label><input id="qe-opens" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} /></div>
+					<div><label className="field-label" htmlFor="qe-closes">Jadwal tutup WIB (opsional)</label><input id="qe-closes" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} /></div>
+					{snapshot ? <>
+						<p className="muted small">Pertanyaan template PDF hanya baca.</p>
+						{period.questions.version === 3 && <fieldset disabled={frozen} style={{ minWidth: 0 }}><legend>Target dan pemetaan Controller</legend>
+							{config.targets.map((target, i) => <div key={target.id}><label htmlFor={`target-${target.id}`}>Nama {target.id}</label><input id={`target-${target.id}`} value={target.label} maxLength={160} onChange={(e) => setConfig({ ...config, targets: config.targets.map((t, n) => n === i ? { ...t, label: e.target.value } : t) })} /></div>)}
+							{DIVISIONS.map((slug) => <div key={slug}><label htmlFor={`controller-${slug}`}>Controller untuk {slug}</label><select id={`controller-${slug}`} value={config.controller_by_division[slug] || ""} onChange={(e) => { const mapping = { ...config.controller_by_division }; if (e.target.value) mapping[slug] = e.target.value; else delete mapping[slug]; setConfig({ ...config, controller_by_division: mapping }); }}><option value="">Belum dipetakan</option>{config.targets.filter((t) => t.template === "controller").map((t) => <option key={t.id} value={t.id}>{t.label || t.id}</option>)}</select></div>)}
+						</fieldset>}
+					</> : <div><label className="field-label" htmlFor="qe-q">Pertanyaan (satu per baris, "Kategori | Label")</label><textarea id="qe-q" rows={5} value={qraw} onChange={(e) => setQraw(e.target.value)} required disabled={frozen} /></div>}
+					{frozen && <p className="muted small">Snapshot dan roster terkunci; hanya metadata yang disimpan.</p>}
 				</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
 					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
@@ -504,8 +559,9 @@ function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
 }
 
 /** Modal tambah nama pengisi — textarea "Nama | Divisi" per baris. */
-function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
+function AddEntriesModal({ open, periodId, version, onClose, onAdded, toast }) {
 	const [raw, setRaw] = useState("");
+	const [itemsPreview, setItemsPreview] = useState(null);
 	const [busy, setBusy] = useState(false);
 	const modalRef = useFocusTrap(open);
 	useEscape(() => open && !busy && onClose());
@@ -514,15 +570,18 @@ function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 	const submit = async (e) => {
 		e.preventDefault();
 		const items = raw.trim().split("\n").map((line) => {
-			const [name, division, role] = line.split("|").map((s) => s.trim());
-			return { name, division: division || null, role: role || null };
+			const [name, division, role, member_key] = line.split("|").map((s) => s.trim());
+			return version === 3 ? { name, division_slug: division, role, member_key } : { name, division: division || null, role: role || null };
 		}).filter((a) => a.name);
 		if (!items.length) { toast("Format tidak terbaca.", "err"); return; }
+		if (version === 3 && items.some((item) => !DIVISIONS.includes(item.division_slug) || !["anggota", "kadiv", "wakadiv", "bendiv", "sekdiv", "bendum", "sekum", "controller"].includes(item.role) || !item.member_key)) { toast("Wajib nama, division_slug kanonis, jabatan valid, dan member_key stabil.", "err"); return; }
+		if (version === 3 && new Set(items.map((item) => item.member_key)).size !== items.length) { toast("member_key harus unik dalam impor.", "err"); return; }
+		if (!itemsPreview) { setItemsPreview(items); return; }
 		setBusy(true);
 		try {
 			await api(`/admin/qpr/periods/${periodId}/entries`, { method: "POST", json: { entries: items } });
 			toast(`${items.length} nama ditambahkan.`);
-			setRaw("");
+			setRaw(""); setItemsPreview(null);
 			onClose();
 			await onAdded();
 		} catch (e2) {
@@ -537,13 +596,14 @@ function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Tambah nama pengisi">
 				<h3>Tambah nama pengisi</h3>
 				<div style={{ marginTop: 10 }}>
-					<label className="field-label" htmlFor="qp-entries">Nama (satu per baris, "Nama | Divisi | Jabatan")</label>
-					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => setRaw(e.target.value)} placeholder={"Raka Pratama | Ristek | kadiv\nSinta Dewi | Ristek | anggota"} required />
-					<p className="muted small">Jabatan (khusus QPR BPH) menentukan jalur penilaian: anggota, kadiv, wakadiv, bendiv, sekdiv, bendum, sekum, controller, ketum, waketum. Kosong = anggota.</p>
+					<label className="field-label" htmlFor="qp-entries">{version === 3 ? "Nama | division_slug | role | member_key (satu per baris)" : "Nama | Divisi | Jabatan (satu per baris)"}</label>
+					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => { setRaw(e.target.value); setItemsPreview(null); }} placeholder={version === 3 ? "Anggota Contoh | ristek | anggota | anggota-001" : "Anggota Contoh | Ristek | anggota"} required />
+					<p className="muted small">Jabatan: anggota, kadiv, wakadiv, bendiv, sekdiv, bendum, sekum, controller. Versi 3: divisi kanonis wajib; member_key tetap sama saat impor ulang, berbeda untuk nama kembar.</p>
 				</div>
+				<div>{itemsPreview && <><h4>Preview impor ({itemsPreview.length})</h4><ul>{itemsPreview.map((item, i) => <li key={i}>{item.name} · {item.division_slug || item.division} · {item.role} · {item.member_key}</li>)}</ul></>}</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
 					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
-					<button className="btn" type="submit" disabled={busy || !raw.trim()}>{busy ? "Menyimpan…" : "Tambah"}</button>
+					<button className="btn" type="submit" disabled={busy || !raw.trim()}>{busy ? "Menyimpan…" : itemsPreview ? "Impor" : "Preview impor"}</button>
 				</div>
 			</form>
 		</div>
@@ -552,7 +612,7 @@ function AddEntriesModal({ open, periodId, onClose, onAdded, toast }) {
 
 /** Halaman publik pengisian (no-login): dispatcher format — v2 snapshot vs legacy. */
 export function PublicFill({ periodId }) {
-	return QPR_MAINTENANCE ? <MaintenanceNote /> : <PublicFillDispatch periodId={periodId} />;
+	return <PublicFillDispatch periodId={periodId} />;
 }
 
 function PublicFillDispatch({ periodId }) {
@@ -566,8 +626,7 @@ function PublicFillDispatch({ periodId }) {
 	}, [periodId]);
 	if (err) return <ErrorState message={err} />;
 	if (!roster) return <SkeletonCard lines={5} />;
-	// Snapshot v2: questions berupa {version:2, sections} — renderer bertahap + draft.
-	return roster.questions?.version === 2 ? <PublicFillV2 periodId={periodId} /> : <PublicFillForm periodId={periodId} />;
+	return isSnapshot(roster.questions) ? <QprFill periodId={periodId} /> : <PublicFillForm periodId={periodId} />;
 }
 
 function PublicFillForm({ periodId }) {
@@ -652,160 +711,6 @@ function PublicFillForm({ periodId }) {
 					<button className="btn" disabled={busy || !name || questions.some((q) => !scores[q.label])} onClick={submit}>{busy ? "Mengirim…" : "Kirim penilaian"}</button>
 				</div>
 			</div>}
-		</Card>
-	);
-}
-
-/** Halaman publik pengisian v2 (snapshot berversi): pilih nama → draft autosave → submit. */
-function PublicFillV2({ periodId }) {
-	const toast = useToast();
-	const [roster, setRoster] = useState(null);
-	const [err, setErr] = useState("");
-	// entry = { id, name } terpilih; draft = { answers, version }.
-	const [entry, setEntry] = useState(null);
-	const [draft, setDraft] = useState(null);
-	const [meta, setMeta] = useState(null); // questions, sections, progress, legend
-	const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | conflict | error
-	const [busy, setBusy] = useState(false);
-	const [doneMsg, setDoneMsg] = useState(false);
-	const saveTimer = useRef(null);
-	const saveSeq = useRef(0);
-
-	useEffect(() => {
-		if (!periodId) return;
-		api(`/qpr/${periodId}`)
-			.then((d) => { setRoster(d); setErr(""); })
-			.catch((e) => setErr(e?.message || "Periode tidak ditemukan atau sudah ditutup."));
-		return () => setEntry(null); // pindah periode: isolasi state entry sebelumnya
-	}, [periodId]);
-
-	// Pilih nama → ambil draft (sumber utama lintas perangkat).
-	const pickEntry = async (r) => {
-		// Isolasi: batalkan autosave entry sebelumnya.
-		clearTimeout(saveTimer.current);
-		saveSeq.current += 1;
-		setEntry({ id: r.id, name: r.name });
-		setDraft(null); setSaveState("idle");
-		try {
-			const d = await api(`/qpr/${periodId}/entries/${r.id}/draft`);
-			setMeta(d);
-			setDraft({ answers: Object.fromEntries(d.draft.map((a) => [a.question_id, a.value])), version: d.draft_version });
-		} catch (e) {
-			if (e?.statusCode === 409) { toast("Nama ini sudah mengirim penilaian final.", "err"); setEntry(null); }
-			else setErr(errText(e));
-		}
-	};
-
-	// Autosave 800ms setelah perubahan terakhir — satu request dalam satu waktu.
-	const scheduleSave = (nextAnswers) => {
-		clearTimeout(saveTimer.current);
-		setSaveState("saving");
-		const seq = ++saveSeq.current;
-		saveTimer.current = setTimeout(async () => {
-			try {
-				const answers = Object.entries(nextAnswers).map(([question_id, value]) => ({ question_id, value }));
-				const res = await api(`/qpr/${periodId}/entries/${entry.id}/draft`, {
-					method: "PUT", json: { expected_version: draft.version, answers },
-				});
-				if (seq === saveSeq.current) { setDraft((d) => ({ ...d, version: res.draft_version })); setSaveState("saved"); }
-			} catch (e) {
-				if (seq !== saveSeq.current) return; // respons entry lama — abaikan
-				if (e?.statusCode === 409) {
-					setSaveState("conflict");
-					toast("Draft diperbarui perangkat lain — muat ulang halaman untuk melihat versi terbaru.", "err");
-				} else { setSaveState("error"); toast(errText(e), "err"); }
-			}
-		}, 800);
-	};
-
-	const setAnswer = (questionId, value) => {
-		const next = { ...draft.answers, [questionId]: value };
-		setDraft((d) => ({ ...d, answers: next }));
-		scheduleSave(next);
-	};
-
-	const submitFinal = async () => {
-		if (busy) return;
-		setBusy(true);
-		try {
-			clearTimeout(saveTimer.current);
-			const answers = Object.entries(draft.answers).map(([question_id, value]) => ({ question_id, value }));
-			await api(`/qpr/${periodId}/submit-v2`, { method: "POST", json: { entry_id: entry.id, answers } });
-			setDoneMsg(true);
-		} catch (e) {
-			toast(errText(e), "err");
-			if (e?.statusCode === 422 || e?.statusCode === 409) api(`/qpr/${periodId}`).then(setRoster).catch(() => {});
-		} finally { setBusy(false); }
-	};
-
-	if (err) return <ErrorState message={err} onRetry={() => { setErr(""); api(`/qpr/${periodId}`).then(setRoster).catch((e) => setErr(errText(e))); }} />;
-	if (doneMsg) return <div className="card qpr-success" role="status"><span aria-hidden>✓</span><h2>Terima kasih!</h2><p>Penilaian terkirim. Terima kasih!</p><p className="muted">Jawabanmu sudah tersimpan. Halaman ini boleh ditutup.</p></div>;
-	if (!roster) return <SkeletonCard lines={5} />;
-	if (!entry) {
-		return (
-			<Card style={{ maxWidth: 560, margin: "0 auto" }}>
-				<p className="studio-kicker">PENILAIAN PENGURUS</p><h1 className="qpr-title">{roster.title}</h1>
-				{roster.description && <div className="muted small" style={{ marginTop: 2 }}>{roster.description}</div>}
-				{/* Model kejuhuran — wajib terlihat, jangan sebut anonim. */}
-				<p className="login-notice">Form ini tanpa login: pilih namamu dari daftar. Orang lain yang memilih namamu bisa melihat/melanjutkan isianmu, jadi jangan bagikan link di luar anggota SGA.</p>
-				{roster.remaining.length === 0 ? <p className="login-notice">Semua nama telah mengisi penilaian ini.</p> : (
-					<div style={{ display: "grid", gap: 12, marginTop: 14 }}>
-						<div>
-							<label className="field-label" htmlFor="qpr-name-v2">Namamu</label>
-							<select id="qpr-name-v2" value="" onChange={(e) => { const r = roster.remaining.find((x) => x.id === e.target.value); if (r) pickEntry(r); }}>
-								<option value="" disabled>Pilih namamu…</option>
-								{roster.remaining.map((r) => (
-									<option key={r.id} value={r.id}>{r.name}{r.division ? ` — ${r.division}` : ""}</option>
-								))}
-							</select>
-							<div className="muted small" style={{ marginTop: 4 }}>{roster.remaining.length} orang belum mengisi</div>
-						</div>
-					</div>
-				)}
-			</Card>
-		);
-	}
-
-	const questions = meta?.questions ?? [];
-	const progress = meta?.progress ?? { required: questions.filter((q) => q.required).length, filled: 0 };
-	const filledCount = questions.filter((q) => q.required && draft?.answers?.[q.id] !== undefined && String(draft.answers[q.id]).trim() !== "").length;
-
-	return (
-		<Card style={{ maxWidth: 640, margin: "0 auto" }}>
-			<p className="studio-kicker">PENILAIAN PENGURUS</p>
-			<h1 className="qpr-title">{roster.title}</h1>
-			<p className="muted small">Mengisi sebagai <strong>{entry.name}</strong> · <button className="btn ghost" onClick={() => { clearTimeout(saveTimer.current); setEntry(null); setDraft(null); }}>Ganti nama</button></p>
-			<p className="field-help" role="status" aria-live="polite">
-				{saveState === "saving" ? "Menyimpan…" : saveState === "saved" ? "Tersimpan" : saveState === "conflict" ? "Gagal tersimpan — versi berubah" : saveState === "error" ? "Gagal tersimpan — coba lagi" : `${filledCount} dari ${progress.required} wajib terisi`}
-			</p>
-			{(meta?.sections ?? []).map((s) => (
-				<section key={s.id} style={{ marginTop: 18 }}>
-					<h2 style={{ fontSize: "1.05rem" }}>{s.title}</h2>
-					{s.questions.map((q) => (
-						<fieldset key={q.id} className="qpr-question" style={{ margin: "0 0 10px", padding: "8px 10px 10px", border: "1px solid var(--line)", borderRadius: 8 }}>
-							<legend className="small" style={{ padding: "0 4px" }}>{q.label}{q.required ? " *" : ""}</legend>
-							{q.type === "scale" ? (
-								<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-									{[1, 2, 3, 4, 5].map((n) => (
-										<label key={n} className="qpr-scale" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, minHeight: 24, padding: "2px 8px" }}>
-											<input type="radio" disabled={busy} aria-label={`${n} — ${meta.scale_legend[n]}`} name={`q_${q.id}`} checked={draft?.answers?.[q.id] === n}
-												onChange={() => setAnswer(q.id, n)} /> {n}
-										</label>
-									))}
-									<span className="muted small" style={{ alignSelf: "center" }}>{meta.scale_legend[draft?.answers?.[q.id]] ?? ""}</span>
-								</div>
-							) : (
-								<textarea rows={3} disabled={busy} maxLength={5000} value={typeof draft?.answers?.[q.id] === "string" ? draft.answers[q.id] : ""}
-									onChange={(e) => setAnswer(q.id, e.target.value)} />
-							)}
-						</fieldset>
-					))}
-				</section>
-			))}
-			<div style={{ marginTop: 14 }}>
-				<p className="field-help" role="status">{filledCount} dari {progress.required} pertanyaan wajib terisi</p>
-				<button className="btn" disabled={busy || filledCount < progress.required} onClick={submitFinal}>{busy ? "Mengirim…" : "Kirim penilaian"}</button>
-			</div>
 		</Card>
 	);
 }

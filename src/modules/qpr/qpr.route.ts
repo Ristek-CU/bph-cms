@@ -44,6 +44,7 @@ export const publicQprRouter = new Hono<AppContext>();
 
 // --- Endpoint publik (tanpa login) ---
 
+publicQprRouter.use("*", async (c, next) => { await next(); c.header("Cache-Control", "no-store"); });
 publicQprRouter.use("*", publicRateLimiter);
 
 // Draft publik (model kejuhuran): baca/tulis draft cukup pilih nama.
@@ -174,6 +175,7 @@ const requireBphQpr: MiddlewareHandler<AppContext> = async (c, next) => {
 
 export const adminQprRouter = new Hono<AppContext>();
 
+adminQprRouter.use("*", async (c, next) => { await next(); c.header("Cache-Control", "no-store"); });
 adminQprRouter.use("*", adminAuth);
 adminQprRouter.use("*", requireBphQpr);
 
@@ -314,3 +316,30 @@ adminQprRouter.get(
 		});
 	},
 );
+
+adminQprRouter.get("/periods/:id/preview",
+	describe("Preview periode", "Blocker publikasi: target, roster, pemetaan divisi.", successWrapper(z.object({})), { 404: { description: "Not found" } }),
+	async (c) => {
+		const { id } = parseParams(c, idParamSchema);
+		return ApiResponse.ok(c, "OK", await qprService.preview(getDb(c.env.DB), id));
+	},
+);
+
+export const participationQprRouter = new Hono<AppContext>();
+participationQprRouter.use("*", async (c, next) => { await next(); c.header("Cache-Control", "no-store"); });
+participationQprRouter.use("*", adminAuth);
+participationQprRouter.use("*", async (c, next) => {
+ const active = (c.get("memberships") ?? []).find((m) => m.division.id === c.get("activeDivisionId") && m.status === "active");
+ if (!active) throw ApiError.forbidden("Membership aktif diperlukan");
+ await next();
+});
+participationQprRouter.get("/", describe("Partisipasi QPR", "Status pengisian per anggota divisi aktif.", successWrapper(z.object({}))), async (c) => {
+	const active = (c.get("memberships") ?? []).find((m) => m.division.id === c.get("activeDivisionId") && m.status === "active");
+	if (!active) throw ApiError.forbidden("Membership aktif diperlukan");
+	return ApiResponse.ok(c, "OK", await qprService.participation(getDb(c.env.DB), active.division.slug));
+});
+participationQprRouter.get("/:periodId", describe("Partisipasi QPR per periode", "Status pengisian satu periode untuk divisi aktif.", successWrapper(z.object({})), { 404: { description: "Not found" } }), async (c) => {
+	const active = (c.get("memberships") ?? []).find((m) => m.division.id === c.get("activeDivisionId") && m.status === "active");
+	if (!active) throw ApiError.forbidden("Membership aktif diperlukan");
+	return ApiResponse.ok(c, "OK", await qprService.participation(getDb(c.env.DB), active.division.slug, c.req.param("periodId")));
+});
