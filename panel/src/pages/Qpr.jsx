@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import QprFill from "./QprFill.jsx";
-import { api, apiRaw, errText, isoToInput, toIsoWib } from "../api.js";
+import QprEditor, { editorDrafts } from "./QprEditor.jsx";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { QprSection, QprReview, QprProgress, complete } from "../components/QprForm.jsx";
+import { api, apiRaw, errText } from "../api.js";
 import { useToast, Confirm, SkeletonCard, Card, copyText, ErrorState, useEscape, useFocusTrap } from "../components/ui.jsx";
 
 // QPR v2 — tanpa login (model kejujuran). BPH kelola periode + roster nama;
@@ -20,6 +23,7 @@ function ParticipationView() {
 	const [periodId, setPeriodId] = useState("");
 	const [detail, setDetail] = useState(null);
 	const [filter, setFilter] = useState("all");
+	const [search, setSearch] = useState("");
 	const [err, setErr] = useState("");
 	const [retry, setRetry] = useState(0);
 	useEffect(() => {
@@ -42,70 +46,49 @@ function ParticipationView() {
 		{!err && periods === null ? <SkeletonCard /> : periods?.length === 0 ? <p>Belum ada periode yang dipublikasikan.</p> : periods && <>
 			<label className="field-label" htmlFor="participation-period">Periode</label>
 			<select id="participation-period" value={periodId} onChange={(e) => setPeriodId(e.target.value)}>{periods.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}</select>
-			{!err && detail?.requestedPeriodId === periodId && detail.retry === retry ? <div className="card" style={{ marginTop: 12 }}>
-				<p>{detail.done_entries} sudah mengisi · {detail.pending_entries} belum mengisi · {detail.total_entries} anggota</p>
+			{!err && detail?.requestedPeriodId === periodId && detail.retry === retry ? <div className="card qpr-participation" style={{ marginTop: 12 }}>
+				<h2>{detail.period.title}</h2><p>{detail.done_entries} sudah mengisi · {detail.pending_entries} belum mengisi · {detail.total_entries} anggota</p><ParticipationMeter done={detail.done_entries} total={detail.total_entries} /><p><span className={`badge ${detail.period.status}`}>{STATUS_LABEL[detail.period.status]}</span></p>{detail.period.status === "open" && <a className="btn" href={`#/qpr/${periodId}`}>Buka form pengisian</a>}<label className="field-label" htmlFor="participation-search">Cari anggota</label><input id="participation-search" type="search" value={search} onChange={(e) => setSearch(e.target.value)} />
 				<label htmlFor="participation-filter">Status</label>
 				<select id="participation-filter" value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Semua</option><option value="done">Sudah mengisi</option><option value="pending">Belum mengisi</option></select>
-				<ul>{detail.entries.filter((e) => filter === "all" || e.done === (filter === "done")).map((e, i) => <li key={i}>{e.display_name || e.name}{e.role ? ` (${e.role})` : ""} — {e.done ? "Sudah mengisi" : "Belum mengisi"}</li>)}</ul>
+				<ul>{detail.entries.filter((e) => (filter === "all" || e.done === (filter === "done")) && e.name.toLocaleLowerCase("id-ID").includes(search.toLocaleLowerCase("id-ID"))).map((e, i) => <li key={i}>{e.display_name || e.name}{e.role ? ` (${e.role})` : ""} — {e.done ? "Sudah mengisi" : "Belum mengisi"}</li>)}</ul>
 			</div> : !err && <SkeletonCard />}
 		</>}
 	</>;
 }
 
 const DIVISIONS = ["bph", "ristek", "ukm", "advo", "bnp", "icd", "pr", "media"];
-const TARGET_IDS = ["controller1", "controller2", "controller3", "controller4", "bendum1", "bendum2", "sekum1", "sekum2", "ketum", "waketum"];
 const isSnapshot = (questions) => !Array.isArray(questions) && Array.isArray(questions?.sections);
 const isFrozen = (period) => Boolean(period.firstOpenedAt);
-
-function SnapshotQuestions({ snapshot }) {
-	return <div><p className="muted small">Pertanyaan template PDF — hanya baca (snapshot v{snapshot.version}).</p>{snapshot.sections.map((s) => <details key={s.id}><summary>{s.title || s.target_label || s.id} · {s.questions.length} pertanyaan</summary><ol>{s.questions.map((q) => <li key={q.id}>{q.label}{q.required ? " (wajib)" : ""}</li>)}</ol></details>)}</div>;
-}
+const legacyQuestionKey = (question) => JSON.stringify([question.label, question.category]);
 
 function AdminView() {
 	const toast = useToast();
 	const [periods, setPeriods] = useState(null);
 	const [err, setErr] = useState("");
-	const [openId, setOpenId] = useState(null);
+	const [search, setSearch] = useState("");
+	const [status, setStatus] = useState("all");
 	const [showCreate, setShowCreate] = useState(false);
-
 	const load = useCallback(async () => {
-		try {
-			setPeriods(await api("/admin/qpr/periods"));
-			setErr("");
-		} catch (e) {
-			setErr(errText(e));
-		}
+		try { setPeriods(await api("/admin/qpr/periods")); setErr(""); }
+		catch (e) { setErr(errText(e)); }
 	}, []);
-	useEffect(() => {
-		load();
-	}, [load]);
+	useEffect(() => { load(); }, [load]);
+	const visible = periods?.filter((p) => (status === "all" || p.status === status) && p.title.toLocaleLowerCase("id-ID").includes(search.toLocaleLowerCase("id-ID")));
+	return <>
+		<div className="qpr-page-head"><div><p className="studio-kicker">QUARTERLY PERFORMANCE REVIEW</p><h1>Kampanye QPR</h1><p className="muted">Susun penilaian, bagikan form, pantau partisipasi.</p></div><button className="btn gold" onClick={() => setShowCreate(true)}>+ Periode baru</button></div>
+		<div className="qpr-filter-row"><label>Cari kampanye<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari judul periode" /></label><label>Status<select value={status} onChange={(e) => setStatus(e.target.value)}><option value="all">Semua status</option>{Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
+		{err ? <ErrorState message={err} onRetry={load} /> : periods === null ? <SkeletonCard /> : !visible.length ? <div className="empty-state"><h2>Belum ada kampanye yang cocok</h2><p>Buat periode baru atau ubah pencarian.</p></div> : <div className="qpr-campaign-list">{visible.map((p) => <article className="card qpr-campaign" key={p.id}><div className="qpr-question-top"><span className={`badge ${p.status}`}>{STATUS_LABEL[p.status]}</span><span className="muted small">{p.closesAt ? `Tutup ${new Date(p.closesAt).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "Tanpa jadwal tutup"}</span></div><h2><Link to={`/qpr/periods/${p.id}`}>{p.title}</Link></h2><p className="muted">{p.description || "Penilaian pengurus SGA"}</p><ParticipationMeter done={p.done_entries} total={p.total_entries} /><div className="row-actions"><Link className="btn" to={`/qpr/periods/${p.id}`}>Kelola</Link><Link className="btn ghost" to={`/qpr/periods/${p.id}?tab=responses`}>Rekap</Link></div></article>)}</div>}
+		<CreatePeriodModal open={showCreate} onClose={() => setShowCreate(false)} onDone={load} toast={toast} />
+	</>;
+}
 
-	return (
-		<>
-			<div className="page-intro"><h2>Evaluasi untuk tumbuh bersama.</h2><p>Buat periode, tambahkan nama pengisi, lalu bagikan link penilaian.</p></div>
-			{err && <ErrorState message={err} onRetry={load} />}
-			<div className="toolbar" style={{ marginBottom: 12 }}>
-				<button className="btn gold" onClick={() => setShowCreate(true)}>+ Periode baru</button>
-			</div>
-			{err ? null : periods === null ? (
-				<SkeletonCard />
-			) : periods.length === 0 ? (
-				<div className="empty-state"><p>Belum ada periode penilaian.</p></div>
-			) : (
-				<div className="card-list">
-					{periods.map((p) => (
-						<PeriodRow key={p.id} period={p} open={openId === p.id}
-							onToggle={() => setOpenId(openId === p.id ? null : p.id)} onDone={load} toast={toast} />
-					))}
-				</div>
-			)}
-			<CreatePeriodModal open={showCreate} onClose={() => setShowCreate(false)} onDone={load} toast={toast} />
-		</>
-	);
+function ParticipationMeter({ done, total }) {
+	return <div className="qpr-participation-meter"><div><strong>{done} / {total}</strong><span className="muted"> respons final · {total ? Math.round(done / total * 100) : 0}%</span></div><progress aria-label="Progres respons final" value={done} max={total || 1} /><p className="muted small">{Math.max(0, total - done)} belum mengirim · draft tidak dihitung final</p></div>;
 }
 
 /** Modal buat periode — pertanyaan default PRD §4.3, bisa diubah via PUT nanti. */
 function CreatePeriodModal({ open, onClose, onDone, toast }) {
+	const navigate = useNavigate();
 	const [title, setTitle] = useState("");
 	const [desc, setDesc] = useState("");
 	const [formKind, setFormKind] = useState("bph");
@@ -118,7 +101,7 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 		e.preventDefault();
 		setBusy(true);
 		try {
-			await api("/admin/qpr/periods", {
+			const created = await api("/admin/qpr/periods", {
 				method: "POST",
 				json: {
 					title: title.trim(),
@@ -134,10 +117,11 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 					}),
 				},
 			});
-			toast("Periode draft dibuat — tambahkan nama pengisi lalu buka.");
+			toast("Periode draft dibuat — lengkapi form dan pengisi.");
 			setTitle(""); setDesc("");
 			onClose();
 			await onDone();
+			navigate(`/qpr/periods/${created.id}?tab=questions`);
 		} catch (e2) {
 			toast(errText(e2), "err");
 		} finally {
@@ -155,7 +139,7 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 						<div style={{ display: "grid", gap: 6, marginTop: 4 }}>
 							<label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
 								<input type="radio" name="qp-kind" value="bph" checked={formKind === "bph"} onChange={() => setFormKind("bph")} style={{ marginTop: 3 }} />
-								<span><strong>QPR Penilaian BPH</strong><span className="muted small" style={{ display: "block" }}>7 section resmi (Controller, Bendahara, Sekretaris, Ketua, Wakil) — jalur otomatis per jabatan pengisi.</span></span>
+								<span><strong>QPR Penilaian BPH</strong><span className="muted small" style={{ display: "block" }}>10 bagian penilaian (4 Controller, 2 Bendahara, 2 Sekretaris, Ketua, Wakil) — jalur otomatis per jabatan pengisi.</span></span>
 							</label>
 							<label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
 								<input type="radio" name="qp-kind" value="legacy" checked={formKind === "legacy"} onChange={() => setFormKind("legacy")} style={{ marginTop: 3 }} />
@@ -185,6 +169,7 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 const SCALE_LABEL = { 1: "Sangat Kurang", 2: "Kurang", 3: "Cukup", 4: "Baik", 5: "Sangat Baik" };
 
 function RecapV2({ recap, onExport, onExportDisabled }) {
+	const [target, setTarget] = useState(recap.sections[0]?.id || "");
 	const total = recap.done_entries;
 	return (
 		<>
@@ -197,7 +182,8 @@ function RecapV2({ recap, onExport, onExportDisabled }) {
 				</div>
 			)}
 			{total === 0 && <p className="muted small">Belum ada penilaian final.</p>}
-			{recap.sections.map((s) => (
+			<label className="field-label" htmlFor="qpr-response-target">Target penilaian</label><select id="qpr-response-target" value={target} onChange={(e) => setTarget(e.target.value)}>{recap.sections.map((s) => <option key={s.id} value={s.id}>{s.target_label || s.title}</option>)}</select>
+			{recap.sections.filter((s) => s.id === target).map((s) => (
 				<div key={s.id} style={{ marginBottom: 16 }}>
 					<h3 style={{ fontSize: 14, margin: "0 0 6px" }}>{s.target_label || s.title}</h3>
 					<div className="tbl-wrap">
@@ -260,313 +246,105 @@ function RecapV2({ recap, onExport, onExportDisabled }) {
 	);
 }
 
-function PeriodRow({ period, open, onToggle, onDone, toast }) {
-	const [detail, setDetail] = useState(null);
-	const [recap, setRecap] = useState(null);
-	const [busy, setBusy] = useState(false);
-	const [askDelete, setAskDelete] = useState(false);
-	const [askEntryDelete, setAskEntryDelete] = useState(null);
-	const [showAdd, setShowAdd] = useState(false);
-	const [showEdit, setShowEdit] = useState(false);
-	const [preview, setPreview] = useState(null);
-
-	const act = async (fn) => {
-		setBusy(true);
-		try { await fn(); await onDone(); } catch (e) { toast(errText(e), "err"); } finally { setBusy(false); }
-	};
-
-	// M4: toggle dan rekap PISAH — dulu showRecap ikut memanggil onToggle lalu
-	// membaca prop `open` yang stale, jadi tombol rekap kadang malah menutup detail.
-	const toggle = async () => {
-		onToggle();
-		if (!open) {
-			setDetail(null); setRecap(null); setPreview(null);
-			try { setDetail(await api(`/admin/qpr/periods/${period.id}`)); } catch (e) { toast(errText(e), "err"); }
-		}
-	};
-
-	const showRecap = async () => {
-		// Detail dan rekap saling eksklusif — dulu keduanya tampil bersamaan.
-		setDetail(null);
-		setRecap(null);
-		if (!open) onToggle();
-		// form bph/divisi (snapshot v2) pakai rekap per pertanyaan; legacy → rekap kategori.
-		try {
-			const current = await api(`/admin/qpr/periods/${period.id}`);
-			const path = isSnapshot(current.questions) ? "recap-v2" : "recap";
-			setRecap(await api(`/admin/qpr/periods/${period.id}/${path}`));
-		} catch (e) { toast(errText(e), "err"); }
-	};
-
-	const exportCsv = async () => {
-		try {
-			const res = await apiRaw(`/admin/qpr/periods/${period.id}/export`);
-			const url = URL.createObjectURL(await res.blob());
-			const link = document.createElement("a");
-			link.href = url;
-			link.download = `qpr-${period.id.slice(0, 8)}.csv`;
-			link.click();
-			URL.revokeObjectURL(url);
-			toast("CSV diekspor.");
-		} catch (e) { toast(errText(e), "err"); }
-	};
-
-	const copyLink = () => {
-		const link = `${PUBLIC_BASE}/${period.id}`;
-		copyText(link).then(
-			() => toast("Link publik disalin — bagikan ke anggota."),
-			() => toast("Tidak bisa menyalin link.", "err"),
-		);
-	};
-
-	return (
-		<div className="card">
-			<div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-				<div style={{ minWidth: 0 }}>
-					<strong>{period.title}</strong>
-					<div className="muted small">
-						{STATUS_LABEL[period.status] ?? period.status}
-						{period.description ? ` · ${period.description}` : ""}
-						{period.closesAt ? ` · tutup ${new Date(period.closesAt).toLocaleDateString("id-ID")}` : ""}
-						{` · ${period.done_entries}/${period.total_entries} sudah isi`}
-					</div>
-				</div>
-				<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-					<button className="btn ghost" disabled={busy} aria-expanded={open} onClick={toggle}>{open ? "Tutup detail" : "Kelola"}</button>
-					<button className="btn ghost" disabled={busy} onClick={showRecap}>Rekap</button>
-					{period.status !== "draft" && (
-						<button className="btn ghost" disabled={busy} onClick={copyLink}>Salin link</button>
-					)}
-					{(period.status === "draft" || period.status === "closed") && (
-						<button className="btn" title={period.total_entries === 0 ? "Tambahkan nama pengisi melalui Kelola terlebih dahulu" : undefined} disabled={busy || period.total_entries === 0}
-							onClick={() => act(async () => {
-							const check = await api(`/admin/qpr/periods/${period.id}/preview`);
-							setPreview(check);
-							if (!open) onToggle();
-							setDetail(await api(`/admin/qpr/periods/${period.id}`));
-							if (check.blockers.length) { toast("Konfigurasi belum lengkap. Periksa blocker.", "err"); return; }
-							await api(`/admin/qpr/periods/${period.id}/open`, { method: "POST" });
-							setDetail(await api(`/admin/qpr/periods/${period.id}`));
-						})}>{period.status === "closed" ? "Buka kembali" : "Buka"}</button>
-					)}
-					{period.status === "open" && (
-						<button className="btn" disabled={busy} onClick={() => act(() => api(`/admin/qpr/periods/${period.id}/close`, { method: "POST" }))}>Tutup</button>
-					)}
-					<button className="btn ghost" disabled={busy} onClick={() => setAskDelete(true)}>Hapus</button>
-				</div>
-			</div>
-			{open && !detail && !recap && <p role="status" className="muted">Memuat detail…</p>}
-			{open && detail && (
-				<div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-					<div className="muted small" style={{ marginBottom: 6 }}>
-						{isSnapshot(detail.questions) ? <SnapshotQuestions snapshot={detail.questions} /> : <>Pertanyaan: {detail.questions.map((q) => `${q.category} — ${q.label}`).join(" · ")}</>}
-					</div>
-					<div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-						<button className="btn ghost" disabled={busy || isFrozen(detail)} onClick={() => setShowAdd(true)}>+ Tambah nama</button>
-						<button className="btn ghost" disabled={busy} onClick={() => setShowEdit(true)}>Edit periode</button>
-					</div>
-					<button className="btn ghost" disabled={busy} onClick={() => act(async () => setPreview(await api(`/admin/qpr/periods/${period.id}/preview`)))}>Preview jalur</button>
-					{isFrozen(detail) && <p className="muted small">Pernah dibuka — roster, target, dan pertanyaan terkunci. Metadata masih dapat diedit.</p>}
-					{preview && <div role="status"><h3>Preview jalur</h3>{preview.blockers.length ? <ul>{preview.blockers.map((b, i) => <li key={i}>{typeof b === "string" ? b : b.message || JSON.stringify(b)}</li>)}</ul> : <p>Tidak ada blocker.</p>}<ul>{preview.entries.map((e) => <li key={e.id}>{e.display_name || e.name} · {e.division_slug} · {e.role} · {e.required} wajib · {e.targets.map((t) => typeof t === "string" ? t : t.label || t.id).join(", ")}</li>)}</ul></div>}
-					{showEdit && <EditPeriodModal
-						open={showEdit}
-						period={detail}
-						onClose={() => setShowEdit(false)}
-						onSaved={async () => {
-							setPreview(null);
-							setDetail(await api(`/admin/qpr/periods/${period.id}`));
-							await onDone();
-						}}
-						toast={toast}
-					/>}
-					<AddEntriesModal
-						open={showAdd}
-						periodId={period.id}
-						version={detail.questions?.version}
-						onClose={() => setShowAdd(false)}
-						onAdded={async () => { setPreview(null); setDetail(await api(`/admin/qpr/periods/${period.id}`)); await onDone(); }}
-						toast={toast}
-					/>
-					<div className="tbl-wrap">
-						<table className="tbl">
-						<thead><tr><th>Nama</th><th>Divisi</th><th>Status</th><th></th></tr></thead>
-						<tbody>
-							{detail.entries.map((e) => (
-								<tr key={e.id}>
-									<td>{e.display_name || e.name}{e.memberRole || e.role ? ` (${e.memberRole || e.role})` : ""}{e.memberKey ? ` · ${e.memberKey}` : ""}</td>
-									<td>{e.division_slug || e.divisionSlug || e.division || "—"}</td>
-									<td>{e.done ? `Sudah isi${e.submitted_at ? ` · ${new Date(e.submitted_at).toLocaleString("id-ID")}` : ""}` : "Belum"}</td>
-									<td>
-										<button className="btn ghost" disabled={busy || isFrozen(detail)} onClick={() => setAskEntryDelete(e)}>Hapus</button>
-									</td>
-								</tr>
-							))}
-							{detail.entries.length === 0 && <tr><td colSpan={4} className="muted">Belum ada nama. Klik "+ Tambah nama".</td></tr>}
-						</tbody>
-						</table>
-					</div>
-				</div>
-			)}
-			{open && recap && (
-				<div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
-					{recap.sections ? (
-						<RecapV2 recap={recap} onExport={exportCsv} onExportDisabled={busy} />
-					) : (
-						<>
-							<div className="muted small" style={{ marginBottom: 6 }}>
-								Rekap — {recap.done_entries}/{recap.total_entries} sudah isi
-								{recap.overall_average !== null ? ` · rata-rata keseluruhan ${recap.overall_average}` : ""}
-							</div>
-							{recap.pending.length > 0 && (
-								<div className="small" style={{ marginBottom: 8 }}>
-									<strong>Belum isi:</strong> {recap.pending.map((p) => p.name).join(", ")}
-								</div>
-							)}
-							<div className="tbl-wrap">
-								<table className="tbl">
-								<thead><tr><th>Kategori</th><th>Rata-rata</th></tr></thead>
-								<tbody>
-									{Object.entries(recap.category_averages).map(([k, v]) => (
-										<tr key={k}><td>{k}</td><td>{v}</td></tr>
-									))}
-									{Object.keys(recap.category_averages).length === 0 && <tr><td colSpan={2} className="muted">Belum ada penilaian masuk.</td></tr>}
-								</tbody>
-								</table>
-							</div>
-							{recap.notes.length > 0 && (
-								<div className="small" style={{ marginTop: 8 }}>
-									<strong>Catatan:</strong>
-									<ul style={{ margin: "4px 0 0 18px" }}>
-										{recap.notes.map((n, i) => <li key={i}>{n}</li>)}
-									</ul>
-								</div>
-							)}
-						</>
-					)}
-					<button className="btn ghost" style={{ marginTop: 8 }} onClick={() => setRecap(null)}>Tutup rekap</button>
-				</div>
-			)}
-			<Confirm
-				open={askDelete}
-				title={`Hapus periode "${period.title}"?`}
-				confirmLabel="Ya, hapus"
-				danger
-				onConfirm={() => { setAskDelete(false); act(() => api(`/admin/qpr/periods/${period.id}`, { method: "DELETE" })); }}
-				onCancel={() => setAskDelete(false)}
-			>
-				Periode yang sudah punya penilaian tidak bisa dihapus.
-			</Confirm>
-			<Confirm
-				open={Boolean(askEntryDelete)}
-				title={`Hapus nama "${askEntryDelete?.name ?? ""}"?`}
-				confirmLabel="Ya, hapus"
-				danger
-				onConfirm={() => {
-					const e = askEntryDelete;
-					setAskEntryDelete(null);
-					act(async () => {
-						await api(`/admin/qpr/periods/${period.id}/entries/${e.id}`, { method: "DELETE" });
-						setPreview(null);
-						setDetail(await api(`/admin/qpr/periods/${period.id}`));
-					});
-				}}
-				onCancel={() => setAskEntryDelete(null)}
-			>
-				Nama yang sudah mengisi tetap tercatat di rekap jika periodenya masih ada.
-			</Confirm>
-		</div>
-	);
+export function QprWorkspace({ user }) {
+	const { periodId } = useParams();
+	const canManage = user?.division?.slug === "bph" && user?.permissions?.includes("qpr.manage");
+	return canManage ? <Workspace key={`${user.division.id}-${periodId}`} periodId={periodId} draftKey={JSON.stringify([user.id, user.division.id, periodId])} /> : <><p className="login-notice">Pengelolaan dan hasil QPR khusus BPH.</p><ParticipationView key={user?.division?.id} /></>;
 }
 
-/** Modal edit periode — PUT /admin/qpr/periods/:id (judul/deskripsi/pertanyaan). */
-function EditPeriodModal({ open, period, onClose, onSaved, toast }) {
-	const [title, setTitle] = useState(period.title);
-	const [desc, setDesc] = useState(period.description || "");
-	// Pertanyaan editable sebagai "Kategori | Label" per baris.
-	const snapshot = isSnapshot(period.questions);
-	const frozen = isFrozen(period);
-	const [qraw, setQraw] = useState(Array.isArray(period.questions) ? period.questions.map((q) => `${q.category} | ${q.label}`).join("\n") : "");
-	// Kustomisasi label pertanyaan snapshot v3 (id & struktur tetap; hanya periode yang belum dibuka).
-	const [labels, setLabels] = useState(() => snapshot && !frozen
-		? Object.fromEntries(period.questions.sections.flatMap((s) => s.questions.map((q) => [q.id, q.label])))
-		: {});
-	const [config, setConfig] = useState(() => period.questions?.target_config || {
-		targets: TARGET_IDS.map((id) => ({ id, label: "", template: id.startsWith("controller") ? "controller" : id })),
-		controller_by_division: {},
-	});
-	const [opensAt, setOpensAt] = useState(isoToInput(period.opensAt));
-	const [closesAt, setClosesAt] = useState(isoToInput(period.closesAt));
+function Workspace({ periodId, draftKey }) {
+	const toast = useToast();
+	const [params, setParams] = useSearchParams();
+	const tabs = { overview: "Ringkasan", questions: "Pertanyaan", entries: "Pengisi", preview: "Pratinjau", responses: "Respons" };
+	const tab = Object.hasOwn(tabs, params.get("tab")) ? params.get("tab") : "overview";
+	const [period, setPeriod] = useState(null);
+	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
-	const modalRef = useFocusTrap(open);
-	useEscape(() => open && !busy && onClose());
-	if (!open) return null;
-
-	const submit = async (e) => {
-		e.preventDefault();
-		const questions = qraw.trim().split("\n").map((line) => {
-			const [category, label] = line.split("|").map((s) => s.trim());
-			return { category: category || "Umum", label };
-		}).filter((q) => q.label);
-		if (!snapshot && !frozen && !questions.length) { toast("Minimal satu pertanyaan.", "err"); return; }
-		if (opensAt && closesAt && new Date(opensAt) >= new Date(closesAt)) { toast("Jadwal tutup harus setelah buka.", "err"); return; }
-		setBusy(true);
-		try {
-			await api(`/admin/qpr/periods/${period.id}`, {
-				method: "PUT",
-				json: { title: title.trim(), description: desc.trim() || null,
-					opens_at: opensAt ? toIsoWib(opensAt) : null,
-					closes_at: closesAt ? toIsoWib(closesAt) : null,
-					...(!frozen && (snapshot ? period.questions.version === 3 ? { target_config: config, question_labels: { ...labels } } : {} : { questions })),
-				},
-			});
-			toast("Periode diperbarui.");
-			onClose();
-			await onSaved();
-		} catch (e2) {
-			toast(errText(e2), "err");
-		} finally {
-			setBusy(false);
-		}
+	const [preview, setPreview] = useState(null);
+	const [recap, setRecap] = useState(null);
+	const [showAdd, setShowAdd] = useState(false);
+	const [remove, setRemove] = useState(null);
+	const [confirmStatus, setConfirmStatus] = useState(null);
+	const [dirty, setDirty] = useState(false);
+	const [editorReset, setEditorReset] = useState(0);
+	const [search, setSearch] = useState("");
+	const [filter, setFilter] = useState("all");
+	const [division, setDivision] = useState("all");
+	const load = useCallback(async () => {
+		try { setPeriod(await api(`/admin/qpr/periods/${periodId}`)); setError(""); }
+		catch (e) { setError(errText(e)); }
+	}, [periodId]);
+	useEffect(() => { load(); }, [load]);
+	const act = async (action) => {
+		if (busy) return;
+		setBusy(true); setError("");
+		try { await action(); await load(); }
+		catch (e) { setError(errText(e)); }
+		finally { setBusy(false); }
 	};
+	const changeTab = async (next) => {
+		if (next === tab) return;
+		if (dirty && !window.confirm("Perubahan form belum disimpan. Pindah tab akan membuang edit lokal. Lanjutkan?")) return;
+		if (dirty) editorDrafts.delete(draftKey);
+		setDirty(false); setParams({ tab: next }, { replace: true }); setError("");
+	};
+	useEffect(() => {
+		let active = true;
+		if (tab === "preview" && period) {
+			api(`/admin/qpr/periods/${periodId}/preview`).then((data) => { if (active) setPreview(data); }).catch((e) => { if (active) setError(errText(e)); });
+		}
+		if (tab === "responses" && period) {
+			api(`/admin/qpr/periods/${periodId}/${isSnapshot(period.questions) ? "recap-v2" : "recap"}`).then((data) => { if (active) setRecap(data); }).catch((e) => { if (active) setError(errText(e)); });
+		}
+		return () => { active = false; };
+	}, [tab, periodId, period]);
+	const exportCsv = async () => {
+		try {
+			const response = await apiRaw(`/admin/qpr/periods/${periodId}/export`);
+			const url = URL.createObjectURL(await response.blob());
+			const link = document.createElement("a"); link.href = url; link.download = `qpr-${periodId.slice(0, 8)}.csv`; link.click(); URL.revokeObjectURL(url);
+		} catch (e) { toast(errText(e), "err"); }
+	};
+	if (!period) return error ? <ErrorState message={error} onRetry={load} /> : <SkeletonCard lines={5} />;
+	const frozen = isFrozen(period);
+	const entries = period.entries;
+	const done = entries.filter((e) => e.done).length;
+	const divisions = [...new Set(entries.map((e) => e.divisionSlug || e.division || "Belum dipetakan"))];
+	const visible = entries.filter((e) => (filter === "all" || e.done === (filter === "done")) && (division === "all" || (e.divisionSlug || e.division || "Belum dipetakan") === division) && `${e.name} ${e.memberKey || ""}`.toLocaleLowerCase("id-ID").includes(search.toLocaleLowerCase("id-ID")));
+	return <div className="qpr-workspace">
+		<Link className="qpr-back" to="/qpr">← Semua kampanye</Link>
+		<header className="qpr-page-head"><div><p className="studio-kicker">WORKSPACE QPR</p><h1>{period.title}</h1><p className="muted">{entries.length} pengisi · {done} respons final</p></div><span className={`badge ${period.status}`}>{STATUS_LABEL[period.status]}</span></header>
+		<nav className="qpr-tabs" aria-label="Bagian kampanye">{Object.entries(tabs).map(([key, label]) => <button key={key} type="button" className={tab === key ? "active" : ""} aria-current={tab === key ? "page" : undefined} onClick={() => changeTab(key)}>{label}{key === "responses" ? ` (${done})` : ""}</button>)}</nav>
+		{error && <ErrorState message={error} onRetry={() => { setError(""); load(); }} />}
+		{tab === "overview" && <>
+			<div className="card qpr-overview"><h2>Progres pengisian</h2><ParticipationMeter done={done} total={entries.length} /><p>{period.description || "Belum ada deskripsi."}</p><p className="muted small">{period.opensAt ? `Buka: ${new Date(period.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "Buka manual"} · {period.closesAt ? `Tutup: ${new Date(period.closesAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "Tutup manual"}</p>
+				<div className="row-actions"><button className="btn gold" disabled={busy} onClick={() => setConfirmStatus(period.status === "open" ? "close" : "open")}>{period.status === "open" ? "Tutup pengisian" : period.status === "closed" ? "Buka kembali" : "Buka kampanye"}</button><button className="btn ghost" onClick={() => copyText(`${PUBLIC_BASE}/${periodId}`).then(() => toast("Link disalin."), () => toast("Tidak bisa menyalin link.", "err"))}>Salin link</button><button className="btn ghost" onClick={() => changeTab("questions")}>Edit form</button></div>
+				{frozen ? <p className="login-notice">Snapshot dan roster terkunci sejak kampanye pertama dibuka. Metadata tetap dapat diedit melalui tab Pertanyaan.</p> : <p className="muted small">Sebelum membuka: lengkapi nama target, pertanyaan, dan roster. Periksa Pratinjau.</p>}
+			</div>
+			<div className="card"><h2>Partisipasi per divisi</h2><div className="tbl-wrap"><table className="tbl"><thead><tr><th scope="col">Divisi</th><th scope="col">Final / Pengisi</th><th scope="col">Progres</th></tr></thead><tbody>{divisions.map((name) => { const rows = entries.filter((e) => (e.divisionSlug || e.division || "Belum dipetakan") === name); const count = rows.filter((e) => e.done).length; return <tr key={name}><td>{name}</td><td>{count} / {rows.length}</td><td>{Math.round(count / rows.length * 100)}%</td></tr>; })}{!entries.length && <tr><td colSpan={3}>Belum ada pengisi.</td></tr>}</tbody></table></div></div>
+		</>}
+		{tab === "questions" && <QprEditor key={`${period.updatedAt}-${editorReset}`} period={period} draftKey={draftKey} onDiscard={() => { if (window.confirm("Buang edit lokal dan gunakan form server?")) { editorDrafts.delete(draftKey); setDirty(false); setEditorReset((n) => n + 1); } }} toast={toast} onDirty={setDirty} onSaved={async (updated) => { setPeriod((current) => ({ ...current, ...updated })); setDirty(false); setPreview(null); setRecap(null); }} />}
+		{tab === "entries" && <>
+			<div className="qpr-page-head"><div><h2>Daftar pengisi</h2><p className="muted">Draft tetap berstatus belum mengirim.</p></div><button className="btn" disabled={frozen || busy} onClick={() => setShowAdd(true)}>+ Tambah nama</button></div>
+			<div className="qpr-filter-row"><label>Cari pengisi<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} /></label><label>Divisi<select value={division} onChange={(e) => setDivision(e.target.value)}><option value="all">Semua divisi</option>{divisions.map((d) => <option key={d}>{d}</option>)}</select></label><label>Status<select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Semua</option><option value="done">Sudah mengisi</option><option value="pending">Belum mengisi</option></select></label></div>
+			<div className="card tbl-wrap"><table className="tbl"><thead><tr><th scope="col">Nama / Identitas</th><th scope="col">Divisi</th><th scope="col">Jabatan</th><th scope="col">Status</th><th scope="col">Aksi</th></tr></thead><tbody>{visible.map((e) => <tr key={e.id}><td>{e.name}<small className="qpr-entry-key">{e.memberKey}</small></td><td>{e.division || e.divisionSlug || "—"}</td><td>{e.memberRole || "—"}</td><td><span className={`badge ${e.done ? "open" : "draft"}`}>{e.done ? "Sudah mengisi" : "Belum mengisi"}</span>{e.submittedAt && <small className="qpr-entry-key">{new Date(e.submittedAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB</small>}</td><td><button className="btn ghost" disabled={frozen || busy || e.done} onClick={() => setRemove(e)}>Hapus</button></td></tr>)}{!visible.length && <tr><td colSpan={5}>Tidak ada pengisi yang cocok.</td></tr>}</tbody></table></div>
+		</>}
+		{tab === "preview" && (preview ? <><div className="card"><h2>Kesiapan kampanye</h2>{preview.blockers.length ? <ul>{preview.blockers.map((b, i) => <li key={i}>{b}</li>)}</ul> : <p>Tidak ada blocker.</p>}</div><QprPreview key={JSON.stringify(preview)} preview={preview} title={period.title} /></> : !error && <SkeletonCard />)}
+		{tab === "responses" && (recap ? <div className="card"><h2>Respons kampanye</h2>{recap.sections ? <RecapV2 recap={recap} onExport={exportCsv} onExportDisabled={busy} /> : <><ParticipationMeter done={recap.done_entries} total={recap.total_entries} /><button className="btn ghost" disabled={busy} onClick={exportCsv}>Ekspor CSV</button><dl>{Object.entries(recap.category_averages).map(([key, mean]) => <div key={key}><dt>{key}</dt><dd>{mean}</dd></div>)}</dl>{recap.notes.map((note, index) => <blockquote key={index}>{note}</blockquote>)}</>}</div> : !error && <SkeletonCard />)}
+		<AddEntriesModal open={showAdd} periodId={periodId} version={period.questions?.version} onClose={() => setShowAdd(false)} onAdded={async () => { setPreview(null); await load(); }} toast={toast} />
+		<Confirm open={Boolean(remove)} title={`Hapus nama "${remove?.name || ""}"?`} confirmLabel="Ya, hapus" danger onCancel={() => setRemove(null)} onConfirm={() => { const entry = remove; setRemove(null); act(async () => { await api(`/admin/qpr/periods/${periodId}/entries/${entry.id}`, { method: "DELETE" }); setPreview(null); }); }}>Nama hanya dapat dihapus sebelum kampanye pertama dibuka.</Confirm>
+		<Confirm open={Boolean(confirmStatus)} title={confirmStatus === "open" ? "Buka kampanye QPR?" : "Tutup pengisian QPR?"} confirmLabel={confirmStatus === "open" ? "Ya, buka" : "Ya, tutup"} onCancel={() => setConfirmStatus(null)} onConfirm={() => { const action = confirmStatus; setConfirmStatus(null); act(async () => { if (action === "open") { const check = await api(`/admin/qpr/periods/${periodId}/preview`); setPreview(check); if (check.blockers.length) { setParams({ tab: "preview" }); throw new Error("Konfigurasi belum lengkap. Periksa blocker."); } } await api(`/admin/qpr/periods/${periodId}/${action}`, { method: "POST" }); }); }}>{confirmStatus === "open" ? "Pertanyaan, target, dan roster terkunci permanen setelah pertama dibuka. Pastikan pratinjau sudah benar." : "Pengisi tidak dapat menyimpan atau mengirim saat kampanye ditutup. Kampanye dapat dibuka kembali tanpa mengubah snapshot."}</Confirm>
+	</div>;
+}
 
-	return (
-		<div className="modal-backdrop" onClick={() => !busy && onClose()}>
-			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Edit periode">
-				<h3>Edit periode</h3>
-				<div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-					<div>
-						<label className="field-label" htmlFor="qe-title">Judul periode</label>
-						<input id="qe-title" value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={200} />
-					</div>
-					<div>
-						<label className="field-label" htmlFor="qe-desc">Yang dinilai (opsional)</label>
-						<input id="qe-desc" value={desc} onChange={(e) => setDesc(e.target.value)} />
-					</div>
-					<div><label className="field-label" htmlFor="qe-opens">Jadwal buka WIB (opsional)</label><input id="qe-opens" type="datetime-local" value={opensAt} onChange={(e) => setOpensAt(e.target.value)} /></div>
-					<div><label className="field-label" htmlFor="qe-closes">Jadwal tutup WIB (opsional)</label><input id="qe-closes" type="datetime-local" value={closesAt} onChange={(e) => setClosesAt(e.target.value)} /></div>
-					{snapshot ? <>
-						{frozen ? <p className="muted small">Pertanyaan template PDF hanya baca.</p>
-							: period.questions.version === 3 && <details style={{ marginBottom: 8 }}><summary className="field-label">Kustomisasi pertanyaan ({Object.keys(labels).length})</summary>
-								<p className="muted small">Ubah redaksi pertanyaan bila perlu. ID dan struktur (skala/teks, wajib) tetap dari template.</p>
-								{period.questions.sections.map((s) => <div key={s.id} style={{ marginBottom: 10 }}>
-									<strong className="small">{s.title}</strong>
-									{s.questions.map((q) => <div key={q.id}><label className="field-label" htmlFor={`ql-${q.id}`} style={{ marginTop: 6 }}>{q.id}</label><input id={`ql-${q.id}`} value={labels[q.id] ?? ""} maxLength={2000} onChange={(e) => setLabels({ ...labels, [q.id]: e.target.value })} /></div>)}
-								</div>)}
-							</details>}
-						{period.questions.version === 3 && <fieldset disabled={frozen} style={{ minWidth: 0 }}><legend>Target dan pemetaan Controller</legend>
-							{config.targets.map((target, i) => <div key={target.id}><label htmlFor={`target-${target.id}`}>Nama {target.id}</label><input id={`target-${target.id}`} value={target.label} maxLength={160} onChange={(e) => setConfig({ ...config, targets: config.targets.map((t, n) => n === i ? { ...t, label: e.target.value } : t) })} /></div>)}
-							{DIVISIONS.map((slug) => <div key={slug}><label htmlFor={`controller-${slug}`}>Controller untuk {slug}</label><select id={`controller-${slug}`} value={config.controller_by_division[slug] || ""} onChange={(e) => { const mapping = { ...config.controller_by_division }; if (e.target.value) mapping[slug] = e.target.value; else delete mapping[slug]; setConfig({ ...config, controller_by_division: mapping }); }}><option value="">Belum dipetakan</option>{config.targets.filter((t) => t.template === "controller").map((t) => <option key={t.id} value={t.id}>{t.label || t.id}</option>)}</select></div>)}
-						</fieldset>}
-					</> : <div><label className="field-label" htmlFor="qe-q">Pertanyaan (satu per baris, "Kategori | Label")</label><textarea id="qe-q" rows={5} value={qraw} onChange={(e) => setQraw(e.target.value)} required disabled={frozen} /></div>}
-					{frozen && <p className="muted small">Snapshot dan roster terkunci; hanya metadata yang disimpan.</p>}
-				</div>
-				<div className="row-actions" style={{ marginTop: 14 }}>
-					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
-					<button className="btn" type="submit" disabled={busy || !title.trim()}>{busy ? "Menyimpan…" : "Simpan"}</button>
-				</div>
-			</form>
-		</div>
-	);
+function QprPreview({ preview, title }) {
+	const [entryId, setEntryId] = useState(preview.entries[0]?.id || "");
+	const [step, setStep] = useState(0);
+	const [answers, setAnswers] = useState({});
+	const entry = preview.entries.find((e) => e.id === entryId);
+	const sections = entry?.sections || [];
+	const required = sections.flatMap((s) => s.questions).filter((q) => q.required);
+	return <div className="qpr-preview"><p className="login-notice">Mode pratinjau. Jawaban hanya lokal dan tidak dikirim sebagai respons.</p><label className="field-label" htmlFor="qpr-preview-entry">Pratinjau sebagai pengisi</label><select id="qpr-preview-entry" value={entryId} onChange={(e) => { setEntryId(e.target.value); setStep(0); setAnswers({}); }}>{preview.entries.map((e) => <option key={e.id} value={e.id}>{e.display_name || e.name} · {e.role} · {e.required} wajib</option>)}</select>{!entry ? <p>Tambahkan pengisi untuk melihat jalur form.</p> : <div className="qpr-form-canvas"><div className="card qpr-form-header"><h1 className="qpr-title">{title}</h1><p>{entry.display_name || entry.name}</p><QprProgress filled={required.filter((q) => complete(q, answers)).length} total={required.length} /></div>{step < sections.length ? <QprSection section={sections[step]} answers={answers} legend={preview.scale_legend} onChange={(id, value) => setAnswers((a) => ({ ...a, [id]: value }))} /> : <QprReview sections={sections} answers={answers} onEdit={setStep} />}<div className="row-actions">{step > 0 && <button className="btn ghost" onClick={() => setStep(step - 1)}>Kembali</button>}{step < sections.length && <button className="btn" onClick={() => setStep(step + 1)}>{step === sections.length - 1 ? "Tinjau jawaban" : "Berikutnya"}</button>}</div></div>}</div>;
 }
 
 /** Modal tambah nama pengisi — textarea "Nama | Divisi" per baris. */
@@ -637,7 +415,7 @@ function PublicFillDispatch({ periodId }) {
 	}, [periodId]);
 	if (err) return <ErrorState message={err} />;
 	if (!roster) return <SkeletonCard lines={5} />;
-	return isSnapshot(roster.questions) ? <QprFill periodId={periodId} /> : <PublicFillForm periodId={periodId} />;
+	return isSnapshot(roster.questions) ? <QprFill periodId={periodId} initialRoster={roster} /> : <PublicFillForm periodId={periodId} />;
 }
 
 function PublicFillForm({ periodId }) {
@@ -661,10 +439,10 @@ function PublicFillForm({ periodId }) {
 		if (busy) return;
 		if (!name) { toast("Pilih namamu dulu.", "err"); return; }
 		const questions = roster.questions.filter((q) => !q.note_only);
-		if (questions.some((q) => !scores[q.label])) { toast("Isi semua skala dulu.", "err"); return; }
+		if (questions.some((q) => !scores[legacyQuestionKey(q)])) { toast("Isi semua skala dulu.", "err"); return; }
 		setBusy(true);
 		try {
-			const answers = questions.map((q) => ({ label: q.label, category: q.category, score: scores[q.label] }));
+			const answers = questions.map((q) => ({ label: q.label, category: q.category, score: scores[legacyQuestionKey(q)] }));
 			await api(`/qpr/${periodId}/submit`, { method: "POST", json: { name, answers, note: note.trim() || undefined } });
 			setDoneMsg("Penilaian terkirim. Terima kasih!");
 		} catch (e) {
@@ -683,7 +461,7 @@ function PublicFillForm({ periodId }) {
 	const questions = roster.questions.filter((q) => !q.note_only);
 
 	return (
-		<Card style={{ maxWidth: 560, margin: "0 auto" }}>
+		<div className="qpr-form-canvas"><Card>
 			<p className="studio-kicker">PENILAIAN PENGURUS</p><h1 className="qpr-title">{roster.title}</h1>
 			{roster.description && <div className="muted small" style={{ marginTop: 2 }}>{roster.description}</div>}
 			<p className="muted small">Pilih nama sendiri dan isi semua pertanyaan. Skala 1 paling rendah, 5 paling tinggi.</p>
@@ -701,13 +479,13 @@ function PublicFillForm({ periodId }) {
 				{questions.map((q) => (
 					// fieldset/legend: grup radio satu pertanyaan terhubung semantik
 					// (screen reader baca legend per grup, bukan label lepas).
-					<fieldset key={q.label} className="qpr-question" style={{ margin: 0, padding: "8px 10px 10px", border: "1px solid var(--line)", borderRadius: 8 }}>
+					<fieldset key={legacyQuestionKey(q)} className="qpr-question">
 						<legend className="small" style={{ padding: "0 4px" }}><strong>{q.category}</strong> — {q.label}</legend>
 						<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
 							{[1, 2, 3, 4, 5].map((n) => (
-								<label key={n} className="qpr-scale" style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, minHeight: 24, padding: "2px 8px" }}>
-									<input type="radio" disabled={busy} aria-label={`${n} dari 5`} name={`q_${q.label}`} checked={scores[q.label] === n}
-										onChange={() => setScores((s) => ({ ...s, [q.label]: n }))} /> {n}
+								<label key={n} className="qpr-scale">
+									<input type="radio" disabled={busy} aria-label={`${n} dari 5`} name={legacyQuestionKey(q)} checked={scores[legacyQuestionKey(q)] === n}
+										onChange={() => setScores((s) => ({ ...s, [legacyQuestionKey(q)]: n }))} /> {n}
 								</label>
 							))}
 						</div>
@@ -718,10 +496,10 @@ function PublicFillForm({ periodId }) {
 					<textarea id="qpr-note" disabled={busy} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
 				</div>
 				<div>
-					<p className="field-help" role="status">{questions.filter((q) => scores[q.label]).length} dari {questions.length} pertanyaan terisi</p>
-					<button className="btn" disabled={busy || !name || questions.some((q) => !scores[q.label])} onClick={submit}>{busy ? "Mengirim…" : "Kirim penilaian"}</button>
+					<p className="field-help" role="status">{questions.filter((q) => scores[legacyQuestionKey(q)]).length} dari {questions.length} pertanyaan terisi</p>
+					<button className="btn" disabled={busy || !name || questions.some((q) => !scores[legacyQuestionKey(q)])} onClick={submit}>{busy ? "Mengirim…" : "Kirim penilaian"}</button>
 				</div>
 			</div>}
-		</Card>
+		</Card></div>
 	);
 }

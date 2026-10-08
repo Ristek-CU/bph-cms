@@ -33,23 +33,28 @@ test('BPH membuat, tamu melanjutkan lintas browser, divisi hanya melihat status'
 	const response = await created;
 	expect(response.status()).toBe(201);
 	const { data: period } = await response.json();
-	await page.getByRole('button', { name: 'Kelola', exact: true }).click();
-	await page.getByRole('button', { name: 'Edit periode', exact: true }).click();
-	for (const id of targets) await page.getByLabel(`Nama ${id}`, { exact: true }).fill(`Target sintetis ${id}`);
-	for (const slug of ['media', 'icd', 'ukm', 'advo', 'ristek', 'bnp', 'pr']) {
-		await page.getByLabel(`Controller untuk ${slug}`, { exact: true }).selectOption('controller1');
+	await expect(page.getByLabel('Bagian penilaian')).toBeVisible();
+	for (const id of targets) {
+		await page.getByLabel('Bagian penilaian').selectOption(`section-${id}`);
+		await page.getByLabel('Nama target penilaian').fill(`Target sintetis ${id}`);
 	}
-	await page.getByRole('button', { name: 'Simpan', exact: true }).click();
-	await expect(page.getByRole('dialog')).toHaveCount(0);
+	await page.getByLabel('Bagian penilaian').selectOption('section-ketum');
+	await page.getByLabel('Pertanyaan 1', { exact: true }).fill('Pertanyaan custom browser nyata');
+	await page.getByRole('button', { name: 'Simpan form', exact: true }).click();
+	await expect(page.getByText('Semua perubahan tersimpan')).toBeVisible();
+	await page.getByRole('button', { name: 'Pengisi', exact: true }).click();
 	await page.getByRole('button', { name: '+ Tambah nama' }).click();
 	await page.getByLabel('Nama | division_slug').fill('Pengisi Ristek | ristek | anggota | test-ristek\nPengisi UKM | ukm | anggota | test-ukm');
 	await page.getByRole('button', { name: 'Preview impor', exact: true }).click();
 	await page.getByRole('button', { name: 'Impor', exact: true }).click();
 	await expect(page.getByRole('dialog')).toHaveCount(0);
-	await page.getByRole('button', { name: 'Preview jalur', exact: true }).click();
-	await expect(page.getByText(/Pengisi Ristek.*44 wajib/)).toBeVisible();
+	await page.getByRole('button', { name: 'Pratinjau', exact: true }).click();
+	await expect(page.getByRole('option', { name: /Pengisi Ristek.*44 wajib/ })).toHaveCount(1);
+	await expect(page.getByRole('group', { name: 'Pertanyaan custom browser nyata', exact: true })).toBeVisible();
+	await page.getByRole('button', { name: 'Ringkasan', exact: true }).click();
 	const opened = page.waitForResponse((r) => r.url().endsWith(`/${period.id}/open`));
-	await page.getByRole('button', { name: 'Buka', exact: true }).click();
+	await page.getByRole('button', { name: 'Buka kampanye', exact: true }).click();
+	await page.getByRole('button', { name: 'Ya, buka', exact: true }).click();
 	expect((await opened).ok()).toBe(true);
 
 	const first = await guest(browser, baseURL);
@@ -85,7 +90,7 @@ test('BPH membuat, tamu melanjutkan lintas browser, divisi hanya melihat status'
 		await fill.reload();
 		await expect(fill.getByRole('option', { name: /Pengisi Ristek/ })).toHaveCount(0);
 
-		await page.getByRole('button', { name: 'Rekap', exact: true }).click();
+		await page.getByRole('button', { name: /^Respons/ }).click();
 		await expect(page.getByText('Rekap — 1/2 sudah isi')).toBeVisible();
 		const download = page.waitForEvent('download');
 		await page.getByRole('button', { name: 'Ekspor CSV', exact: true }).click();

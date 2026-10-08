@@ -1,20 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errText } from "../api.js";
 import { Card, SkeletonCard } from "../components/ui.jsx";
+import { QprSection, QprReview, QprProgress, complete, targetTitle } from "../components/QprForm.jsx";
 
-const complete = (q, answers) => q.type === "scale"
-	? Number.isInteger(answers[q.id]) && answers[q.id] >= 1 && answers[q.id] <= 5
-	: typeof answers[q.id] === "string" && answers[q.id].trim().length > 0;
 const payload = (answers) => Object.entries(answers).map(([question_id, value]) => ({ question_id, value }));
-const targetTitle = (section) => section.targetLabel && !section.title.includes(section.targetLabel)
-	? `${section.title}: ${section.targetLabel}` : section.title;
 
-export default function QprFill({ periodId }) {
-	return <Fill key={periodId} periodId={periodId} />;
+export default function QprFill({ periodId, initialRoster }) {
+	return <Fill key={periodId} periodId={periodId} initialRoster={initialRoster} />;
 }
 
-function Fill({ periodId }) {
-	const [roster, setRoster] = useState(null);
+function Fill({ periodId, initialRoster }) {
+	const [roster, setRoster] = useState(initialRoster ?? null);
+	const suppliedRoster = useRef(initialRoster);
 	const [division, setDivision] = useState("");
 	const [session, setSession] = useState(null);
 	const [step, setStep] = useState(0);
@@ -67,7 +64,7 @@ function Fill({ periodId }) {
 	useEffect(() => {
 		mounted.current = true;
 		const controller = new AbortController();
-		api(`/qpr/${periodId}`, { signal: controller.signal }).then(setRoster).catch((e) => {
+		if (!suppliedRoster.current) api(`/qpr/${periodId}`, { signal: controller.signal }).then(setRoster).catch((e) => {
 			if (!controller.signal.aborted) setError(errText(e));
 		});
 		const warn = (e) => {
@@ -188,12 +185,14 @@ function Fill({ periodId }) {
 	const filled = required.filter((q) => complete(q, session.answers)).length;
 	const section = sections[step];
 
-	return <Card style={{ maxWidth: 640, margin: "0 auto", overflowWrap: "anywhere" }}>
-		<p className="studio-kicker">PENILAIAN PENGURUS</p>
-		<h1 className="qpr-title">{roster.title}</h1>
-		{!session ? <>
+	return <div className="qpr-form-canvas">
+		<header className="card qpr-form-header">
+			<p className="studio-kicker">PENILAIAN PENGURUS</p>
+			<h1 className="qpr-title">{roster.title}</h1>
 			{roster.description && <p>{roster.description}</p>}
 			<p className="login-notice">Form tanpa login memakai model kejujuran. Pilih nama sendiri. Pemegang tautan yang memilih namamu dapat melihat dan mengubah draftmu. Isian ini bukan anonim atau rahasia; jangan bagikan tautan di luar anggota SGA.</p>
+		</header>
+		{!session ? <Card>
 			{!roster.remaining.length ? <p>Semua nama telah mengisi penilaian ini.</p> : <>
 				<label className="field-label" htmlFor="qpr-division">Divisimu</label>
 				<select id="qpr-division" value={division} disabled={busy} onChange={(e) => setDivision(e.target.value)}>
@@ -207,31 +206,20 @@ function Fill({ periodId }) {
 				</select>
 			</>}
 			{busy && <p role="status">Memuat draft…</p>}
-		</> : <>
+		</Card> : <>
+			<Card>
 			<p>Mengisi sebagai <strong>{session.entry.name}</strong> · {session.entry.division} · Jabatan: <strong>{session.entry.role || "Tidak tercantum"}</strong></p>
 			<button type="button" className="btn ghost" disabled={busy} onClick={switchName}>Ganti nama</button>
 			<p className="field-help" role="status" aria-live="polite">{status === "saving" ? "Menyimpan…" : status === "saved" ? "Tersimpan" : status === "conflict" ? "Konflik — edit lokal belum tersimpan. Tidak akan menimpa draft server." : status === "error" ? "Gagal tersimpan — edit lokal tetap ada." : ""}</p>
-			<p className="muted small">{filled} dari {required.length} pertanyaan wajib terisi. Jangan tutup tab sebelum status Tersimpan.</p>
+			<QprProgress filled={filled} total={required.length} />
+			<p className="muted small">Jangan tutup tab sebelum status Tersimpan.</p>
 			{status === "error" && <button className="btn" disabled={busy} onClick={() => flush().catch(() => {})}>Coba simpan lagi</button>}
 			{status === "conflict" && <button className="btn" disabled={busy} onClick={reload}>Muat draft terbaru</button>}
+			</Card>
 			<form ref={form} onSubmit={section ? (e) => { e.preventDefault(); navigate(step + 1, true); } : submit}>
 				<h2 ref={heading} tabIndex={-1}>{section ? `Langkah ${step + 1} dari ${sections.length}: ${targetTitle(section)}` : "Tinjau penilaian"}</h2>
-				{section ? <>
-					<p className="small">{Object.entries(session.scale_legend ?? {}).map(([n, label]) => `${n} — ${label}`).join("; ")}</p>
-					{section.questions.map((q) => <fieldset key={q.id} className="qpr-question">
-						<legend id={`qpr-l-${q.id}`}>{q.label}{q.required ? " *" : ""}</legend>
-						{q.type === "scale" ? <div className="qpr-scale-row">
-							{[1, 2, 3, 4, 5].map((n) => <label key={n} className="qpr-scale">
-								<input type="radio" name={q.id} required={q.required} disabled={busy} aria-label={`${n} — ${session.scale_legend?.[n] ?? n}`} checked={session.answers[q.id] === n} onChange={() => change(q.id, n)} />{n}
-							</label>)}
-						</div> : <textarea id={`qpr-${q.id}`} rows={3} required={q.required} maxLength={5000} disabled={busy} aria-labelledby={`qpr-l-${q.id}`} value={typeof session.answers[q.id] === "string" ? session.answers[q.id] : ""} onChange={(e) => { e.target.setCustomValidity(q.required && !e.target.value.trim() ? "Isi jawaban, bukan hanya spasi." : ""); change(q.id, e.target.value); }} />}
-					</fieldset>)}
-				</> : <>
-					{sections.map((s, index) => <section key={s.id}>
-						<h3>{targetTitle(s)}</h3>
-						<dl>{s.questions.map((q) => <div key={q.id}><dt>{q.label}</dt><dd style={{ whiteSpace: "pre-wrap", marginLeft: 0 }}>{complete(q, session.answers) ? String(session.answers[q.id]) : "Belum diisi"}</dd></div>)}</dl>
-						<button type="button" className="btn ghost" disabled={busy} onClick={() => navigate(index)}>Ubah {s.title}</button>
-					</section>)}
+				{section ? <QprSection section={section} answers={session.answers} onChange={change} disabled={busy} legend={session.scale_legend} /> : <>
+					<QprReview sections={sections} answers={session.answers} onEdit={(index) => navigate(index)} disabled={busy} />
 					<label style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 44 }}><input type="checkbox" checked={confirmed} required disabled={busy} onChange={(e) => setConfirmed(e.target.checked)} />Saya sudah meninjau jawaban dan siap mengirim penilaian final.</label>
 				</>}
 				<div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>
@@ -241,5 +229,5 @@ function Fill({ periodId }) {
 			</form>
 		</>}
 		{error && <p role="alert" style={{ whiteSpace: "pre-wrap" }}>{error}</p>}
-	</Card>;
+	</div>;
 }

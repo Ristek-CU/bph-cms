@@ -14,7 +14,7 @@ import InternalEventTabs from "./pages/InternalEventTabs.jsx";
 import InternalEventDetail from "./pages/InternalEventDetail.jsx";
 import { InternalEventEditRoute, InternalEventNewRoute } from "./pages/InternalEventEditor.jsx";
 import Forms, { FormBuilderRoute, FormAnalyticsRoute } from "./pages/Forms.jsx";
-import Qpr, { PublicFill } from "./pages/Qpr.jsx";
+import Qpr, { PublicFill, QprWorkspace } from "./pages/Qpr.jsx";
 import Accounts from "./pages/Accounts.jsx";
 import CrossDivisionCalendar from "./pages/CrossDivisionCalendar.jsx";
 import RoroOversight from "./pages/RoroOversight.jsx";
@@ -480,6 +480,10 @@ function DashboardApp() {
 						)}
 					</Shell>
 				}
+			/>
+			<Route
+				path="/qpr/periods/:periodId"
+				element={<Shell {...shellProps} title="QPR" crumb={[{ label: "QPR", to: "/qpr" }, { label: "Kampanye" }]}><QprWorkspace user={user} /></Shell>}
 			/>
 			<Route
 				path="/qpr"

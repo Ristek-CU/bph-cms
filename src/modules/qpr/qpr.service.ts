@@ -4,10 +4,13 @@ import { ApiError } from "../../shared/api-error";
 import { divisions, qprAnswers, qprEntries, qprPeriods } from "../../db/schema";
 import { parseFieldOptions } from "../forms/form.service";
 import type { Db } from "../../db/connection";
-import { parseQuestions, QPR_DIVISIONS, QPR_ROLES, type TargetConfig, type QprQuestion, type SubmitAnswersInput } from "./qpr.schema";
+import { parseQuestions, createPeriodSchema, updatePeriodSchema, QPR_DIVISIONS, QPR_ROLES, type UpdatePeriodInput, type TargetConfig, type QprQuestion, type SubmitAnswersInput } from "./qpr.schema";
 import type { DraftAnswer, SaveDraftInput, SnapshotQuestion, SubmitV2Input } from "./qpr.schema";
-import { BPH_TARGETS, SCALE_LEGEND, buildBphSections, buildBphSnapshot, resolveSnapshotPath, validateTargetConfig, validateBphTemplate } from "./qpr.templates";
+import { BPH_TARGETS, SCALE_LEGEND, buildBphSections, buildBphSnapshot, resolveSnapshotPath, validateSnapshotMutation, validateTargetConfig, validateBphTemplate } from "./qpr.templates";
 
+
+const snapshotKey = (value: unknown) => JSON.stringify(value, (_, v) =>
+ v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
 
 const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: string | null }) => {
 	if (p.status !== "open") return false;
@@ -104,7 +107,12 @@ export const qprService = {
             if (!period.entries.length) blockers.push("Roster belum diisi");
         }
         const entries = period.entries.map((entry) => {
-            let sections: NonNullable<typeof snapshot>["sections"] = [];
+            let sections: NonNullable<typeof snapshot>["sections"] = snapshot ? [] : [{
+                id: "legacy", title: period.title, targetId: null,
+                questions: ((period.questions as QprQuestion[] | null) ?? []).map((q, i) => ({
+                    id: `legacy-${i}`, type: "scale", label: q.label, category: q.category, required: true,
+                })),
+            }];
             if (snapshot) {
                 try { sections = resolveSnapshotPath(snapshot, entry); }
                 catch (error) { blockers.push(`${entry.name}: ${(error as Error).message}`); }
@@ -115,7 +123,7 @@ export const qprService = {
                 role: entry.memberRole, member_key: entry.memberKey, targets: sections.map((s) => s.targetId), sections,
                 required: snapshot ? sections.flatMap((s) => s.questions).filter((q) => q.required).length : (period.questions as QprQuestion[]).length };
         });
-        return { blockers: [...new Set(blockers)], entries, divisions: canonical };
+        return { blockers: [...new Set(blockers)], entries, divisions: canonical, scale_legend: SCALE_LEGEND };
     },
 
     async participation(db: Db, divisionSlug: string, periodId?: string) {
@@ -173,6 +181,8 @@ export const qprService = {
 	},
 
 	async createPeriod(db: Db, input: { title: string; description?: string | null; questions?: QprQuestion[] | null; form_kind?: "legacy" | "bph" | "division" | null; opens_at?: string | null; closes_at?: string | null; target_config?: TargetConfig; userId: string }) {
+		const validated = createPeriodSchema.safeParse(input);
+		if (!validated.success) throw ApiError.validation("Periode tidak valid", { input: validated.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`) });
 		validateSchedule(input.opens_at, input.closes_at);
 		const now = new Date().toISOString();
 		const [existing] = await db.select({ id: qprPeriods.id }).from(qprPeriods).where(eq(qprPeriods.title, input.title)).limit(1);
@@ -211,32 +221,38 @@ export const qprService = {
 		return { ...period, questions: parseFieldOptions(period.questions) };
 	},
 
-	async updatePeriod(db: Db, id: string, input: Partial<{ title: string; description: string | null; questions: QprQuestion[] | null; opens_at: string | null; closes_at: string | null; form_kind: "legacy" | "bph" | "division" | null; target_config: TargetConfig; question_labels: Record<string, string> }>) {
+	async updatePeriod(db: Db, id: string, input: UpdatePeriodInput) {
+		const validated = updatePeriodSchema.safeParse(input);
+		if (!validated.success) throw ApiError.validation("Perubahan periode tidak valid", { input: validated.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`) });
+		input = validated.data;
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
-        const changingSnapshot = input.questions !== undefined || input.target_config !== undefined || input.question_labels !== undefined || (input.form_kind != null && input.form_kind !== period.formKind);
+        const changingSnapshot = input.questions !== undefined || input.target_config !== undefined || input.question_labels !== undefined || input.sections !== undefined || (input.form_kind != null && input.form_kind !== period.formKind);
         if (input.questions !== undefined && !input.questions?.length) throw ApiError.validation("Pertanyaan wajib diisi");
         if (changingSnapshot && period.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — snapshot terkunci");
         if (input.form_kind != null && input.form_kind !== period.formKind) throw ApiError.validation("Jenis periode tidak bisa diubah");
         if (period.formKind === "bph" && input.questions !== undefined) throw ApiError.validation("Pertanyaan BPH berasal dari template");
-        if (input.target_config && parseV2(period)?.version !== 3) throw ApiError.validation("Target hanya untuk snapshot v3");
-        // Kustomisasi label pertanyaan snapshot v3: id harus ada di snapshot, label tak boleh kosong.
-        // Diterapkan SETELAH rebuild dari target_config agar keduanya bisa dikirim bersamaan.
         let questionsJson: string | undefined;
-        const base = input.target_config
-            ? buildBphSnapshot(input.target_config)
-            : input.question_labels !== undefined ? parseV2(period) : null;
-        if (input.question_labels) {
-            if (base?.version !== 3) throw ApiError.validation("Kustomisasi label hanya untuk snapshot v3");
-            if (Object.values(input.question_labels).some((l) => !l.trim())) throw ApiError.validation("Label pertanyaan tidak boleh kosong");
-            const unknown = Object.keys(input.question_labels).filter((qid) => !base.sections.some((s) => s.questions.some((q) => q.id === qid)));
-            if (unknown.length) throw ApiError.validation("ID pertanyaan tidak dikenal", { question_labels: unknown });
-            questionsJson = JSON.stringify({ ...base, sections: base.sections.map((s) => ({ ...s, questions: s.questions.map((q) => input.question_labels![q.id] ? { ...q, label: input.question_labels![q.id].trim() } : q) })) });
-        } else if (input.target_config) {
-            questionsJson = JSON.stringify(buildBphSnapshot(input.target_config));
+        if (input.target_config !== undefined || input.question_labels !== undefined || input.sections !== undefined) {
+            const current = parseV2(period);
+            if (current?.version !== 3) throw ApiError.validation("Kustomisasi hanya untuk snapshot v3");
+            if (input.expected_snapshot && snapshotKey(input.expected_snapshot) !== snapshotKey(current))
+                throw ApiError.conflict("Snapshot berubah — muat ulang sebelum menyimpan");
+            const configErrors = input.target_config ? validateTargetConfig(input.target_config) : [];
+            if (configErrors.length) throw ApiError.validation("Konfigurasi target tidak valid", { target_config: configErrors });
+            const base = input.target_config ? buildBphSnapshot(input.target_config, current) : current;
+            if (input.sections) base.sections = input.sections;
+            if (input.question_labels) {
+                const unknown = Object.keys(input.question_labels).filter((qid) => !base.sections.some((s) => s.questions.some((q) => q.id === qid)));
+                if (unknown.length) throw ApiError.validation("ID pertanyaan tidak dikenal", { question_labels: unknown });
+                base.sections = base.sections.map((s) => ({ ...s, questions: s.questions.map((q) => input.question_labels![q.id] ? { ...q, label: input.question_labels![q.id] } : q) }));
+            }
+            // Target identity belongs to config; sections edit wording/order/questions, never routing.
+            base.sections = base.sections.map((s) => ({ ...s, targetLabel: base.target_config.targets.find((t) => t.id === s.targetId)?.label ?? s.targetLabel }));
+            const snapshotErrors = validateSnapshotMutation(base);
+            if (snapshotErrors.length) throw ApiError.validation("Snapshot tidak valid", { sections: snapshotErrors });
+            questionsJson = JSON.stringify(base);
         }
-        const configErrors = input.target_config ? validateTargetConfig(input.target_config) : [];
-        if (configErrors.length) throw ApiError.validation("Konfigurasi target tidak valid", { target_config: configErrors });
         validateSchedule(input.opens_at === undefined ? period.opensAt : input.opens_at, input.closes_at === undefined ? period.closesAt : input.closes_at);
 		const now = new Date().toISOString();
 		const [updated] = await db
@@ -250,9 +266,9 @@ export const qprService = {
 				...(input.closes_at !== undefined ? { closesAt: input.closes_at } : {}),
 				updatedAt: now,
 			})
-			.where(and(eq(qprPeriods.id, id), changingSnapshot ? sql`${qprPeriods.firstOpenedAt} IS NULL` : undefined))
+			.where(and(eq(qprPeriods.id, id), changingSnapshot ? sql`${qprPeriods.firstOpenedAt} IS NULL` : undefined, changingSnapshot ? eq(qprPeriods.questions, period.questions) : undefined))
 			.returning();
-		if (!updated) throw ApiError.conflict("Periode pernah dibuka — snapshot terkunci");
+		if (!updated) throw ApiError.conflict("Snapshot berubah atau periode pernah dibuka — muat ulang sebelum menyimpan");
 		return { ...updated, questions: parseFieldOptions(updated.questions) };
 	},
 

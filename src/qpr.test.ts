@@ -639,6 +639,123 @@ for(const e of largeRows){
 eq("100-final recap avoids D1 bind ceiling",(await qprService.recapV2(realDb,large.id)).done_entries,100);
 ok("100-final CSV avoids D1 bind ceiling",(await qprService.exportCsv(realDb,large.id)).csv.includes("Member 99"));
 
+section("Full v3 questionnaire mutation");
+const editable = await qprService.createPeriod(realDb, { form_kind: "bph", title: "Editable v3", target_config: config, userId: "u-bph" });
+const editUrl = `${ADMIN}/periods/${editable.id}`;
+const edit = (json: unknown) => h.req(editUrl, { token: "tok-bph", method: "PUT", json });
+const baseline = editable.questions as any;
+const sections = structuredClone(baseline.sections);
+sections[0].title = "Custom section";
+sections[0].questions = [
+ { id: "custom-text", type: "text", label: "Optional custom text", required: false },
+ { ...sections[0].questions[0], type: "text", label: "Changed type", required: false },
+];
+sections.reverse();
+eq("full sections require baseline", (await edit({ sections })).status, 422);
+eq("baseline must object", (await edit({ sections, expected_snapshot: JSON.stringify(baseline) })).status, 422);
+eq("baseline without sections rejected", (await edit({ expected_snapshot: baseline })).status, 422);
+eq("sections plus label patch ambiguous", (await edit({ sections, expected_snapshot: baseline, question_labels: {} })).status, 422);
+eq("sections plus legacy questions ambiguous", (await edit({ sections, expected_snapshot: baseline, questions: QUESTIONS })).status, 422);
+eq("client routing rejected", (await edit({ routing: { anggota: [] } })).status, 422);
+const edited = await edit({ sections, expected_snapshot: baseline });
+eq("full structure edit accepted", edited.status, 200);
+const sectionValues = (items: any[]) => items.map(s => [s.id, s.title, s.targetId, s.targetLabel, s.questions]);
+eq("order title type required add delete retained", sectionValues(edited.body.data.questions.sections), sectionValues(sections));
+eq("full edit routing server-owned", edited.body.data.questions.routing, baseline.routing);
+eq("stale baseline rejected", (await edit({ sections: baseline.sections, expected_snapshot: baseline })).status, 409);
+let current = edited.body.data.questions;
+const invalidSections = async (label: string, mutate: (s: any[]) => void) => {
+ const s = structuredClone(current.sections); mutate(s);
+ eq(label, (await edit({ sections: s, expected_snapshot: current })).status, 422);
+};
+await invalidSections("duplicate question across sections rejected", s => { s[0].questions[0].id = s[1].questions[0].id; });
+await invalidSections("section/question ID collision rejected", s => { s[0].questions[0].id = s[1].id; });
+await invalidSections("duplicate section IDs rejected", s => { s[0].id = s[1].id; });
+await invalidSections("duplicate targets rejected", s => { s[0].targetId = s[1].targetId; });
+await invalidSections("missing target section rejected", s => { s.pop(); });
+await invalidSections("unknown target rejected", s => { s[0].targetId = "unknown"; });
+await invalidSections("empty section rejected", s => { s[0].questions = []; });
+await invalidSections("blank title rejected", s => { s[0].title = " \n "; });
+await invalidSections("blank label rejected", s => { s[0].questions[0].label = " \t "; });
+await invalidSections("whitespace ID rejected", s => { s[0].questions[0].id = " id "; });
+const renamedConfig = structuredClone(config);
+renamedConfig.targets[0].label = "Renamed target";
+const configOnly = await edit({ target_config: renamedConfig });
+eq("config-only preserves custom questions", configOnly.body.data.questions.sections.find((s: any) => s.targetId === "controller1").questions, sections.find((s: any) => s.targetId === "controller1").questions);
+eq("config-only preserves custom title", configOnly.body.data.questions.sections.find((s: any) => s.targetId === "controller1").title, "Custom section");
+eq("config-only preserves custom section ordering", configOnly.body.data.questions.sections.map((s: any) => s.id), sections.map((s: any) => s.id));
+current = configOnly.body.data.questions;
+const patched = await edit({ question_labels: { "custom-text": " Patched label " } });
+eq("legacy label patch compatible", patched.status, 200);
+eq("label patch trims", patched.body.data.questions.sections.find((s: any) => s.targetId === "controller1").questions[0].label, "Patched label");
+eq("blank label patch rejected", (await edit({ question_labels: { "custom-text": "   " } })).status, 422);
+eq("unknown label ID rejected", (await edit({ question_labels: { unknown: "Text" } })).status, 422);
+current = patched.body.data.questions;
+const filledSections = structuredClone(current.sections);
+for (const s of filledSections) s.questions = Array.from({ length: ["ketum", "waketum"].includes(s.targetId) ? 50 : 100 }, (_, i) => ({ id: `${s.targetId}-new-${i}`, type: "scale", label: `Question ${i}`, required: false }));
+const atLimit = await edit({ sections: filledSections, expected_snapshot: current });
+eq("exact 500-question kadiv path accepted without roster", atLimit.status, 200);
+current = atLimit.body.data.questions;
+await invalidSections("501 questions rejected even role absent roster", s => { s.find(x => x.targetId === "ketum").questions.push({ id: "over-limit", type: "text", label: "Too many", required: false }); });
+const optionalSections = current.sections.map((s: any) => ({ ...s, questions: [{ id: `${s.targetId}-optional`, type: "text", label: "Optional", required: false }] }));
+const optional = await edit({ sections: optionalSections, expected_snapshot: current, target_config: config });
+eq("sections and config combined accepted", optional.status, 200);
+current = optional.body.data.questions;
+const reorderedBaseline = Object.fromEntries(Object.entries(current).reverse());
+eq("baseline object key ordering irrelevant", (await edit({ sections: current.sections, expected_snapshot: reorderedBaseline })).status, 200);
+let concurrentError: any;
+try {
+ await qprService.updatePeriod(interceptUpdate(() => qprService.updatePeriod(realDb, editable.id, { question_labels: { "ketum-optional": "Concurrent winner" } })), editable.id, { question_labels: { "waketum-optional": "Lost writer" } });
+} catch (error) { concurrentError = error; }
+eq("stored questions CAS rejects overlapping writes", concurrentError?.statusCode, 409);
+const afterRace = await qprService.getPeriod(realDb, editable.id);
+eq("winning snapshot not overwritten", (afterRace.questions as any).sections.find((s: any) => s.targetId === "ketum").questions[0].label, "Concurrent winner");
+const optionalEntries = await qprService.addEntries(realDb, editable.id, [{ name: "Optional respondent", member_key: "optional-one", division_slug: "ristek", role: "anggota" }]);
+const optionalPreview = await qprService.preview(realDb, editable.id);
+eq("preview includes shared scale legend", optionalPreview.scale_legend, (await qprService.getDraft(realDb, v3id, findV3("same-2").id)).scale_legend);
+await qprService.setStatus(realDb, editable.id, "open");
+eq("optional-only empty final accepted", (await h.req(`${PUB}/${editable.id}/submit-v2`, { method: "POST", json: { entry_id: optionalEntries[0].id, expected_version: 0, answers: [] } })).status, 200);
+eq("required path empty final still rejected", (await h.req(`${PUB}/${v3id}/submit-v2`, { method: "POST", json: { entry_id: findV3("same-2").id, expected_version: 0, answers: [] } })).status, 422);
+await qprService.setStatus(realDb, editable.id, "draft");
+eq("first-open lock survives draft status", (await edit({ sections: (afterRace.questions as any).sections, expected_snapshot: afterRace.questions })).status, 409);
+eq("historical v2 structure mutation rejected", (await h.req(`${ADMIN}/periods/${bphPid}`, { token: "tok-bph", method: "PUT", json: { sections, expected_snapshot: baseline } })).status, 409);
+
+const historical = await qprService.createPeriod(realDb, { form_kind: "bph", title: "Historical v3 routing", target_config: config, userId: "u-bph" });
+const historicalSnapshot = structuredClone(historical.questions) as any;
+historicalSnapshot.routing.kadiv = ["$controller", "ketum", "waketum"];
+historicalSnapshot.routing.wakadiv = ["$controller", "ketum", "waketum"];
+historicalSnapshot.target_config.controller_by_division = { ristek: "controller2" };
+await h.sql("UPDATE qpr_periods SET questions=? WHERE id=?", JSON.stringify(historicalSnapshot), historical.id);
+const historicalConfig = structuredClone(historicalSnapshot.target_config);
+historicalConfig.targets[0].label = "Historical renamed";
+const historicalUpdated = await qprService.updatePeriod(realDb, historical.id, { target_config: historicalConfig });
+eq("historical v3 mapping route survives config edit", (historicalUpdated.questions as any).routing, historicalSnapshot.routing);
+eq("historical v3 resolver still one mapped controller", resolveSnapshotPath(historicalUpdated.questions as any, { memberRole: "kadiv", divisionSlug: "ristek" }).map(s => s.targetId), ["controller2", "ketum", "waketum"]);
+const freshV2 = await qprService.createPeriod(realDb, { form_kind: "bph", title: "Unopened v2 compatibility", userId: "u-bph" });
+await h.sql("UPDATE qpr_periods SET questions=? WHERE id=?", JSON.stringify({ version: 2, sections: buildBphSections() }), freshV2.id);
+eq("unopened v2 rejects full sections", (await h.req(`${ADMIN}/periods/${freshV2.id}`, { token: "tok-bph", method: "PUT", json: { sections, expected_snapshot: baseline } })).status, 422);
+eq("empty target config rejected", (await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "bph", title: "Empty targets", target_config: { targets: [], controller_by_division: {} } } })).status, 422);
+
+const legacyPreview = await qprService.preview(realDb, legacyDupPeriod.id);
+eq("legacy preview renders question labels/categories", legacyPreview.entries[0].sections[0].questions, QUESTIONS.map((q, i) => ({ id: `legacy-${i}`, type: "scale", label: q.label, category: q.category, required: true })));
+eq("legacy preview required count matches questions", legacyPreview.entries[0].required, QUESTIONS.length);
+
+section("Legacy question pair identity");
+const duplicatePairs = [QUESTIONS[0], QUESTIONS[0]];
+eq("legacy create duplicate pair rejected", (await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { title: "Duplicate legacy pairs", questions: duplicatePairs } })).status, 422);
+const pairQuestions = [QUESTIONS[0], { ...QUESTIONS[0], category: "Other category" }];
+const pairPeriod = await qprService.createPeriod(realDb, { title: "Distinct legacy pairs", questions: pairQuestions, userId: "u-bph" });
+eq("legacy update duplicate pair rejected", (await h.req(`${ADMIN}/periods/${pairPeriod.id}`, { token: "tok-bph", method: "PUT", json: { questions: duplicatePairs } })).status, 422);
+let duplicateCreate: any;
+try { await qprService.createPeriod(realDb, { title: "Direct duplicate pairs", questions: duplicatePairs, userId: "u-bph" }); } catch (error) { duplicateCreate = error; }
+eq("direct create duplicate pair rejected", duplicateCreate?.statusCode, 422);
+let duplicateUpdate: any;
+try { await qprService.updatePeriod(realDb, pairPeriod.id, { questions: duplicatePairs }); } catch (error) { duplicateUpdate = error; }
+eq("direct update duplicate pair rejected", duplicateUpdate?.statusCode, 422);
+await qprService.addEntries(realDb, pairPeriod.id, [{ name: "Pair respondent" }]);
+await qprService.setStatus(realDb, pairPeriod.id, "open");
+eq("same label different categories submit succeeds", (await h.req(`${PUB}/${pairPeriod.id}/submit`, { method: "POST", json: { name: "Pair respondent", answers: pairQuestions.map(q => ({ ...q, score: 4 })) } })).status, 200);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.
 process.exit(failed ? 1 : 0);

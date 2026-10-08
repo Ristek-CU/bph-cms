@@ -124,12 +124,12 @@ test('rekap v2 tampil di panel admin dengan distribusi dan tombol ekspor', async
 		const reply = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ success: true, data: body }) });
 		if (path === '/me') return reply({ can_access_oversight: false, user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', slug: 'bph', name: 'BPH' }, role: 'platform_admin', permissions: ['qpr.manage'] }], workspace_options: [] });
 		if (path === '/admin/qpr/periods') return reply([{ id: 'period-v2', title: 'QPR BPH Oktober 2026', status: 'open', formKind: 'bph', description: '', total_entries: 2, done_entries: 1, questions: V2_ROSTER.questions }]);
-		if (path === '/admin/qpr/periods/period-v2') return reply({ questions: V2_ROSTER.questions });
+		if (path === '/admin/qpr/periods/period-v2') return reply({ id: 'period-v2', title: 'QPR BPH Oktober 2026', status: 'open', entries: [{ id: 'e1', name: 'Nadia', done: true }, { id: 'e2', name: 'Pengisi lain', done: false }], questions: V2_ROSTER.questions });
 		if (path === '/admin/qpr/periods/period-v2/recap-v2') return reply(RECAP);
 		return reply({});
 	});
 	await page.goto('/#/qpr');
-	await page.getByRole('button', { name: 'Rekap' }).click();
+	await page.getByRole('link', { name: 'Rekap' }).click();
 	await expect(page.getByRole('heading', { name: 'Ketua Umum' })).toBeVisible();
 	await expect(page.getByText('4 — Baik')).toBeVisible();
 	await expect(page.getByText('Lanjutkan!')).toBeVisible();

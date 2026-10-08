@@ -318,6 +318,7 @@ export const defaultTargetConfig = (): TargetConfig => ({
 export function validateTargetConfig(config: TargetConfig): string[] {
  const errors: string[] = [];
  const ids = new Set<string>();
+ if (!config.targets.length) errors.push("Target wajib diisi");
  for (const t of config.targets) {
   if (ids.has(t.id)) errors.push(`Target ID berulang: ${t.id}`);
   ids.add(t.id);
@@ -331,21 +332,66 @@ export function validateTargetConfig(config: TargetConfig): string[] {
  return errors;
 }
 
-export function buildBphSnapshot(config: TargetConfig = defaultTargetConfig()): QuestionnaireV3 {
+export function buildBphSnapshot(config: TargetConfig = defaultTargetConfig(), previous?: QuestionnaireV3): QuestionnaireV3 {
  // Keputusan BPH (7 Okt 2026): Controller = BPH, DINILAI semua kadiv/wakadiv
  // (bukan pemetaan 1 controller per divisi). Kadiv/wakadiv menilai 4 controller
  // + ketum + waketum. bendiv → 2 bendum, sekdiv → 2 sekum.
  const CONTROLLER_IDS = config.targets.filter((t) => t.template === "controller").map((t) => t.id);
+ const previousControllers = previous?.target_config.targets.filter((t) => t.template === "controller").map((t) => t.id) ?? [];
+ const controllersChanged = CONTROLLER_IDS.length !== previousControllers.length || CONTROLLER_IDS.some((id) => !previousControllers.includes(id));
  return {
   version: 3, target_config: config,
-  routing: Object.fromEntries(QPR_ROLES.map((role) => [role,
+  routing: previous ? Object.fromEntries(Object.entries(previous.routing).map(([role, route]) => [role,
+   controllersChanged && previousControllers.length && previousControllers.every((id) => route.includes(id))
+    ? [...CONTROLLER_IDS, ...route.filter((id) => !previousControllers.includes(id))] : route,
+  ])) : Object.fromEntries(QPR_ROLES.map((role) => [role,
    [...(role === "kadiv" || role === "wakadiv" ? CONTROLLER_IDS : role === "bendiv" ? ["bendum1", "bendum2"] : role === "sekdiv" ? ["sekum1", "sekum2"] : []), "ketum", "waketum"]])),
-  sections: config.targets.map((t) => ({
-   id: `section-${t.id}`, targetId: t.id, targetLabel: t.label,
-   title: `${BPH_TARGETS.find((b) => b.id === t.template)!.label}${t.label ? `: ${t.label}` : ""}`,
-   questions: QUESTIONS_BY_TARGET[t.template].map((q) => ({ ...q, id: q.id.replace(`${t.template}-`, `${t.id}-`) })),
-  })),
+  sections: config.targets.map((t) => {
+   const retained = previous?.sections.find((s) => s.targetId === t.id);
+   return retained ? { ...retained, targetLabel: t.label } : {
+    id: `section-${t.id}`, targetId: t.id, targetLabel: t.label,
+    title: `${BPH_TARGETS.find((b) => b.id === t.template)!.label}${t.label ? `: ${t.label}` : ""}`,
+    questions: QUESTIONS_BY_TARGET[t.template].map((q) => ({ ...q, id: q.id.replace(`${t.template}-`, `${t.id}-`) })),
+   };
+  }).sort((a, b) => {
+   const order = (s: SnapshotSection) => {
+    const i = previous?.sections.findIndex((old) => old.targetId === s.targetId) ?? -1;
+    return i < 0 ? config.targets.length : i;
+   };
+   return order(a) - order(b);
+  }),
  };
+}
+
+/** Validate writes across every supported path, not only current roster roles. */
+export function validateSnapshotMutation(snapshot: QuestionnaireV3): string[] {
+ const errors = validateTargetConfig(snapshot.target_config);
+ const ids = new Set<string>();
+ const targets = new Set<string>();
+ if (!snapshot.sections.length || !snapshot.target_config.targets.length) errors.push("Section dan target wajib diisi");
+ for (const s of snapshot.sections) {
+  if (targets.has(s.targetId!)) errors.push(`Section target berulang: ${s.targetId}`);
+  targets.add(s.targetId!);
+  if (!snapshot.target_config.targets.some((t) => t.id === s.targetId)) errors.push(`Target section tidak dikenal: ${s.targetId}`);
+  for (const item of [s, ...s.questions]) {
+   if (!item.id.trim() || /\s/.test(item.id) || ids.has(item.id)) errors.push(`ID kosong/berulang: ${item.id}`);
+   ids.add(item.id);
+  }
+  if (!s.title.trim() || !s.questions.length || s.questions.some((q) => !q.label.trim())) errors.push(`Section tidak lengkap: ${s.id}`);
+ }
+ for (const t of snapshot.target_config.targets) if (!targets.has(t.id)) errors.push(`Section target belum ada: ${t.id}`);
+ for (const role of QPR_ROLES) for (const division of QPR_DIVISIONS) {
+  const route = snapshot.routing[role];
+  if (!route?.length) { errors.push(`Jalur kosong: ${role}`); continue; }
+  // ponytail: incomplete legacy $controller mappings remain draftable; publish preview requires each roster mapping.
+  if (route.includes("$controller") && !snapshot.target_config.controller_by_division[division]) continue;
+  try {
+   const sections = resolveSnapshotPath(snapshot, { memberRole: role, divisionSlug: division });
+   if (new Set(sections.map((s) => s.targetId)).size !== sections.length) errors.push(`Target jalur berulang: ${role}`);
+   if (sections.reduce((n, s) => n + s.questions.length, 0) > 500) errors.push(`Jalur ${role}/${division} maksimal 500 pertanyaan`);
+  } catch (error) { errors.push((error as Error).message); }
+ }
+ return [...new Set(errors)];
 }
 
 /** v2 keeps its original one-bendum/one-sekum path, including legacy role fallback. */

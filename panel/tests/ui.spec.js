@@ -14,7 +14,7 @@ async function setup(page, { signedIn = true, permissions = admin, workspace = f
     const reply = (data, status = 200, message = 'OK') => route.fulfill({ status, json: { success: status < 400, data, message } });
     if (path === '/auth/panel-sign-in') return reply({ token: 'panel-session', user: { email: 'test@example.com' } });
     if (state.expire) return reply(null, 401, 'Sesi berakhir');
-    if (path === '/me') return state.failMe ? reply(null, 503, 'Layanan belum tersedia') : reply({ can_access_oversight: oversight, user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', name: 'BPH' }, role: 'platform_admin', permissions }], workspace_options: workspace ? workspaces : [workspaces[0]] });
+    if (path === '/me') return state.failMe ? reply(null, 503, 'Layanan belum tersedia') : reply({ can_access_oversight: oversight, user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', slug: 'bph', name: 'BPH' }, role: 'platform_admin', permissions }], workspace_options: workspace ? workspaces : [workspaces[0]] });
     if (path === '/admin/events') {
       if (state.failEvents) return reply(null, 503, 'Event gagal dimuat');
       if (method === 'POST') { const created = { ...event, ...req.postDataJSON(), id: 'new-event' }; state.events.push(created); return reply(created); }
@@ -163,16 +163,15 @@ test('audit-only user does not see account mutation tabs', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Akun', exact: true })).toHaveCount(0);
 });
 
-test('QPR maintenance blocks unreleased admin and public forms', async ({ page }) => {
+test('QPR campaign dashboard and legacy public form remain available', async ({ page }) => {
   const state = await setup(page);
   await visit(page, '/qpr');
-  await expect(page.getByText('Fitur QPR sedang dalam tahap pengembangan.')).toBeVisible();
-  await expect(page.getByRole('button', { name: '+ Periode baru' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '+ Periode baru' })).toBeVisible();
   await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 320, height: 844 });
   await visit(page, '/qpr/period-1');
-  await expect(page.getByText('Fitur QPR sedang dalam tahap pengembangan.')).toBeVisible();
-  await expect(page.getByLabel('Namamu')).toHaveCount(0);
+  await expect(page.getByLabel('Namamu')).toBeVisible();
+  await expect(page.getByRole('group', { name: /Kerja sama tim/ })).toBeVisible();
   expect(state.calls.filter(c => c.path.includes('/qpr/') && c.method !== 'GET')).toEqual([]);
   await noOverflow(page);
 });

@@ -5,6 +5,10 @@ export const qprQuestionSchema = z.object({
 	category: z.string().min(1).max(100),
 });
 export type QprQuestion = z.infer<typeof qprQuestionSchema>;
+const legacyQuestionsSchema = z.array(qprQuestionSchema).min(1).max(50).refine(
+	questions => new Set(questions.map(q => JSON.stringify([q.label, q.category]))).size === questions.length,
+	"Pasangan label/kategori pertanyaan tidak boleh berulang",
+);
 
 // ── Snapshot berversi (form_kind bph/division) ──────────────────────────────
 // Kuesioner BPH: 7 section × (20 skala + 2 teks) ≈ 154 pertanyaan → batas
@@ -72,7 +76,7 @@ export const createPeriodSchema = z.object({
 	description: z.string().max(500).nullish(),
 	// form bph: pertanyaan dibentuk dari template resmi server — klien tidak
 	// mengirim questions. legacy/division: wajib.
-	questions: z.array(qprQuestionSchema).min(1).max(50).nullish(),
+	questions: legacyQuestionsSchema.nullish(),
 	target_config: targetConfigSchema.optional(),
 	opens_at: z
 		.string()
@@ -85,9 +89,32 @@ export const createPeriodSchema = z.object({
 });
 export type CreatePeriodInput = z.infer<typeof createPeriodSchema>;
 
-// question_labels: kustomisasi label pertanyaan snapshot v3 (id & struktur
-// tetap dari template) — hanya periode yang belum pernah dibuka.
-export const updatePeriodSchema = createPeriodSchema.partial().extend({ form_kind: z.enum(["legacy", "bph", "division"]).nullish(), question_labels: z.record(z.string(), z.string().min(1).max(2000)).optional() });
+// Write validation stays separate from historical snapshot parsing.
+const stableIdSchema = z.string().min(1).max(100).regex(/^\S+$/);
+export const editableSectionSchema = snapshotSectionSchema.extend({
+	id: stableIdSchema,
+	title: z.string().trim().min(1).max(300),
+	targetId: stableIdSchema,
+	targetLabel: z.string().max(200).nullish(),
+	questions: z.array(snapshotQuestionSchema.extend({
+		id: stableIdSchema,
+		label: z.string().trim().min(1).max(2000),
+	}).strict()).min(1).max(100),
+}).strict();
+export const updatePeriodSchema = createPeriodSchema.partial().extend({
+	form_kind: z.enum(["legacy", "bph", "division"]).nullish(),
+	question_labels: z.record(stableIdSchema, z.string().trim().min(1).max(2000)).optional(),
+	sections: z.array(editableSectionSchema).min(1).max(10).optional(),
+	expected_snapshot: questionnaireV3Schema.optional(),
+}).strict().superRefine((input, ctx) => {
+	if (input.sections !== undefined && input.expected_snapshot === undefined)
+		ctx.addIssue({ code: "custom", path: ["expected_snapshot"], message: "Baseline snapshot wajib untuk perubahan sections" });
+	if (input.expected_snapshot !== undefined && input.sections === undefined)
+		ctx.addIssue({ code: "custom", path: ["expected_snapshot"], message: "Baseline hanya untuk perubahan sections" });
+	if (input.sections !== undefined && (input.question_labels !== undefined || input.questions !== undefined))
+		ctx.addIssue({ code: "custom", path: ["sections"], message: "sections tidak boleh digabung dengan questions/question_labels" });
+});
+export type UpdatePeriodInput = z.infer<typeof updatePeriodSchema>;
 
 export const createEntriesSchema = z.object({
 	entries: z
@@ -143,6 +170,6 @@ export type SaveDraftInput = z.infer<typeof saveDraftSchema>;
 export const submitV2Schema = z.object({
 	entry_id: z.string().min(1).max(100),
 	expected_version: z.number().int().min(0).nullish(),
-	answers: z.array(draftAnswerSchema).min(1).max(500),
+	answers: z.array(draftAnswerSchema).max(500),
 });
 export type SubmitV2Input = z.infer<typeof submitV2Schema>;
