@@ -12,7 +12,7 @@ Live: **https://cms.sga-cakrawala.org**
 - **Storage**: Cloudflare R2 (`bph-cms-media`) — cover event + lampiran form
 - **Auth**: service binding `AUTH_SERVICE` ke `sga-superapp-auth` (Bearer token,
   cookie tidak diterima)
-- **Panel**: React 18 + Vite, hash routing, diserve sebagai aset statis Worker
+- **Panel**: React 19 + Vite, hash routing, diserve sebagai aset statis Worker
   (`panel/`)
 
 ## Struktur
@@ -61,7 +61,9 @@ Var penting: `CORS_ORIGIN` (allowlist), `DOCS_ALLOW_EMAILS` (akses Swagger),
 
 ## Keamanan (ringkas)
 
-- Bearer-only auth via service binding; tanpa cookie = tanpa CSRF.
+- Integrasi memakai Bearer. Panel memakai cookie HttpOnly `__Host-bph_session`
+  dengan marker `Bearer panel-session`; request cookie diperiksa origin-nya.
+  Token sesi asli tidak disimpan dalam localStorage/sessionStorage.
 - Rate limit D1 di semua endpoint sensitif: sign-in 20/15m per IP+email dan 60/15m per
   IP; form publik 30/mnt; QPR submit 10/mnt.
 - RBAC per-resource: admin divisi hanya bisa sentuh event/form/divisinya sendiri.
@@ -69,6 +71,10 @@ Var penting: `CORS_ORIGIN` (allowlist), `DOCS_ALLOW_EMAILS` (akses Swagger),
   (bukan dari klaim klien).
 - Audit log untuk semua mutasi admin.
 - Security headers: nosniff, DENY iframe, CSP `default-src 'none'`.
+
+Audit alur dan perbaikan 9 Oktober 2026: [CMS flow review](docs/reviews/cms-flow-review-2026-10-09.md).
+Pemeriksaan visual lanjutan: [UI smoke review](docs/reviews/cms-ui-smoke-2026-10-09.md), termasuk desktop, tablet, mobile, dan interaksi keyboard.
+Tes regresi khusus: `npm run test:cms-flows` (juga dijalankan oleh `npm test`).
 
 ## Dokumentasi
 

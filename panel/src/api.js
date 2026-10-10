@@ -15,7 +15,11 @@ export const getToken = () => {
 };
 export const setToken = () => { sessionGeneration++; sessionStorage.setItem(TOKEN_KEY, "panel-session"); };
 export const clearToken = () => { sessionGeneration++; sessionStorage.removeItem(TOKEN_KEY); };
-export const signOut = () => request("/api/v1/auth/panel-sign-out", { method: "POST" });
+export const signOut = async () => {
+	const response = await request("/api/v1/auth/panel-sign-out", { method: "POST" });
+	const body = await response.json().catch(() => ({}));
+	if (!response.ok || body.success === false) throw new ApiFail(body, response.status);
+};
 
 export class ApiFail extends Error {
 	constructor(body, status) {
@@ -42,6 +46,21 @@ export async function api(path, { method = "GET", json, signal } = {}) {
 	}
 	if (!res.ok || body.success === false) throw new ApiFail(body, res.status);
 	return body.data;
+}
+
+// Lists and calendars must include records beyond the server's first page.
+export async function apiList(path, { signal } = {}) {
+	const items = [];
+	const generation = sessionGeneration;
+	const separator = path.includes("?") ? "&" : "?";
+	for (let page = 1; ; page++) {
+		const data = await api(`${path}${separator}page=${page}&per_page=100`, { signal });
+		if (generation !== sessionGeneration) throw new DOMException("Session changed", "AbortError");
+		const batch = Array.isArray(data) ? data : data?.items || [];
+		items.push(...batch);
+		const total = Number(data?.meta?.total);
+		if (!batch.length || !Number.isFinite(total) || items.length >= total) return items;
+	}
 }
 
 /** Seperti api() tapi response mentah (blob CSV, dsb.). Error tetap JSON envelope. */

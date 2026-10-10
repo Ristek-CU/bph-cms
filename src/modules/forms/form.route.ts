@@ -1,10 +1,13 @@
 import { Hono } from "hono";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { describeRoute, resolver } from "hono-openapi";
 import type { AppContext } from "../../types";
 import { adminAuth } from "../../middlewares/admin-auth";
 import { requirePermission } from "../../middlewares/require-permission";
 import { ApiResponse } from "../../shared/api-response";
+import { ApiError } from "../../shared/api-error";
+import { formFiles } from "../../db/schema";
 import { recordAuditLog } from "../audit/audit.service";
 import { getDb } from "../../db/connection";
 import { formService } from "./form.service";
@@ -74,7 +77,7 @@ adminFormRouter.get(
 adminFormRouter.put(
 	"/:id",
 	requirePermission("forms.update.own_division", { resourceType: "form" }),
-	ok("Update form (partial)", "Body parsial. Jika fields dikirim, seluruh set pertanyaan diganti — jawaban historis tetap (snapshot label).", successWrapper(z.object({})), {
+	ok("Update form (partial)", "Body parsial. Kirim ID pertanyaan lama untuk mempertahankan hubungan jawaban dan analitik; tanpa ID berarti pertanyaan baru. Metadata dan pertanyaan disimpan atomik.", successWrapper(z.object({})), {
 		404: { description: "Not found" },
 	}),
 	updateForm,
@@ -83,9 +86,8 @@ adminFormRouter.put(
 adminFormRouter.delete(
 	"/:id",
 	requirePermission("forms.delete.own_division", { resourceType: "form" }),
-	ok("Delete form", "Ditolak 409 bila masih punya respons tersimpan.", successWrapper(z.object({})), {
+	ok("Delete form", "Hapus permanen form, pertanyaan, respons, dan metadata lampiran. File R2 belum dipangkas otomatis.", successWrapper(z.object({})), {
 		404: { description: "Not found" },
-		409: { description: "Masih ada submissions" },
 	}),
 	deleteForm,
 );
@@ -134,6 +136,27 @@ adminFormRouter.get(
 // Submissions by id — route terpisah biar param :id tidak menabrak form id.
 const submissionRouter = new Hono<AppContext>();
 submissionRouter.use("*", adminAuth);
+submissionRouter.get(
+	"/:id/files/:fileId",
+	requirePermission("forms.submissions.own_division", { resourceType: "submission" }),
+	async (c) => {
+		const [file] = await c.get("db").select().from(formFiles).where(and(
+			eq(formFiles.id, c.req.param("fileId")), eq(formFiles.submissionId, c.req.param("id")),
+		)).limit(1);
+		if (!file) throw ApiError.notFound("Lampiran tidak ditemukan");
+		const object = await c.env.BUCKET.get(file.storagePath);
+		if (!object) throw ApiError.notFound("Lampiran tidak ditemukan");
+		// User uploads are downloads, never active content on the CMS origin.
+		const filename = file.originalFilename.replace(/[\u0000-\u001f\u007f/\\]/g, "_");
+		const encoded = encodeURIComponent(filename).replace(/['()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+		return new Response(object.body, { headers: {
+			"Content-Type": "application/octet-stream",
+			"Content-Disposition": `attachment; filename="attachment"; filename*=UTF-8''${encoded}`,
+			"Cache-Control": "private, no-store",
+			"X-Content-Type-Options": "nosniff",
+		} });
+	},
+);
 submissionRouter.put(
 	"/:id",
 	requirePermission("forms.submissions.own_division", { resourceType: "submission" }),

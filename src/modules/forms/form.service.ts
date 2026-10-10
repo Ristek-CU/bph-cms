@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 import { ApiError } from "../../shared/api-error";
-import { formAnswers, formFields, formSubmissions, forms } from "../../db/schema";
+import { formAnswers, formFields, formFiles, formSubmissions, forms } from "../../db/schema";
 import type { Db } from "../../db/connection";
 import type { CreateFormInput, FieldInput, UpdateFormInput } from "./form.schema";
 import { CHOICE_FIELD_TYPES } from "./form.schema";
@@ -82,6 +82,35 @@ const fieldStatements = (db: Db, formId: string, fields: FieldInput[], now: stri
 	return statements;
 };
 
+const replacementStatements = (db: Db, formId: string, existing: FieldRow[], fields: FieldInput[], now: string) => {
+	const known = new Set(existing.map((f) => f.id));
+	const kept = new Set<string>();
+	for (const field of fields) {
+		validateField(field);
+		if (field.id && (!known.has(field.id) || kept.has(field.id))) {
+			throw ApiError.validation("Pertanyaan tidak valid. Muat ulang form sebelum menyimpan.", { fields: ["ID pertanyaan harus unik dan berasal dari form ini."] });
+		}
+		if (field.id) kept.add(field.id);
+	}
+	const statements = [];
+	// Chunk deletes too: a form can have 100 questions, D1 allows 100 bindings.
+	const removed = existing.filter((f) => !kept.has(f.id)).map((f) => f.id);
+	for (let i = 0; i < removed.length; i += 80) {
+		statements.push(db.delete(formFields).where(and(eq(formFields.formId, formId), inArray(formFields.id, removed.slice(i, i + 80)))));
+	}
+	for (const [i, f] of fields.entries()) {
+		if (!f.id) continue;
+		statements.push(db.update(formFields).set({
+			label: f.label, description: f.description ?? null, type: f.type,
+			required: f.required, active: f.active, options: serializeOptions(f.options),
+			sortOrder: f.sort_order ?? i, updatedAt: now,
+		}).where(and(eq(formFields.id, f.id), eq(formFields.formId, formId))));
+	}
+	const added = fields.map((f, i) => ({ ...f, sort_order: f.sort_order ?? i })).filter((f) => !f.id);
+	statements.push(...fieldStatements(db, formId, added, now));
+	return statements;
+};
+
 const toAdminShape = (f: FormRow, fields: FieldRow[] = []) => ({
 	id: f.id,
 	slug: f.slug,
@@ -132,12 +161,12 @@ export const formService = {
 			.where(scope ?? sql`1=1`);
 		if (rows.length === 0) return { items: [], meta: { page, per_page: perPage, total: Number(totalRow?.n ?? 0) } };
 		const ids = rows.map((r) => r.id);
-		const allFields = await db.select().from(formFields).where(inArray(formFields.formId, ids)).orderBy(asc(formFields.sortOrder));
+		const allFields = await db.select().from(formFields).where(sql`${formFields.formId} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`).orderBy(asc(formFields.sortOrder));
 		// Jumlah respons per form untuk kartu studio (grouped, 1 query).
 		const counts = await db
 			.select({ formId: formSubmissions.formId, n: sql<number>`count(*)` })
 			.from(formSubmissions)
-			.where(inArray(formSubmissions.formId, ids))
+			.where(sql`${formSubmissions.formId} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`)
 			.groupBy(formSubmissions.formId);
 		const countMap = new Map(counts.map((c) => [c.formId, Number(c.n)]));
 		return {
@@ -191,12 +220,9 @@ export const formService = {
 	// hilang dihapus; jawaban historis tetap punya snapshot label/type.
 	// Panel selalu kirim active per field (switch dialog), jadi tidak perlu preserve.
 	async replaceFields(db: Db, formId: string, fields: FieldInput[]) {
-		for (const f of fields) validateField(f);
-		const now = new Date().toISOString();
-		await db.batch([
-			db.delete(formFields).where(eq(formFields.formId, formId)),
-			...fieldStatements(db, formId, fields, now),
-		]);
+		const existing = await db.select().from(formFields).where(eq(formFields.formId, formId));
+		const statements = replacementStatements(db, formId, existing, fields, new Date().toISOString());
+		if (statements.length) await db.batch([statements[0], ...statements.slice(1)]);
 	},
 
 	async update(db: Db, id: string, input: UpdateFormInput) {
@@ -204,7 +230,8 @@ export const formService = {
 		if (!existing) throw ApiError.notFound("Form tidak ditemukan");
 
 		const now = new Date().toISOString();
-		await db
+		const fieldChanges = input.fields === undefined ? [] : replacementStatements(db, id, existing.fields, input.fields, now);
+		const updateForm = db
 			.update(forms)
 			.set({
 				...(input.title !== undefined ? { title: input.title } : {}),
@@ -217,7 +244,7 @@ export const formService = {
 			})
 			.where(eq(forms.id, id));
 
-		if (input.fields !== undefined) await this.replaceFields(db, id, input.fields);
+		await db.batch([updateForm, ...fieldChanges]);
 		return this.get(db, id);
 	},
 
@@ -359,6 +386,9 @@ export const formService = {
 		const answers = rows.length
 			? await db.select().from(formAnswers).where(inArray(formAnswers.submissionId, rows.map((r) => r.id)))
 			: [];
+		const files = rows.length
+			? await db.select().from(formFiles).where(inArray(formFiles.submissionId, rows.map((r) => r.id)))
+			: [];
 		const [totalRow] = await db
 			.select({ n: sql<number>`count(*)` })
 			.from(formSubmissions)
@@ -368,6 +398,10 @@ export const formService = {
 				id: r.id,
 				status: r.status,
 				created_at: r.createdAt,
+				files: files.filter((f) => f.submissionId === r.id).map((f) => ({
+					id: f.id, field_id: f.fieldId, original_filename: f.originalFilename,
+					mime_type: f.mimeType, file_size: f.fileSize,
+				})),
 				answers: answers
 					.filter((a) => a.submissionId === r.id)
 					.map((a) => ({ field_id: a.fieldId, label: a.fieldLabel, type: a.fieldType, value: JSON.parse(a.value) })),

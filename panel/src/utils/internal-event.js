@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, errText, gcalUrl } from "../api.js";
+import { apiList, errText, gcalUrl } from "../api.js";
 
 // Helper internal event (D-AK). Dipisah dari komponen karena oxlint
 // react/only-export-components: file yang mencampur komponen dan fungsi
@@ -25,9 +25,9 @@ export function useInternalEvents() {
 
 	useEffect(() => {
 		let cancelled = false;
-		api("/admin/internal-events")
+		apiList("/admin/internal-events")
 			.then((d) => {
-				if (!cancelled) setState({ events: d?.items || [], loading: false, error: "" });
+				if (!cancelled) setState({ events: d, loading: false, error: "" });
 			})
 			.catch((e) => {
 				if (!cancelled) setState({ events: [], loading: false, error: errText(e) });

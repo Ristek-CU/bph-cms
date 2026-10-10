@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, errText, isoToInput } from "../api.js";
+import { api, apiList, apiRaw, errText, isoToInput } from "../api.js";
 import { useToast, Confirm, SkeletonCard, copyText, ErrorState, useUnsavedChanges } from "../components/ui.jsx";
 import {
 	IconPlus, IconPencil, IconTrash, IconGrip, IconLink, IconCheck,
@@ -56,8 +56,7 @@ export default function Forms({ user }) {
 
 	const load = useCallback(async () => {
 		try {
-			const d = await api("/admin/forms");
-			setForms(d.items || d || []);
+			setForms(await apiList("/admin/forms"));
 			setErr("");
 		} catch (e) {
 			setErr(errText(e));
@@ -171,7 +170,7 @@ function FormCard({ form, canSeeSubmissions, toast }) {
 					<button className="btn ghost sm" onClick={copyLink} title="Salin link publik"><IconLink size={14} /> Salin link</button>
 					<Link className="btn sec sm flex-1" to={`/forms/${form.id}`}>Detail</Link>
 					{canSeeSubmissions && (
-						<Link className="btn sm flex-1" to={`/forms/${form.id}/analytics`}><IconBarChart size={14} /> Analytics</Link>
+						<Link className="btn sm flex-1" to={`/forms/${form.id}/analytics`}><IconBarChart size={14} /> Analitik</Link>
 					)}
 				</div>
 			</div>
@@ -368,6 +367,7 @@ function SubmissionsSection({ formId, toast }) {
 										<p className="answer-value">{Array.isArray(a.value) ? a.value.join(", ") : String(a.value)}</p>
 									</div>
 								))}
+								{(s.files || []).map((file) => <SubmissionAttachment key={file.id} submissionId={s.id} file={file} />)}
 							</div>
 						</details>
 					))}
@@ -395,6 +395,31 @@ function SubmissionsSection({ formId, toast }) {
 }
 
 /* ── Editor form (builder) ────────────────────────────────────────────────── */
+function SubmissionAttachment({ submissionId, file }) {
+	const [busy, setBusy] = useState(false);
+	const toast = useToast();
+	const download = async () => {
+		if (busy) return;
+		setBusy(true);
+		try {
+			const response = await apiRaw(`/admin/forms/submissions/${submissionId}/files/${file.id}`);
+			const url = URL.createObjectURL(await response.blob());
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = file.original_filename;
+			document.body.appendChild(link);
+			link.click(); link.remove();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		} catch (error) { toast(errText(error), "err"); }
+		finally { setBusy(false); }
+	};
+	return <div className="answer-card attachment-card">
+		<p className="answer-label">Lampiran · {Math.max(1, Math.ceil(file.file_size / 1024))} KB</p>
+		<p className="answer-value">{file.original_filename}</p>
+		<button className="btn sec sm" onClick={download} disabled={busy}><IconDownload size={14} />{busy ? "Mengunduh…" : `Unduh ${file.original_filename}`}</button>
+	</div>;
+}
+
 function Editor({ form, canManage, canPublish, canDelete, canSeeSubmissions, toast, onSaved, onDelete }) {
 	const [title, setTitle] = useState(form.title);
 	const [description, setDescription] = useState(form.description || "");
@@ -426,6 +451,7 @@ function Editor({ form, canManage, canPublish, canDelete, canSeeSubmissions, toa
 		opens_at: opensAt ? `${opensAt}:00+07:00` : null,
 		closes_at: closesAt ? `${closesAt}:00+07:00` : null,
 		fields: fs.map((f, i) => ({
+			...(String(f.id).startsWith("temp-") ? {} : { id: f.id }),
 			label: f.label,
 			description: f.description || null,
 			type: f.type,
@@ -521,8 +547,10 @@ function Editor({ form, canManage, canPublish, canDelete, canSeeSubmissions, toa
 		setFields(next);
 		setBusy(true);
 		try {
-			await api(`/admin/forms/${form.id}`, { method: "PUT", json: buildBody(next) });
-			setSavedSnapshot(JSON.stringify({ title, description, thankYou, bgColor, opensAt, closesAt, fields: next }));
+			const saved = await api(`/admin/forms/${form.id}`, { method: "PUT", json: buildBody(next) });
+			const savedFields = saved.fields.map((f) => ({ ...f, options: optionsToInput(f) }));
+			setFields(savedFields);
+			setSavedSnapshot(JSON.stringify({ title, description, thankYou, bgColor, opensAt, closesAt, fields: savedFields }));
 			if (okMsg) toast(okMsg);
 			return true;
 		} catch (e) {
@@ -668,7 +696,7 @@ function Editor({ form, canManage, canPublish, canDelete, canSeeSubmissions, toa
 									)}
 								</div>
 							)}
-							{canManage && (
+							{canManage && editingId !== f.id && (
 								<div className="field-row-actions">
 									<button type="button" className="icon-btn" disabled={busy || editingId !== null || i === 0} aria-label={`Naikkan pertanyaan ${i + 1}`} onClick={() => persistFields((fs) => { const next = [...fs]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; return next; })}>↑</button>
 									<button type="button" className="icon-btn" disabled={busy || editingId !== null || i === fields.length - 1} aria-label={`Turunkan pertanyaan ${i + 1}`} onClick={() => persistFields((fs) => { const next = [...fs]; [next[i + 1], next[i]] = [next[i], next[i + 1]]; return next; })}>↓</button>
@@ -741,7 +769,7 @@ function Editor({ form, canManage, canPublish, canDelete, canSeeSubmissions, toa
 				onConfirm={doDelete}
 				onCancel={() => setAskDelete(false)}
 			>
-				Form yang masih punya respons tidak bisa dihapus — hapus responsnya dulu.
+				Form dan seluruh responsnya akan dihapus permanen. Tindakan ini tidak bisa dibatalkan.
 			</Confirm>
 		</>
 	);
@@ -799,12 +827,12 @@ function QrCard({ formTitle, slug, status, toast }) {
 	};
 
 	return (
-		<div className="card share-card" id="share-link">
+		<details className="card share-card share-disclosure" id="share-link">
+			<summary><IconQrCode size={20} /><span>Bagikan form<small>Link publik dan unduh kode QR</small></span></summary>
 			<div className="share-card-deco" aria-hidden />
 			<div className="share-card-grid">
 				<div className="share-card-main">
 					<div className="share-card-icon" aria-hidden><IconQrCode size={20} /></div>
-					<p className="studio-kicker">Bagikan form</p>
 					<p className="share-card-title">Scan, isi, selesai.</p>
 					<p className="muted small share-card-desc">
 						QR ini khusus untuk <strong>{formTitle}</strong>. Setiap scan membuka form yang benar, sehingga respons tetap masuk ke analitik form ini.
@@ -817,7 +845,7 @@ function QrCard({ formTitle, slug, status, toast }) {
 					</div>
 					{status !== "published" && (
 						<p className="share-card-warn">
-							QR sudah bisa dibagikan, tetapi form baru menerima respons setelah diterbitkan.
+							{status === "closed" ? "Form ditutup dan tidak menerima respons baru." : "Terbitkan form sebelum membagikan link atau QR."}
 						</p>
 					)}
 					<div className="share-card-actions">
@@ -838,7 +866,7 @@ function QrCard({ formTitle, slug, status, toast }) {
 					<p className="qr-slug">/{slug}</p>
 				</div>
 			</div>
-		</div>
+		</details>
 	);
 }
 
@@ -965,15 +993,28 @@ function InlineFieldEditor({ field, onDone, onCancel, busy }) {
 function DropdownTypePicker({ value, onChange }) {
 	const [open, setOpen] = useState(false);
 	const wrapRef = useRef(null);
+	const triggerRef = useRef(null);
 	useEffect(() => {
 		if (!open) return;
+		wrapRef.current?.querySelector('[aria-selected="true"]')?.focus();
 		const close = (e) => { if (!wrapRef.current?.contains(e.target)) setOpen(false); };
 		document.addEventListener("pointerdown", close);
 		return () => document.removeEventListener("pointerdown", close);
 	}, [open]);
+	const closeMenu = () => { setOpen(false); triggerRef.current?.focus(); };
+	const onKeyDown = (e) => {
+		if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); closeMenu(); return; }
+		if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+		e.preventDefault();
+		if (!open) { setOpen(true); return; }
+		const options = [...wrapRef.current.querySelectorAll('[role="option"]')];
+		const at = options.indexOf(document.activeElement);
+		const next = e.key === "Home" ? 0 : e.key === "End" ? options.length - 1 : (at + (e.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+		options[next]?.focus();
+	};
 	return (
-		<div className="gf-typepicker" ref={wrapRef}>
-			<button type="button" className="gf-typepicker-btn" aria-haspopup="listbox" aria-expanded={open} title="Pilih tipe pertanyaan" onClick={() => setOpen((o) => !o)}>
+		<div className="gf-typepicker" ref={wrapRef} onKeyDown={onKeyDown} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}>
+			<button ref={triggerRef} type="button" className="gf-typepicker-btn" aria-label="Pilih tipe pertanyaan" aria-haspopup="listbox" aria-expanded={open} title="Pilih tipe pertanyaan" onClick={() => setOpen((o) => !o)}>
 				{/* eslint-disable-next-line react/static-components -- FIcon dipilih dari FIELD_TYPES (module-level), bukan dibuat saat render */}
 				{(() => { const FIcon = fieldTypeIcon(value); return FIcon ? <span className="gf-typepicker-icon"><FIcon size={17} /></span> : null; })()}
 				<span className="gf-typepicker-caret" aria-hidden>▾</span>
@@ -981,8 +1022,8 @@ function DropdownTypePicker({ value, onChange }) {
 			{open && (
 				<ul className="gf-typepicker-menu" role="listbox" aria-label="Pilih tipe pertanyaan">
 					{FIELD_TYPES.map(([v, l, Icon]) => (
-						<li key={v}>
-							<button type="button" role="option" aria-selected={v === value} className={`gf-typepicker-item${v === value ? " selected" : ""}`} onClick={() => { onChange(v); setOpen(false); }}>
+						<li key={v} role="presentation">
+							<button type="button" role="option" tabIndex={-1} aria-selected={v === value} className={`gf-typepicker-item${v === value ? " selected" : ""}`} onClick={() => { onChange(v); closeMenu(); }}>
 								<Icon size={16} />
 								<span>{l}</span>
 								{v === value && <IconCheck size={14} className="gf-typepicker-check" />}
@@ -1048,7 +1089,7 @@ function Analytics({ data }) {
 				</div>
 			</div>
 
-			<h3 style={{ margin: "4px 0 2px" }}>Analytics per pertanyaan</h3>
+			<h3 style={{ margin: "4px 0 2px" }}>Analitik per pertanyaan</h3>
 			<p className="muted small" style={{ marginBottom: 10 }}>Distribusi pilihan ditampilkan sebagai bar; jawaban bebas menampilkan respons terbaru.</p>
 			<div className="studio-analytics-grid">
 				{data.fields.map((f, i) => (
@@ -1160,7 +1201,13 @@ function FieldAnalytics({ field, index, total }) {
 /* ── Ekspor CSV (halaman analitik) ────────────────────────────────────────── */
 async function exportCsv(formId, toast) {
 	try {
-		const csvEscape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+		const csvEscape = (v) => {
+			const value = String(v ?? "");
+			// Control prefixes can hide a spreadsheet formula; intentionally include them.
+			// eslint-disable-next-line no-control-regex
+			const safe = /^[\s\u0000-\u001f]*[=+\-@＝＋－＠]|^[\t\r\n]/u.test(value) ? `'${value}` : value;
+			return `"${safe.replace(/"/g, '""')}"`;
+		};
 		// Selalu paginate dari halaman 1 — fetch awal list hanya per_page=20,
 		// jadi tidak bisa dipakai menilai total respons.
 		let all = [];
@@ -1170,19 +1217,29 @@ async function exportCsv(formId, toast) {
 			if (!d.items || d.items.length < 100) break;
 		}
 		if (!all.length) { toast("Belum ada respons untuk diekspor.", "err"); return; }
-		const headerSet = [];
-		for (const s of all) for (const a of s.answers) if (!headerSet.includes(a.label)) headerSet.push(a.label);
+		// Question identity, not its editable label, defines a CSV column.
+		const entries = (submission) => {
+			const counts = new Map();
+			return submission.answers.map((answer) => {
+				const labelKey = JSON.stringify([answer.type, answer.label]);
+				const count = counts.get(labelKey) || 0;
+				counts.set(labelKey, count + 1);
+				return [answer.field_id || `historical:${labelKey}:${count}`, answer];
+			});
+		};
+		const columns = new Map();
+		for (const s of all) for (const [key, answer] of entries(s)) if (!columns.has(key)) columns.set(key, answer.label);
 		const rows = [
-			["waktu", "status", ...headerSet].map(csvEscape).join(","),
-			...all.map((s) => [
-				new Date(s.created_at).toLocaleString("id-ID"),
-				s.status,
-				...headerSet.map((label) => {
-					const a = s.answers.find((x) => x.label === label);
-					if (!a) return "";
-					return Array.isArray(a.value) ? a.value.join("; ") : String(a.value);
-				}).map(csvEscape),
-			].join(",")),
+			["waktu (WIB)", "status", ...columns.values()].map(csvEscape).join(","),
+			...all.map((s) => {
+				const answers = new Map(entries(s));
+				return [new Date(s.created_at).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }), s.status,
+					...[...columns.keys()].map((key) => {
+						const a = answers.get(key);
+						return !a ? "" : Array.isArray(a.value) ? a.value.join("; ") : String(a.value);
+					}),
+				].map(csvEscape).join(",");
+			}),
 		];
 		const blob = new Blob(["﻿" + rows.join("\r\n")], { type: "text/csv;charset=utf-8" });
 		const url = URL.createObjectURL(blob);

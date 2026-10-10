@@ -5,10 +5,10 @@
 Pengujian komprehensif terhadap asisten AI **Roro** pada backend `bph-cms` (Cloudflare Worker + Hono + D1 SQLite) dilakukan dengan metode **Swarm Agent QA** yang menguji 20 skenario uji (TC-01 s/d TC-20). Pengujian mencakup alur pembentukan event/form, validasi skema Zod, guard engine pertahanan injeksi & kode program, isolasi data lintas divisi, kontrol akses berbasis peran (RBAC), pembatasan kuota, hingga pemantauan jejak audit (Oversight).
 
 ### Akun Uji yang Digunakan
-1. **BPH**: `bph@cakrawala.com` (password: `BphCakrawala2026!`)
+1. **BPH**: `[REDACTED — rotate via auth service]` (password: `[REDACTED — rotate via auth service]`)
    - Role: `platform_admin` (bootstrap `PLATFORM_BOOTSTRAP_EMAILS`)
    - Scope: Akses lintas divisi untuk event/form, dibatasi pada Oversight (hanya jika ada di `RORO_OVERSIGHT_EMAILS`).
-2. **Ristek**: `ristek@cakrawala.com` (password: `RistekCakrawala2026!`)
+2. **Ristek**: `[REDACTED — rotate via auth service]` (password: `[REDACTED — rotate via auth service]`)
    - Role: `division_admin` (Divisi Ristek) + allowlist `RORO_OVERSIGHT_EMAILS`
    - Scope: Pengelolaan divisi Ristek + akses penuh audit dashboard Oversight Roro lintas divisi.
 

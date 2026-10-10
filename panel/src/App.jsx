@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HashRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { api, errText, setToken as persistToken, clearToken, signIn, requestWorkspaceHandoff, getToken, signOut } from "./api.js";
+import { api, apiList, errText, setToken as persistToken, clearToken, signIn, requestWorkspaceHandoff, getToken, signOut } from "./api.js";
 import { ToastProvider, SkeletonCard, ErrorState } from "./components/ui.jsx";
 import { Login, Shell } from "./components/Shell.jsx";
 import { IconCalendar, IconPlus } from "./components/Icons.jsx";
@@ -101,8 +101,8 @@ function DashboardApp() {
 		setLoadErr("");
 		setEventsLoading(true);
 		try {
-			const d = await api("/admin/events");
-			if (generation === authGeneration.current) setEvents(d.items || d || []);
+			const items = await apiList("/admin/events");
+			if (generation === authGeneration.current) setEvents(items);
 		} catch (e) {
 			if (generation === authGeneration.current && e?.statusCode !== 401) setLoadErr(errText(e));
 		} finally {
@@ -225,11 +225,12 @@ function DashboardApp() {
 	const shellProps = useMemo(
 		() => ({
 			user: user || { email: "pengurus@sga" },
+			notice: authErr,
 			onSwitchDashboard: workspaces.length > 1 ? openWorkspacePicker : undefined,
 			onLogout: handleLogout,
 		}),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[user, workspaces.length, handleLogout, openWorkspacePicker],
+		[user, authErr, workspaces.length, handleLogout, openWorkspacePicker],
 	);
 
 	// Tombol "← Kembali" di topbar selalu menunjuk induk hierarki yang sudah
@@ -383,7 +384,7 @@ function DashboardApp() {
 						crumb={[{ label: "Modul", to: "/" }, { label: "Event Internal", to: "/internal-events" }, { label: "Kalender" }]}
 						onBack={backTo("/internal-events")}
 					>
-						{hasScopedPermission(permissions, "events.read") ? <CrossDivisionCalendar /> : <NoAccess to="/internal-events" label="Kembali ke daftar internal event" />}
+						{hasScopedPermission(permissions, "events.read") ? <CrossDivisionCalendar canCreate={capabilities.canCreateEvent} /> : <NoAccess to="/internal-events" label="Kembali ke daftar internal event" />}
 					</Shell>
 				}
 			/>
@@ -573,9 +574,9 @@ function Reloader({ id, capabilities }) {
 	const [error, setError] = useState("");
 	const [attempt, setAttempt] = useState(0);
 	useEffect(() => {
-		api("/admin/events")
+		apiList("/admin/events")
 			.then((d) => {
-				const found = (d.items || d || []).find((e) => e.id === id);
+				const found = d.find((e) => e.id === id);
 				setEv(found || null);
 			})
 			.catch((e) => setError(errText(e)));

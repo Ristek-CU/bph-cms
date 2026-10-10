@@ -117,7 +117,7 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 	// belum dibuat. Akun divisi lain wajib punya cms_membership eksplisit.
 	// String kosong = bootstrap NONAKTIF (tidak ada default tersembunyi) — semua
 	// akses admin harus lewat baris cms_memberships eksplisit.
-	if (memberships.length === 0) {
+	if (rows.length === 0) {
 		const configured = (c.env.PLATFORM_BOOTSTRAP_EMAILS ?? "").trim();
 		if (configured) {
 			const bootstrapEmails = configured
@@ -125,7 +125,7 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 				.map((e) => e.trim().toLowerCase())
 				.filter(Boolean);
 			const [bph] = await db.select().from(divisions).where(eq(divisions.slug, "bph")).limit(1);
-			if (bph && bootstrapEmails.includes(userEmail.toLowerCase())) {
+			if (bph?.isActive && bootstrapEmails.includes(userEmail.toLowerCase())) {
 				memberships = [
 					{
 						division: {

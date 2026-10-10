@@ -100,7 +100,7 @@ eq("Cookie saja (tanpa Bearer) → 401", cookieOnly.status, 401);
 
 const panelLogin = await h.req("/api/v1/auth/panel-sign-in", {
 	method: "POST", host: "localhost", headers: { Origin: "http://localhost" },
-	json: { email: "admin.a@example.com", password: "test-valid-password", role: "admin" },
+	json: { email: "admin.a@example.com", password: "fixture-password", role: "admin" },
 });
 eq("panel login returns a non-secret marker", panelLogin.body?.data?.token, "panel-session");
 const sessionCookie = panelLogin.headers.get("set-cookie") ?? "";

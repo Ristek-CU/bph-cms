@@ -18,13 +18,13 @@ Password awal sebaiknya dibuat saat provisioning lewat service auth, lalu dikiri
 Format temporary password yang diminta untuk akun baru:
 
 ```text
-[temporary credential removed]
+[REDACTED — rotate via auth service]
 ```
 
 Contoh:
 
 ```text
-[temporary credential removed]
+[REDACTED — rotate via auth service]
 ```
 
 ---
@@ -48,12 +48,12 @@ Email di bawah adalah rencana awal. Domain final harus mengikuti standar auth se
 |---|---|---|---|---|---|
 | BPH | `bph` | `bph@cakrawala.com` | Existing secret | Sudah ada | Event, QPR, Akun & Akses, Audit Log |
 | Ristek | `ristek` | `ristek@cakrawala.com` | Existing secret | Sudah ada | Event, Dashboard Terpadu, Dashboard Ristek khusus |
-| UKM | `ukm` | `ukm@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
-| Advokasi | `advo` | `advo@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event, Dashboard Terpadu, Dashboard Advokasi khusus |
-| BNP | `bnp` | `bnp@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
-| ICD | `icd` | `icd@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
-| Public Relation | `pr` | `pr@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
-| Media | `media` | `media@cakrawala.ac.id` | `[temporary credential removed]` | Belum dibuat | Event |
+| UKM | `ukm` | `ukm@cakrawala.ac.id` | `[REDACTED — rotate via auth service]` | Belum dibuat | Event |
+| Advokasi | `advo` | `advo@cakrawala.ac.id` | `[REDACTED — rotate via auth service]` | Belum dibuat | Event, Dashboard Terpadu, Dashboard Advokasi khusus |
+| BNP | `bnp` | `bnp@cakrawala.ac.id` | `[REDACTED — rotate via auth service]` | Belum dibuat | Event |
+| ICD | `icd` | `icd@cakrawala.ac.id` | `[REDACTED — rotate via auth service]` | Belum dibuat | Event |
+| Public Relation | `pr` | `pr@cakrawala.ac.id` | `[REDACTED — rotate via auth service]` | Belum dibuat | Event |
+| Media | `media` | `media@cakrawala.ac.id` | `[REDACTED — rotate via auth service]` | Belum dibuat | Event |
 
 Jika ingin nama email lebih eksplisit untuk Public Relation, alternatifnya:
 

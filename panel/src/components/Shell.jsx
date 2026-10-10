@@ -74,9 +74,15 @@ export function Login({ onLogin, notice }) {
 
 }
 
-export function Shell({ user, children, title, crumb, actions, onBack, onSwitchDashboard, onLogout }) {
+export function Shell({ user, children, title, crumb, actions, onBack, onSwitchDashboard, onLogout, notice }) {
 	const [drawer, setDrawer] = useState(false);
 	const shellRef = useRef(null);
+	useEffect(() => {
+		const desktop = window.matchMedia("(min-width: 901px)");
+		const closeOnDesktop = () => { if (desktop.matches) setDrawer(false); };
+		desktop.addEventListener("change", closeOnDesktop);
+		return () => desktop.removeEventListener("change", closeOnDesktop);
+	}, []);
 	useEffect(() => {
 		const viewport = window.visualViewport;
 		if (!viewport) return;
@@ -100,10 +106,10 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 	useEffect(() => { document.title = `${title} — SGA CMS Hub`; }, [title]);
 
 	const logout = () => {
+		if (onLogout) { onLogout(); return; }
 		clearToken();
 		// Reset state App (token/user/events) supaya /login tidak me-redirect balik
 		// ke app dengan user basi.
-		if (onLogout) onLogout();
 		navigate("/login", { replace: true });
 	};
 
@@ -192,9 +198,9 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 				</div>
 				<div className="userbox-actions">
 				{onSwitchDashboard && (
-					<button onClick={onSwitchDashboard} title="Pindah ke dashboard lain">Ganti dashboard</button>
+					<button data-leave-page onClick={onSwitchDashboard} title="Pindah ke dashboard lain">Ganti dashboard</button>
 				)}
-				<button onClick={logout}>Keluar</button>
+				<button data-leave-page onClick={logout}>Keluar</button>
 				</div>
 			</div>
 			<ReleaseStamp />
@@ -215,6 +221,7 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 						{onBack && (
 							<button
 								className="btn ghost sm back-btn"
+								data-leave-page
 								onClick={onBack}
 								type="button"
 								aria-label="Kembali ke halaman sebelumnya"
@@ -242,7 +249,7 @@ export function Shell({ user, children, title, crumb, actions, onBack, onSwitchD
 						{actions}
 					</div>
 				</header>
-				<main id="main-content" tabIndex={-1} className="page">{children}</main>
+				<main id="main-content" tabIndex={-1} className="page">{notice && <div className="login-error" role="alert">{notice}</div>}{children}</main>
 			</div>
 		</div>
 	);

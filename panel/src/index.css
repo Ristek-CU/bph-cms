@@ -248,6 +248,7 @@ label.field-label {
 .pw-toggle:hover { color: var(--text); background: var(--bg-2); }
 .field-label .req { color: var(--err); }
 .field-help { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+input:not([type]), input[type="search"], input[type="number"], input[type="tel"],
 input[type="text"], input[type="email"], input[type="password"], input[type="url"],
 input[type="datetime-local"], input[type="date"], input[type="time"], textarea, select {
 	width: 100%; min-width: 0; height: 36px; padding: 0 12px;
@@ -266,7 +267,11 @@ select { cursor: pointer; }
 /* Field block: label + input rapat ala advo grid gap-2 */
 .form-field { display: grid; gap: 8px; margin-bottom: 16px; }
 .form-field:last-child { margin-bottom: 0; }
+.field-block { min-width: 0; margin-bottom: 20px; }
+.field-block:last-child { margin-bottom: 0; }
+.grid-2 > .field-block, .sess-when > .field-block { margin-bottom: 20px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .check-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 .check-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--teal); cursor: pointer; }
 .field-err { color: var(--err); font-size: 12px; margin-top: 4px; }
@@ -304,6 +309,8 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 /* Cover upload */
 .cover-preview { max-width: 320px; width: 100%; border-radius: 10px; display: block; margin-top: 8px; border: 1px solid var(--border); }
 .upload-hint { display: flex; flex-direction: column; gap: 6px; }
+.upload-hint input[type="file"] { width: 100%; max-width: 100%; min-height: 44px; padding: 6px; border: 1px dashed var(--input); border-radius: 10px; background: var(--bg); font-size: 13px; }
+.upload-hint input[type="file"]::file-selector-button { min-height: 32px; margin-right: 10px; padding: 6px 12px; border: 0; border-radius: 6px; background: var(--navy); color: #fff; font: inherit; cursor: pointer; }
 
 /* Bar aksi melekat — nempel bawah viewport, sejajar tepi konten halaman. */
 .sticky-bar {
@@ -496,7 +503,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .modal p { font-size: 14px; color: var(--muted); line-height: 1.5; }
 /* Footer ala DialogFooter advo: bleed -m p-4, bg muted/50, border-t */
 .modal .row-actions {
-	display: flex; flex-direction: column-reverse; gap: 8px; justify-content: flex-end;
+	display: flex; flex-direction: column-reverse; align-items: stretch; gap: 8px; justify-content: flex-end;
 	margin: 4px -18px -18px; padding: 14px 18px;
 	background: rgba(237, 242, 239, 0.6); border-top: 1px solid var(--border);
 	border-radius: 0 0 16px 16px;
@@ -558,8 +565,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .studio-hero .muted { margin: 4px 0 0; font-size: 14px; max-width: 60ch; }
 .studio-grid { display: grid; gap: 16px; align-items: start; }
 @media (min-width: 1024px) { .studio-grid { grid-template-columns: minmax(0, 1fr) 320px; } }
-.studio-cards { display: grid; gap: 14px; grid-template-columns: 1fr; min-width: 0; }
-@media (min-width: 700px) { .studio-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.studio-cards { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); min-width: 0; }
 .studio-empty { grid-column: 1 / -1; }
 .studio-create { position: sticky; top: 0; }
 .create-icon {
@@ -581,6 +587,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 	background: var(--bg); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--muted);
 }
 .form-card-counts strong { color: var(--text); font-size: 15px; }
+.form-card-counts > span { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; }
 .form-card .slug { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 .btn.flex-1 { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .form-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -650,7 +657,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; table-layou
 .builder-fields { display: flex; flex-direction: column; gap: 10px; padding-bottom: 24px; }
 .builder-fields-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .builder-fields-head h2 { font-size: 17px; margin-bottom: 2px; }
-.builder-fields-head p { margin: 0; display: flex; align-items: center; gap: 4px; }
+.builder-fields-head p { margin: 0; }
+.builder-fields-head p .icon-svg { display: inline; vertical-align: middle; }
 .field-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .field-row {
 	display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 12px;
@@ -1091,6 +1099,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--teal); }
 .qpr-editor input[type="checkbox"], .qpr-form-canvas input[type="checkbox"] { width: 24px; height: 24px; flex-shrink: 0; }
 .qpr-question-tools .row-actions { margin-left: auto; }
 .qpr-save-bar { position: sticky; bottom: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 16px; background: var(--bg); padding: 16px; border: 1px solid var(--line); border-radius: 8px; }
+/* Sticky actions sit at the edge of the scroll pane, not above legacy footer padding. */
+main.page:has(.qpr-workspace), main.page:has(.builder-fields) { padding-bottom: max(16px, env(safe-area-inset-bottom)); scroll-padding-bottom: 150px; }
+.qpr-editor :is(input, textarea, select) { scroll-margin-block: 24px 150px; }
 .qpr-entry-key { display: block; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
 .qpr-legacy-editor { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-block: 20px; }
 .qpr-legacy-editor label { flex: 1; min-width: 160px; }
@@ -1218,6 +1229,8 @@ main.page:has(.roro-layout) { display: flex; flex-direction: column; overflow: h
 	.sub-actions { grid-column: 1 / -1; }
 }
 @media (max-width: 640px) {
+	.qpr-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; overflow: visible; }
+	.qpr-tabs button { padding: 10px 6px; min-width: 0; white-space: normal; font-size: 13px; }
 	/* Keep headers and table semantics; scroll within the table, never the page. */
 	table.tbl { display: table; width: 100%; min-width: 540px; }
 	.tbl thead { display: table-header-group; }
@@ -1330,6 +1343,7 @@ main.page:has(.roro-layout) { display: flex; flex-direction: column; overflow: h
 /* ---- Kalender Lintas Divisi ---- */
 /* Tab tampilan di atas modul (mis. Event Internal: Daftar | Kalender). */
 .mod-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.mod-tabs a { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
 
 .cross-calendar { display: flex; flex-direction: column; gap: 16px; }
 .cross-calendar-header { max-width: 720px; }
@@ -1402,3 +1416,21 @@ main.page:has(> .event-editor) { overflow: hidden; padding: 0; }
   .event-editor-scroll { padding: 16px 14px; }
   .datetime-dialog .dlg-body, .datetime-dialog .dlg-head { padding: 14px; }
 }
+/* Sharing is secondary to editing, especially on narrow screens. */
+.share-disclosure > summary {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 12px 18px;
+}
+.share-disclosure > summary::after { content: "+"; margin-left: auto; font-size: 24px; }
+.share-disclosure[open] > summary::after { content: "−"; }
+.share-disclosure > summary small { display: block; font-weight: 400; color: var(--muted); }
+.share-disclosure[open] > summary { margin-bottom: 20px; }
+.share-disclosure:not([open]) .share-card-deco { display: none; }
+.attachment-card .btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }

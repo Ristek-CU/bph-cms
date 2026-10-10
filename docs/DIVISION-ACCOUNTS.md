@@ -25,7 +25,7 @@ Untuk produksi:
 > ⚠️ **Status 12 Sep 2026 — seluruh 8 password direset seragam** memakai pola
 > `[credential pattern removed]` (BPH, Ristek, UKM, Advo, BNP, Media, PR, ICD).
 > Reset dilakukan lewat D1 langsung (hash scrypt better-auth: N=16384, r=16, dkLen=64,
-> salt hex string). Password lama dari pola `[temporary credential removed]` **mati semua**.
+> salt hex string). Password lama dari pola `[REDACTED — rotate via auth service]` **mati semua**.
 > Rotasi lagi ke password personal rahasia segera setelah tiap divisi login pertama,
 > lalu hapus kolom password dari file ini.
 >
@@ -64,7 +64,7 @@ Untuk produksi:
 ### BPH — SUPERADMIN
 
 - Email: `bph@cakrawala.com`
-- Password: `[credential removed]` ⚠️ rotasi (di-reset 12 Sep 2026 lewat D1 langsung)
+- Password: `[REDACTED — rotate via auth service]` ⚠️ rotasi (di-reset 12 Sep 2026 lewat D1 langsung)
 - `user_id`: `01a05dd1-b695-7bc3-aaa4-779440cd1868`
 - `membership_id`: `01a08f2d-9c2e-7b4f-9be0-eb3aa9d3b5d8`
 - `division_id`: `01990001-0000-7000-8000-000000000001` (slug `bph`)
@@ -83,7 +83,7 @@ platform_admin yang sudah ada, atau insert D1 langsung). Tidak ada jalur lain.
 ### Ristek
 
 - Email: `ristek@cakrawala.com`
-- Password: `[credential removed]` ⚠️ reset 12 Sep 2026
+- Password: `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep 2026
 - `user_id`: `01a05e42-d465-7d22-bf9b-3ec30edd7a7f`
 - `membership_id`: `01a08f2d-c897-79ed-830d-9997dc0d8dbd`
 - `division_id`: `01990001-0000-7000-8000-000000000002` (slug `ristek`)
@@ -100,7 +100,7 @@ platform_admin yang sudah ada, atau insert D1 langsung). Tidak ada jalur lain.
 ### UKM
 
 - Email: `ukm@cakrawala.com`
-- Password: `[credential removed]` ⚠️ reset 12 Sep 2026
+- Password: `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep 2026
 - Status: ✅ dibuat 10 Sep 2026
 - `user_id`: `01a08790-eb25-72ae-9ad3-f634e5bf4ece`
 - `division_id`: `01990001-0000-7000-8000-000000000003` (slug `ukm`)
@@ -112,7 +112,7 @@ platform_admin yang sudah ada, atau insert D1 langsung). Tidak ada jalur lain.
 ### Advokasi
 
 - Email: `advo@cakrawala.com`
-- Password: `[credential removed]` ⚠️ reset 12 Sep 2026
+- Password: `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep 2026
 - Status: ✅ dibuat 10 Sep 2026
 - `user_id`: `01a08793-4617-7176-a8a8-c97548e42afc`
 - `division_id`: `01990001-0000-7000-8000-000000000004` (slug `advo`)
@@ -128,7 +128,7 @@ platform_admin yang sudah ada, atau insert D1 langsung). Tidak ada jalur lain.
 ### BNP
 
 - Email: `bnp@cakrawala.com`
-- Password: `[credential removed]` ⚠️ reset 12 Sep 2026
+- Password: `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep 2026
 - Status: ✅ dibuat 10 Sep 2026
 - `user_id`: `01a08793-47a9-753d-8132-e9eda734bc95`
 - `division_id`: `01990001-0000-7000-8000-000000000005` (slug `bnp`)
@@ -140,7 +140,7 @@ platform_admin yang sudah ada, atau insert D1 langsung). Tidak ada jalur lain.
 ### ICD
 
 - Email: `icd@cakrawala.com`
-- Password: `[credential removed]` ⚠️ reset 12 Sep 2026
+- Password: `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep 2026
 - Status: ✅ dibuat 10 Sep 2026
 - `user_id`: `01a08793-492c-79ac-871d-fe27b138141a`
 - `division_id`: `01990001-0000-7000-8000-000000000006` (slug `icd`)
@@ -152,7 +152,7 @@ platform_admin yang sudah ada, atau insert D1 langsung). Tidak ada jalur lain.
 ### Public Relation
 
 - Email: `pr@cakrawala.com`
-- Password: `[credential removed]` ⚠️ reset 12 Sep 2026
+- Password: `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep 2026
 - Status: ✅ dibuat 10 Sep 2026
 - `user_id`: `01a08793-4aad-763a-acc4-47b29e1940ec`
 - `division_id`: `01990001-0000-7000-8000-000000000007` (slug `pr`)
@@ -167,7 +167,7 @@ Dipakai `pr@` (bukan alternatif nama panjang) sesuai rekomendasi versi 0.1. Alte
 ### Media
 
 - Email: `media@cakrawala.com`
-- Password: `[credential removed]` ⚠️ reset 12 Sep 2026
+- Password: `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep 2026
 - Status: ✅ dibuat 10 Sep 2026
 - `user_id`: `01a08793-4c13-71f7-a779-aaf972195bcc`
 - `division_id`: `01990001-0000-7000-8000-000000000008` (slug `media`)
@@ -184,14 +184,14 @@ Diperbarui 11 Sep 2026 — 8 akun, 8 membership, bootstrap mati.
 
 | Divisi | Email | Password | Role CMS | Status | Login Destination | QPR | Event |
 |---|---|---|---|---|---|---|---|
-| BPH | `bph@cakrawala.com` | `[credential removed]` ⚠️ reset 12 Sep | **platform_admin** | ✅ membership 11 Sep | SGA CMS Hub | Ya | Semua divisi |
-| Ristek | `ristek@cakrawala.com` | `[credential removed]` ⚠️ reset 12 Sep | division_admin | ✅ membership 11 Sep | SGA CMS Hub | Tidak | Divisi Ristek |
-| UKM | `ukm@cakrawala.com` | `[credential removed]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi UKM |
-| Advokasi | `advo@cakrawala.com` | `[credential removed]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | Select Workspace | Tidak | Divisi Advokasi |
-| BNP | `bnp@cakrawala.com` | `[credential removed]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi BNP |
-| ICD | `icd@cakrawala.com` | `[credential removed]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi ICD |
-| Public Relation | `pr@cakrawala.com` | `[credential removed]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi PR |
-| Media | `media@cakrawala.com` | `[credential removed]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi Media |
+| BPH | `bph@cakrawala.com` | `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep | **platform_admin** | ✅ membership 11 Sep | SGA CMS Hub | Ya | Semua divisi |
+| Ristek | `ristek@cakrawala.com` | `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep | division_admin | ✅ membership 11 Sep | SGA CMS Hub | Tidak | Divisi Ristek |
+| UKM | `ukm@cakrawala.com` | `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi UKM |
+| Advokasi | `advo@cakrawala.com` | `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | Select Workspace | Tidak | Divisi Advokasi |
+| BNP | `bnp@cakrawala.com` | `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi BNP |
+| ICD | `icd@cakrawala.com` | `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi ICD |
+| Public Relation | `pr@cakrawala.com` | `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi PR |
+| Media | `media@cakrawala.com` | `[REDACTED — rotate via auth service]` ⚠️ reset 12 Sep | division_admin | ✅ 10 Sep | SGA CMS Hub | Tidak | Divisi Media |
 
 Verifikasi 11 Sep 2026 (query `cms_memberships` D1 production):
 

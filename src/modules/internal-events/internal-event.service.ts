@@ -465,7 +465,7 @@ export const internalEventService = {
 			? await db
 					.select()
 					.from(internalEventSessions)
-					.where(inArray(internalEventSessions.internalEventId, rows.map((r) => r.event.id)))
+					.where(sql`${internalEventSessions.internalEventId} IN (SELECT value FROM json_each(${JSON.stringify(rows.map((r) => r.event.id))}))`)
 					.orderBy(asc(internalEventSessions.sortOrder), asc(internalEventSessions.startsAtMs))
 			: [];
 

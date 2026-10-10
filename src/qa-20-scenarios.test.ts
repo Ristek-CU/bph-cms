@@ -187,14 +187,14 @@ section("Autentikasi Akun Uji");
 
 const bphSignIn = await h.req("/api/v1/auth/sign-in", {
 	method: "POST",
-	json: { email: "bph@cakrawala.com", password: "BphCakrawala2026!" },
+	json: { email: "bph@cakrawala.com", password: "fixture-password" },
 });
 eq("bph@cakrawala.com sign-in 200", bphSignIn.status, 200);
 eq("bph token valid", bphSignIn.body?.data?.token, "tok-bph");
 
 const ristekSignIn = await h.req("/api/v1/auth/sign-in", {
 	method: "POST",
-	json: { email: "ristek@cakrawala.com", password: "RistekCakrawala2026!" },
+	json: { email: "ristek@cakrawala.com", password: "fixture-password" },
 });
 eq("ristek@cakrawala.com sign-in 200", ristekSignIn.status, 200);
 eq("ristek token valid", ristekSignIn.body?.data?.token, "tok-ristek");

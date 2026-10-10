@@ -154,13 +154,13 @@ export const startHarness = async (
 
 					if (path === "/v1/access/sign-in" && request.method === "POST") {
 						const submitted = await request.json();
-						if (submitted.email === "admin.a@example.com" && submitted.password === "test-valid-password") {
+						if (submitted.email === "admin.a@example.com" && submitted.password === "fixture-password") {
 							return json({ success: true, data: { token: "tok-a-admin", user: USERS["tok-a-admin"] } }, 200);
 						}
-						if (submitted.email === "bph@cakrawala.com" && (submitted.password === "BphCakrawala2026!" || submitted.password === "bphCakrawala2026!")) {
+						if (submitted.email === "bph@cakrawala.com" && submitted.password === "fixture-password") {
 							return json({ success: true, data: { token: "tok-bph", user: USERS["tok-bph"] } }, 200);
 						}
-						if (submitted.email === "ristek@cakrawala.com" && (submitted.password === "RistekCakrawala2026!" || submitted.password === "ristekCakrawala2026!")) {
+						if (submitted.email === "ristek@cakrawala.com" && submitted.password === "fixture-password") {
 							return json({ success: true, data: { token: "tok-ristek", user: USERS["tok-ristek"] } }, 200);
 						}
 						return json(

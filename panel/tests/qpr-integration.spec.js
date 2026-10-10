@@ -25,7 +25,7 @@ async function fillSection(page) {
 }
 
 test('BPH membuat, tamu melanjutkan lintas browser, divisi hanya melihat status', async ({ page, browser, baseURL }) => {
-	await login(page, 'bph@cakrawala.com', 'BphCakrawala2026!');
+	await login(page, 'bph@cakrawala.com', 'fixture-password');
 	await page.getByRole('button', { name: '+ Periode baru' }).click();
 	await page.getByLabel('Judul periode', { exact: true }).fill('QPR browser nyata');
 	const created = page.waitForResponse((r) => r.url().endsWith('/admin/qpr/periods') && r.request().method() === 'POST');
@@ -97,7 +97,7 @@ test('BPH membuat, tamu melanjutkan lintas browser, divisi hanya melihat status'
 		expect((await download).suggestedFilename()).toMatch(/\.csv$/);
 
 		const status = await division.newPage();
-		await login(status, 'admin.a@example.com', 'test-valid-password');
+		await login(status, 'admin.a@example.com', 'fixture-password');
 		await expect(status.getByRole('heading', { name: 'Status pengisian QPR' })).toBeVisible();
 		await expect(status.getByText(/Pengisi Ristek.*Sudah mengisi/)).toBeVisible();
 		await expect(status.getByText(/Pengisi UKM/)).toHaveCount(0);

@@ -11,7 +11,8 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate:local": "wrangler d1 migrations apply bph-cms-db --local",
 		"db:migrate:remote": "wrangler d1 migrations apply bph-cms-db --remote",
-		"test": "tsx src/modules/events/status.test.ts && tsx src/security.test.ts && tsx src/internal-events.test.ts && tsx src/handoff.test.ts && tsx src/forms.test.ts && tsx src/qpr.test.ts && tsx src/assistant.test.ts && tsx src/assistant-stream.test.ts && tsx src/oversight.test.ts && tsx src/assistant-launch.test.ts && tsx src/assistant-audit-regression.test.ts && tsx src/assistant-batch.test.ts && tsx src/forms-atomic.test.ts && tsx src/qa-20-scenarios.test.ts",
+		"test": "tsx src/modules/events/status.test.ts && tsx src/security.test.ts && tsx src/internal-events.test.ts && tsx src/handoff.test.ts && tsx src/forms.test.ts && tsx src/qpr.test.ts && tsx src/assistant.test.ts && tsx src/assistant-stream.test.ts && tsx src/oversight.test.ts && tsx src/assistant-launch.test.ts && tsx src/assistant-audit-regression.test.ts && tsx src/assistant-batch.test.ts && tsx src/forms-atomic.test.ts && tsx src/qa-20-scenarios.test.ts && npm run test:cms-flows",
+		"test:cms-flows": "tsx src/cms-flow-regression.test.ts && tsx src/cms-pagination.test.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
@@ -30,10 +31,10 @@
 		"@cloudflare/workers-types": "^5.20260804.1",
 		"drizzle-kit": "^0.31.10",
 		"esbuild": "^0.25.12",
-		"miniflare": "5.20260930.0-alpha",
+		"miniflare": "5.20261006.1-alpha",
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3",
-		"wrangler": "^4.145.0"
+		"wrangler": "4.149.0"
 	},
 	"overrides": {
 		"@cloudflare/workers-types": "^5.20260804.1",

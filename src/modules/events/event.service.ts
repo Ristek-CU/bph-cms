@@ -383,7 +383,7 @@ export const eventService = {
 			? await db
 					.select()
 					.from(eventSessions)
-					.where(inArray(eventSessions.eventId, rows.map((e) => e.id)))
+					.where(sql`${eventSessions.eventId} IN (SELECT value FROM json_each(${JSON.stringify(rows.map((e) => e.id))}))`)
 					.orderBy(asc(eventSessions.sortOrder), asc(eventSessions.startsAtMs))
 			: [];
 		const byEvent = new Map<string, typeof eventSessions.$inferSelect[]>();

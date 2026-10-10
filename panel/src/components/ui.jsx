@@ -142,7 +142,7 @@ export function Field({ label, required, help, error, children }) {
 			? cloneElement(children, { id: children.props.id || id, "aria-invalid": error ? true : undefined, "aria-required": required || undefined, "aria-describedby": [children.props["aria-describedby"], help && `${id}-help`, error && `${id}-error`].filter(Boolean).join(" ") || undefined })
 			: children;
 	return (
-		<div>
+		<div className="field-block">
 			<label className="field-label" htmlFor={cloned?.props?.id}>
 				{label} {required && <span className="req">*</span>}
 			</label>
@@ -181,7 +181,8 @@ export function useUnsavedChanges(dirty) {
 		const unload = (e) => { e.preventDefault(); e.returnValue = ""; };
 		const leave = (e) => {
 			const link = e.target.closest?.("a[href]");
-			if (!link || link.target === "_blank" || link.hasAttribute("download") || link.href === window.location.href) return;
+			const navigationButton = e.target.closest?.("[data-leave-page]");
+			if (!navigationButton && (!link || link.target === "_blank" || link.hasAttribute("download") || link.href === window.location.href)) return;
 			if (!window.confirm("Perubahan belum disimpan. Tinggalkan halaman ini?")) { e.preventDefault(); e.stopPropagation(); }
 		};
 		window.addEventListener("beforeunload", unload);

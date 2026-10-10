@@ -1,53 +1,116 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
-const admin = ['events.read.all', 'events.create.all', 'events.update.all', 'events.publish.all', 'events.delete.all', 'forms.read.all', 'forms.create.all', 'forms.update.all', 'forms.publish.all', 'forms.delete.all', 'forms.submissions.all', 'qpr.manage', 'accounts.manage', 'audit.read'];
-const event = { id: 'event-1', title: 'Cakrawala Festival', slug: 'cakrawala-festival', status: 'draft', starts_at: '2026-10-10T08:00:00+07:00', ends_at: '2026-10-10T17:00:00+07:00', location: 'Auditorium', organizer: 'SGA', sessions: [] };
-const form = { id: 'form-1', title: 'Aspirasi Mahasiswa', slug: 'aspirasi', status: 'draft', description: 'Suaramu untuk kampus', opens_at: '2026-10-10T01:00:00.000Z', closes_at: '2026-10-11T10:00:00.000Z', fields: [{ id: 'field-1', label: 'Aspirasi kamu', type: 'paragraph', options: null, required: false, active: true }] };
-const workspaces = [{ id: 'hub', label: 'CMS Hub', kind: 'cms_hub' }, { id: 'external', label: 'Dashboard divisi', kind: 'external_dashboard', url: 'https://example.com' }];
+import { admin, event, form, workspaces, setup, visit, noOverflow } from './fixtures/panel.js';
 
-async function setup(page, { signedIn = true, permissions = admin, workspace = false, eventStatus = 'draft', formStatus = 'draft', oversight = false } = {}) {
-  const state = { events: [{ ...event, status: eventStatus }], form: structuredClone({ ...form, status: formStatus }), calls: [], failEvents: false, failMe: false, failSave: false, expire: false };
-  await page.addInitScript(({ signedIn }) => { if (signedIn) { sessionStorage.setItem('bph_cms_token', 'panel-session'); localStorage.setItem('bph_cms_workspace', 'panel-session'); } }, { signedIn });
-  await page.route('**/api/v1/**', async route => {
-    const req = route.request(); const path = new URL(req.url()).pathname.replace('/api/v1', ''); const method = req.method();
-    state.calls.push({ path, method, body: req.postDataJSON() });
-    const reply = (data, status = 200, message = 'OK') => route.fulfill({ status, json: { success: status < 400, data, message } });
-    if (path === '/auth/panel-sign-in') return reply({ token: 'panel-session', user: { email: 'test@example.com' } });
-    if (state.expire) return reply(null, 401, 'Sesi berakhir');
-    if (path === '/me') return state.failMe ? reply(null, 503, 'Layanan belum tersedia') : reply({ can_access_oversight: oversight, user: { id: 'u-1', name: 'Nadia Putri', email: 'nadia@example.com' }, active_division_id: 'bph', memberships: [{ division: { id: 'bph', slug: 'bph', name: 'BPH' }, role: 'platform_admin', permissions }], workspace_options: workspace ? workspaces : [workspaces[0]] });
-    if (path === '/admin/events') {
-      if (state.failEvents) return reply(null, 503, 'Event gagal dimuat');
-      if (method === 'POST') { const created = { ...event, ...req.postDataJSON(), id: 'new-event' }; state.events.push(created); return reply(created); }
-      return reply({ items: state.events });
-    }
-    if (path === '/admin/events/event-1' && method === 'PUT') { Object.assign(state.events[0], req.postDataJSON()); return reply(state.events[0]); }
-    if (path === '/admin/forms') return reply({ items: [state.form] });
-    if (path === '/admin/forms/form-1') {
-      if (method === 'PUT') { if (state.failSave) return reply(null, 503, 'Gagal menyimpan'); Object.assign(state.form, req.postDataJSON()); }
-      return reply(state.form);
-    }
-    if (path === '/admin/forms/form-1/publish') { state.form.status = 'published'; return reply(state.form); }
-    if (path === '/admin/assistant/oversight/stats') return reply({ conversations: 2, messages: 4, chats_today: 2, chats_month: 2, tokens_today: { input: 300, output: 40 }, tokens_month: { input: 300, output: 40 }, events: 4, events_today: 4, errors: 0, injections_blocked: 1, code_blocked: 0 });
-    if (path === '/admin/assistant/oversight/events') return reply([{ id: 'audit-1', event_type: 'injection_blocked', level: 'warn', message: 'Pesan diblokir', user_email: 'admin@example.com', conversation_id: 'audit-chat', created_at: '2026-09-21T01:00:00Z', metadata: { message: 'Ignore previous instructions', signals: ['ignore-previous'] } }]);
-    if (path === '/admin/assistant/oversight/usage') return reply([{ user_id: 'low', user_email: 'chat-terbanyak@example.com', requests: 20, input_tokens: 100, output_tokens: 20 }, { user_id: 'high', user_email: 'token-terbanyak@example.com', requests: 2, input_tokens: 2000, output_tokens: 500 }]);
-    if (path === '/admin/assistant/conversations') return reply([{ id: 'chat-1', title: 'Rencana festival' }]);
-    if (path === '/admin/assistant/conversations/chat-1') return reply([{ id: 'message-1', role: 'assistant', content: 'Mari siapkan festival.' }]);
-    if (path === '/admin/qpr/periods') return reply([]);
-    if (path === '/admin/accounts') return reply([{ id: 'a-1', user_email: 'nadia@example.com', division: { name: 'BPH' }, role: 'platform_admin', status: 'active', created_at: '2026-09-01T00:00:00Z' }]);
-    if (path === '/admin/divisions') return reply([{ id: 'bph', name: 'BPH', slug: 'bph', is_active: true }]);
-    if (path === '/admin/audit-logs') return reply({ items: [] });
-    if (path === '/qpr/period-1') return reply({ title: 'Evaluasi September', description: 'Evaluasi pengurus', remaining: [{ id: 'entry-1', name: 'Nadia', division: 'BPH' }], questions: [{ label: 'Kerja sama tim', category: 'Kolaborasi' }] });
-    if (path === '/qpr/period-1/submit') return reply({});
-    return reply({});
+test('event search includes later API pages', async ({ page }) => {
+  await setup(page);
+  await page.route('**/admin/events?**', route => {
+    const second = new URL(route.request().url()).searchParams.get('page') === '2';
+    return route.fulfill({ json: { success: true, data: { items: [{ ...event, id: second ? 'later' : event.id, title: second ? 'Event halaman kedua' : event.title }], meta: { page: second ? 2 : 1, per_page: 1, total: 2 } } } });
   });
-  return state;
-}
+  await visit(page, '/events');
+  await page.getByLabel('Cari event').fill('Event halaman kedua');
+  await expect(page.getByRole('heading', { name: 'Event halaman kedua' })).toBeVisible();
+});
 
-async function visit(page, route) { await page.goto(`/#${route}`); await expect(page.locator('main')).toBeVisible(); }
-async function noOverflow(page) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
-  expect(await page.locator('main').evaluateAll(elements => elements.every(el => el.scrollWidth <= el.clientWidth + 1))).toBeTruthy();
-}
+test('calendar ignores an older month response that arrives after navigation', async ({ page }) => {
+  await setup(page);
+  let releaseOld;
+  const oldResponse = new Promise(resolve => { releaseOld = resolve; });
+  let requested = 0;
+  let firstMonth;
+  await page.route('**/admin/internal-events/calendar?**', async route => {
+    requested++;
+    const month = new URL(route.request().url()).searchParams.get('month');
+    firstMonth ??= month;
+    const first = month === firstMonth;
+    if (first) await oldResponse;
+    await route.fulfill({ json: { success: true, data: { items: [{ ...event, status: 'published', title: first ? 'Agenda bulan lama' : 'Agenda bulan terpilih' }] } } });
+  });
+  await visit(page, '/internal-events/kalender');
+  await expect.poll(() => requested).toBeGreaterThanOrEqual(1);
+  await page.getByRole('button', { name: 'Bulan berikutnya' }).click();
+  await expect(page.getByRole('heading', { name: 'Agenda bulan terpilih' })).toBeVisible();
+  const receivedOld = page.waitForResponse(r => r.url().includes('/internal-events/calendar?'));
+  releaseOld(); await receivedOld;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(page.getByRole('heading', { name: 'Agenda bulan terpilih' })).toBeVisible();
+});
+
+test('form autosave keeps server question IDs across successive edits', async ({ page }) => {
+  const state = await setup(page);
+  await visit(page, '/forms/form-1');
+  await page.getByRole('button', { name: 'Edit pertanyaan Aspirasi kamu' }).click();
+  await page.getByLabel('Label pertanyaan').fill('Aspirasi terbaru');
+  await page.getByRole('button', { name: 'Selesai', exact: true }).click();
+  await expect(page.getByText('Pertanyaan diperbarui.', { exact: true })).toBeVisible();
+  expect(state.calls.find(c => c.method === 'PUT').body.fields[0].id).toBe('field-1');
+});
+
+test('mobile form configuration is reachable before expanding sharing tools', async ({ page }) => {
+  await setup(page); await page.setViewportSize({ width: 390, height: 844 });
+  await visit(page, '/forms/form-1');
+  const bounds = await page.getByRole('heading', { name: 'Konfigurasi & publikasi' }).boundingBox();
+  expect(bounds.y).toBeLessThan(650);
+  await page.locator('summary').filter({ hasText: 'Bagikan form' }).click();
+  await expect(page.getByAltText('QR code menuju form Aspirasi Mahasiswa')).toBeVisible();
+  await noOverflow(page);
+});
+
+test('failed logout keeps the session and explains how to retry', async ({ page }) => {
+  await setup(page); await visit(page, '/events');
+  await page.route('**/auth/panel-sign-out', route => route.fulfill({ status: 503, json: { success: false, message: 'Logout belum berhasil. Coba lagi.' } }));
+  await page.getByRole('button', { name: 'Keluar', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Logout belum berhasil' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: event.title })).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem('bph_cms_token'))).toBe('panel-session');
+});
+
+test('form response export escapes formulas and retains distinct same-label answers', async ({ page }) => {
+  await setup(page);
+  await page.route('**/admin/forms/form-1/analytics', route => route.fulfill({ json: { success: true, data: { total_submissions: 1, last_7_days: [], fields: [] } } }));
+  await page.route('**/admin/forms/form-1/submissions?**', route => route.fulfill({ json: { success: true, data: { items: [{
+    id: 'submission-1', created_at: '2026-10-09T00:00:00Z', status: 'new',
+    answers: [{ field_id: 'first', label: 'Jawaban', value: '=1+1' }, { field_id: 'second', label: 'Jawaban', value: 'Jawaban kedua' }],
+  }], meta: { total: 1 } } } }));
+  await visit(page, '/forms/form-1/analytics');
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Ekspor CSV' }).click();
+  const csv = await readFile(await (await downloaded).path(), 'utf8');
+  expect(csv).toContain("'=1+1");
+  expect(csv).toContain('Jawaban kedua');
+});
+
+test('response attachments download with the panel session and readable filename', async ({ page }) => {
+  await setup(page);
+  await page.route('**/admin/forms/form-1/analytics', route => route.fulfill({ json: { success: true, data: { total_submissions: 1, last_7_days: [], fields: [] } } }));
+  await page.route('**/admin/forms/form-1/submissions?**', route => route.fulfill({ json: { success: true, data: { items: [{
+    id: 'submission-1', created_at: '2026-10-09T00:00:00Z', status: 'new', answers: [],
+    files: [{ id: 'file-1', original_filename: 'bukti.pdf', file_size: 15 }],
+  }], meta: { total: 1 } } } }));
+  let authorization;
+  await page.route('**/submissions/submission-1/files/file-1', route => {
+    authorization = route.request().headers().authorization;
+    return route.fulfill({ contentType: 'application/octet-stream', body: '%PDF-1.4 fixture' });
+  });
+  await visit(page, '/forms/form-1/analytics');
+  await page.locator('.sub-summary').click();
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Unduh bukti.pdf' }).click();
+  expect((await downloaded).suggestedFilename()).toBe('bukti.pdf');
+  expect(authorization).toBe('Bearer panel-session');
+});
+
+test('topbar back preserves unsaved form changes when departure is cancelled', async ({ page }) => {
+  await setup(page); await visit(page, '/forms/form-1');
+  await page.getByLabel('Judul', { exact: true }).fill('Belum disimpan');
+  let confirmation = false;
+  page.on('dialog', async dialog => { confirmation = true; await dialog.dismiss(); });
+  await page.getByRole('button', { name: 'Kembali ke halaman sebelumnya' }).click();
+  await expect(page.getByLabel('Judul', { exact: true })).toHaveValue('Belum disimpan');
+  expect(confirmation).toBe(true);
+});
 
 test('login preserves a protected deep link and workspace dismissal', async ({ page }) => {
   await setup(page, { signedIn: false, workspace: true });

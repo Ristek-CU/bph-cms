@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtRange } from "../api.js";
 import { IconCalendar, IconCopy, IconLock, IconShare, IconWhatsapp } from "../components/Icons.jsx";
-import { useToast, ErrorState } from "../components/ui.jsx";
+import { useToast, ErrorState, copyText } from "../components/ui.jsx";
 import { formatEventMessage, shareWhatsApp, WA_MODES } from "../utils/share-whatsapp.js";
+import InternalEventNav from "../components/InternalEventNav.jsx";
 
 const MONTHS = [
 	"Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -21,7 +22,7 @@ function getNowWib() {
 // division_admin tidak lagi punya tampilan lintas divisi untuk event publik —
 // satu-satunya yang tersisa adalah /events, yang bagi platform_admin memang
 // sudah menampilkan semua divisi.
-export default function CrossDivisionCalendar() {
+export default function CrossDivisionCalendar({ canCreate = false }) {
 	const now = getNowWib();
 	const [year, setYear] = useState(now.getFullYear());
 	const [month, setMonth] = useState(now.getMonth() + 1);
@@ -38,17 +39,20 @@ export default function CrossDivisionCalendar() {
 	const monthParam = `${year}-${String(month).padStart(2, "0")}`;
 
 	useEffect(() => {
+		let active = true;
 		setLoading(true);
 		setError("");
 		api(`/admin/internal-events/calendar?month=${monthParam}`)
 			.then((d) => {
+				if (!active) return;
 				const items = d?.items || [];
 				setEvents(items);
 				// Bulan berganti → pilihan lama mungkin tidak ada lagi. Reset.
 				setPreviewId((prev) => (prev && items.some((e) => e.id === prev) ? prev : null));
 			})
-			.catch((e) => setError(e?.message || "Gagal memuat kalender."))
-			.finally(() => setLoading(false));
+			.catch((e) => { if (active) setError(e?.message || "Gagal memuat kalender."); })
+			.finally(() => { if (active) setLoading(false); });
+		return () => { active = false; };
 	}, [monthParam, attempt]);
 
 	const previewEvent = useMemo(
@@ -59,7 +63,7 @@ export default function CrossDivisionCalendar() {
 
 	const handleCopy = async () => {
 		try {
-			await navigator.clipboard.writeText(message);
+			await copyText(message);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 			toast("Pesan WhatsApp disalin ke clipboard");
@@ -88,6 +92,7 @@ export default function CrossDivisionCalendar() {
 
 	return (
 		<div className="cross-calendar">
+			<InternalEventNav />
 			<div className="internal-notice" role="note">
 				<IconLock size={16} />
 				<span>
@@ -125,7 +130,7 @@ export default function CrossDivisionCalendar() {
 						<div className="empty-state">
 							<IconCalendar size={48} />
 							<p>Belum ada agenda internal untuk {MONTHS[month - 1]} {year}.</p>
-							<Link className="btn sec" to="/internal-events/baru">Buat internal event</Link>
+							{canCreate && <Link className="btn sec" to="/internal-events/baru">Buat internal event</Link>}
 						</div>
 					) : (
 						<div className="cross-calendar-list">

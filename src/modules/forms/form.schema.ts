@@ -44,6 +44,7 @@ const isoDatetime = z
 	);
 
 export const fieldInputSchema = z.object({
+	id: z.string().min(1).max(100).optional(),
 	label: z.string().trim().min(1).max(300),
 	description: z.string().max(1000).nullish(),
 	type: z.enum(FORM_FIELD_TYPES),
@@ -97,7 +98,7 @@ export const updateFormSchema = z
 		background_color: hexColor.optional(),
 		opens_at: isoDatetime.nullish(),
 		closes_at: isoDatetime.nullish(),
-		// Jika fields dikirim → seluruh set pertanyaan diganti (pattern sessions di events).
+		// Existing IDs preserve historical answers; omitted IDs create new questions.
 		fields: z.array(fieldInputSchema).max(100).optional(),
 	})
 	.refine(

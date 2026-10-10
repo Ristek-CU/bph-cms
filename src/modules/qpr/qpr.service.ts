@@ -599,7 +599,7 @@ export const qprService = {
 			// Formula injection: awalan = + - @ tab/CR di-prefix ' agar Excel
 			// memperlakukan sebagai teks, bukan formula.
 			const s = String(v ?? "");
-			const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+			const safe = /^[\s\u0000-\u001f]*[=+\-@＝＋－＠]|^[\t\r\n]/u.test(s) ? `'${s}` : s;
 			return `"${safe.replace(/"/g, '""')}"`;
 		};
 		const lines = [
