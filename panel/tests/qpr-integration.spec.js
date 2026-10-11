@@ -44,7 +44,7 @@ test('BPH membuat, tamu melanjutkan lintas browser, divisi hanya melihat status'
 	await expect(page.getByText('Semua perubahan tersimpan')).toBeVisible();
 	await page.getByRole('button', { name: 'Pengisi', exact: true }).click();
 	await page.getByRole('button', { name: '+ Tambah nama' }).click();
-	await page.getByLabel('Nama | division_slug').fill('Pengisi Ristek | ristek | anggota | test-ristek\nPengisi UKM | ukm | anggota | test-ukm');
+	await page.getByLabel('Nama | Divisi | Jabatan — satu orang per baris').fill('Pengisi Ristek | ristek | anggota | test-ristek\nPengisi UKM | ukm | anggota | test-ukm');
 	await page.getByRole('button', { name: 'Preview impor', exact: true }).click();
 	await page.getByRole('button', { name: 'Impor', exact: true }).click();
 	await expect(page.getByRole('dialog')).toHaveCount(0);

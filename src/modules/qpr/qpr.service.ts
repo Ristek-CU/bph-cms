@@ -12,6 +12,18 @@ import { BPH_TARGETS, SCALE_LEGEND, buildBphSections, buildBphSnapshot, resolveS
 const snapshotKey = (value: unknown) => JSON.stringify(value, (_, v) =>
  v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
 
+// Status efektif = status dasar + jadwal (kontrak T0/T1): `opens_at <= now < closes_at`,
+// tutup manual mengalahkan jadwal. Satu sumber untuk admin, pengisi, dan partisipasi.
+export const effectiveStatus = (p: { status: string; opensAt: string | null; closesAt: string | null }) => {
+	if (p.status !== "open") return p.status;
+	const now = Date.now();
+	if (p.opensAt && Date.parse(p.opensAt) > now) return "scheduled";
+	if (p.closesAt && Date.parse(p.closesAt) <= now) return "closed";
+	return "open";
+};
+const withEffective = <T extends { status: string; opensAt: string | null; closesAt: string | null }>(p: T) =>
+	({ ...p, effective_status: effectiveStatus(p) });
+
 const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: string | null }) => {
 	if (p.status !== "open") return false;
 	// Bandingkan sebagai Date (pola formIsOpen) — perbandingan string ISO gagal saat
@@ -20,6 +32,14 @@ const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: str
 	if (p.opensAt && new Date(p.opensAt) > now) return false;
 	if (p.closesAt && new Date(p.closesAt) < now) return false;
 	return true;
+};
+// Pesan 404 yang dapat dibedakan: belum mulai vs sudah tutup vs tidak ada.
+const closedOrNotFound = (p?: { status: string; opensAt: string | null; closesAt: string | null }) => {
+	if (!p) throw ApiError.notFound("Periode penilaian tidak ditemukan");
+	const eff = effectiveStatus(p);
+	if (eff === "scheduled" && p.opensAt) throw ApiError.notFound(`Penilaian belum dibuka — mulai ${new Date(p.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB`);
+	if (p.status !== "open" || eff === "closed") throw ApiError.notFound("Penilaian sudah ditutup — hubungi BPH bila kirimanmu belum terkirim");
+	throw ApiError.notFound("Periode penilaian tidak ditemukan");
 };
 
 // ── Draft & submit v2 (snapshot berversi) ───────────────────────────────────
@@ -36,7 +56,7 @@ const pathFor = (snapshot: NonNullable<ReturnType<typeof parseV2>>, entry: typeo
 };
 const displayName = (e: { name: string; division?: string | null; memberRole?: string | null; id?: string }) =>
  `${e.name} — ${e.division ?? "Perlu pemetaan"} / ${e.memberRole ?? "anggota"}${e.id ? ` (${e.id.slice(-8)})` : ""}`;
-const finalConflict = () => new ApiError(409, "Nama ini sudah mengirim penilaian final.", { code: "QPR_ALREADY_FINAL", state: ["already_final"] });
+const finalConflict = (submittedAt?: string | null) => new ApiError(409, "Nama ini sudah mengirim penilaian final.", { code: "QPR_ALREADY_FINAL", state: ["already_final"], submitted_at: submittedAt ?? null });
 const draftConflict = () => new ApiError(409, "Draft sudah diperbarui perangkat lain — muat ulang sebelum menyimpan.", { code: "QPR_DRAFT_CONFLICT", state: ["draft_conflict"] });
 const openSql = sql`EXISTS (SELECT 1 FROM qpr_periods p WHERE p.id = ${qprEntries.periodId} AND p.status = 'open'
  AND (p.opens_at IS NULL OR julianday(p.opens_at) <= julianday('now'))
@@ -46,10 +66,11 @@ const validateSchedule = (opens?: string | null, closes?: string | null) => {
  if (opens && closes && Date.parse(opens) > Date.parse(closes)) throw ApiError.validation("Jadwal tutup harus setelah buka");
 };
 async function writeConflict(db: Db, periodId: string, entryId: string): Promise<never> {
- const [e] = await db.select({ done: qprEntries.done }).from(qprEntries).where(eq(qprEntries.id, entryId));
- if (e?.done) throw finalConflict();
+ const [e] = await db.select({ done: qprEntries.done, submittedAt: qprEntries.submittedAt }).from(qprEntries).where(eq(qprEntries.id, entryId));
+ if (e?.done) throw finalConflict(e.submittedAt);
  const [p] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId));
- if (!p || !periodIsOpen(p)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+ if (!p) throw ApiError.notFound("Periode penilaian tidak ditemukan");
+ if (!periodIsOpen(p)) closedOrNotFound(p);
  throw draftConflict();
 }
 async function insertFinal(db: Db, periodId: string, entry: typeof qprEntries.$inferSelect, answers: unknown, version: number | null) {
@@ -142,14 +163,14 @@ export const qprService = {
                 role: row.role, done: row.done, status: row.done ? "Sudah mengisi" : "Belum mengisi" });
             groups.set(row.period.id, group);
         }
-        const results = [...groups.values()].map((g) => ({ period: g.period, total_entries: g.entries.length,
+        const results = [...groups.values()].map((g) => ({ period: withEffective(g.period), total_entries: g.entries.length,
             done_entries: g.entries.filter((e) => e.done).length, pending_entries: g.entries.filter((e) => !e.done).length,
             ...(periodId ? { entries: g.entries } : {}) }));
         if (periodId) {
             if (!results.length) throw ApiError.notFound("Periode QPR tidak ditemukan untuk divisi ini");
             return results[0];
         }
-        return results.map(({ period, ...counts }) => ({ ...period, ...counts }));
+        return results.map(({ period, ...counts }) => withEffective({ ...period, ...counts }));
     },
 	async listPeriods(db: Db) {
 		const periods = await db.select().from(qprPeriods).orderBy(asc(qprPeriods.title));
@@ -160,12 +181,12 @@ export const qprService = {
 			.where(sql`${qprEntries.periodId} IN (SELECT value FROM json_each(${JSON.stringify(periods.map((p) => p.id))}))`);
 		return periods.map((p) => {
 			const rows = counts.filter((c) => c.periodId === p.id);
-			return {
+			return withEffective({
 				...p,
 				questions: parseFieldOptions(p.questions),
 				total_entries: rows.length,
 				done_entries: rows.filter((r) => r.done).length,
-			};
+			});
 		});
 	},
 
@@ -177,7 +198,7 @@ export const qprService = {
 			.from(qprEntries)
 			.where(eq(qprEntries.periodId, id))
 			.orderBy(asc(qprEntries.name));
-		return { ...period, questions: parseFieldOptions(period.questions), entries: entries.map((e) => ({ ...e, mapping_required: !e.divisionSlug })) };
+		return { ...withEffective(period), questions: parseFieldOptions(period.questions), entries: entries.map((e) => ({ ...e, mapping_required: !e.divisionSlug })) };
 	},
 
 	async createPeriod(db: Db, input: { title: string; description?: string | null; questions?: QprQuestion[] | null; form_kind?: "legacy" | "bph" | "division" | null; opens_at?: string | null; closes_at?: string | null; target_config?: TargetConfig; userId: string }) {
@@ -269,7 +290,7 @@ export const qprService = {
 			.where(and(eq(qprPeriods.id, id), changingSnapshot ? sql`${qprPeriods.firstOpenedAt} IS NULL` : undefined, changingSnapshot ? eq(qprPeriods.questions, period.questions) : undefined))
 			.returning();
 		if (!updated) throw ApiError.conflict("Snapshot berubah atau periode pernah dibuka — muat ulang sebelum menyimpan");
-		return { ...updated, questions: parseFieldOptions(updated.questions) };
+		return { ...withEffective(updated), questions: parseFieldOptions(updated.questions) };
 	},
 
 	async setStatus(db: Db, id: string, status: "draft" | "open" | "closed") {
@@ -289,7 +310,7 @@ export const qprService = {
             ...(status === "open" ? { firstOpenedAt: sql`coalesce(${qprPeriods.firstOpenedAt}, ${now})` } : {}) })
             .where(and(eq(qprPeriods.id, id), preview ? eq(qprPeriods.questions, period.questions) : undefined, rosterGuard)).returning();
         if (!updated) throw ApiError.conflict("Konfigurasi berubah saat membuka — preview ulang");
-		return { ...updated, questions: parseFieldOptions(updated.questions) };
+		return { ...withEffective(updated), questions: parseFieldOptions(updated.questions) };
 	},
 
 	async deletePeriod(db: Db, id: string) {
@@ -369,7 +390,8 @@ export const qprService = {
 	/** Daftar publik untuk dropdown: hanya periode terbuka + nama yang BELUM done. */
 	async publicRoster(db: Db, periodId: string) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
-		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
+		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const entries = await db
 			.select({ id: qprEntries.id, name: qprEntries.name, division: qprEntries.division, role: qprEntries.memberRole, division_slug: qprEntries.divisionSlug })
 			.from(qprEntries)
@@ -380,6 +402,7 @@ export const qprService = {
 			title: period.title,
 			description: period.description,
 			status: period.status,
+			effective_status: effectiveStatus(period),
 			isOpen: true,
 			opens_at: period.opensAt,
 			closes_at: period.closesAt,
@@ -391,7 +414,8 @@ export const qprService = {
 	/** Submit publik: nama harus ada di roster & belum done. Sekali submit → done. */
 	async submitPublic(db: Db, periodId: string, input: SubmitAnswersInput) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
-		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
+		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const entries = await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId));
 		const entry = entries.find((e) => e.name.toLowerCase() === input.name.trim().toLowerCase());
 		if (!entry) throw ApiError.validation("Nama tidak terdaftar", { name: ["Pilih nama dari daftar."] });
@@ -420,10 +444,11 @@ export const qprService = {
 	/** GET draft: pertanyaan jalur + draft tersimpan + progres. Tanpa login (model kejuhuran). */
 	async getDraft(db: Db, periodId: string, entryId: string) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
-		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
+		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, entryId), eq(qprEntries.periodId, periodId))).limit(1);
 		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
-		if (entry.done) throw finalConflict();
+		if (entry.done) throw finalConflict(entry.submittedAt);
 		const v2 = parseV2(period);
 		if (!v2) throw ApiError.validation("Periode ini memakai format lama — draft tidak tersedia");
 		// Jalur responden dari snapshot identitas roster; entry legacy tanpa
@@ -457,10 +482,11 @@ export const qprService = {
 	/** PUT draft: CAS — expected_version harus cocok, kalau tidak 409 (jangan timpa). */
 	async saveDraft(db: Db, periodId: string, entryId: string, input: SaveDraftInput) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
-		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
+		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, entryId), eq(qprEntries.periodId, periodId))).limit(1);
 		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
-		if (entry.done) throw finalConflict();
+		if (entry.done) throw finalConflict(entry.submittedAt);
 		const v2 = parseV2(period);
 		if (!v2) throw ApiError.validation("Periode ini memakai format lama — draft tidak tersedia");
 		const sections = pathFor(v2, entry);
@@ -484,10 +510,11 @@ export const qprService = {
 	 */
 	async submitV2(db: Db, periodId: string, input: SubmitV2Input) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
-		if (!period || !periodIsOpen(period)) throw ApiError.notFound("Periode penilaian tidak ditemukan atau sudah ditutup");
+		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
+		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, input.entry_id), eq(qprEntries.periodId, periodId))).limit(1);
 		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
-		if (entry.done) throw finalConflict();
+		if (entry.done) throw finalConflict(entry.submittedAt);
 		const v2 = parseV2(period);
 		if (!v2) throw ApiError.validation("Periode ini memakai format lama — gunakan submit lama");
         if (v2.version === 3 && input.expected_version == null) throw ApiError.validation("expected_version wajib untuk snapshot v3");

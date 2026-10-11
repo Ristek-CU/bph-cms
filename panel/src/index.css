@@ -1114,6 +1114,14 @@ main.page:has(.qpr-workspace), main.page:has(.builder-fields) { padding-bottom: 
 .qpr-review dl > div { padding-block: 16px; border-bottom: 1px solid var(--line); }
 .qpr-review dt { font-weight: 600; line-height: 1.7; }
 .qpr-review dd { margin: 8px 0 0; white-space: pre-wrap; }
+/* Navigator bagian: wrap agar tidak terpotong di 320px */
+.qpr-section-nav { display: flex; flex-wrap: wrap; gap: 6px; }
+.qpr-nav-item { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 99px; background: var(--card, #fff); font-size: 12.5px; cursor: pointer; }
+.qpr-nav-item.active { border-color: var(--navy); font-weight: 600; }
+.qpr-nav-state::before { content: "· "; }
+.qpr-nav-lengkap { color: #1a7f4b; }
+.qpr-nav-sebagian { color: #a3641a; }
+.qpr-nav-kosong { color: #a03a3a; }
 @media (max-width: 600px) {
   .qpr-page-head h1 { font-size: 24px; }
   .qpr-tabs button { padding-inline: 12px; }

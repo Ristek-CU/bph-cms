@@ -26,3 +26,4 @@ playwright-report/
 # Workbook jawaban QPR — data pribadi, jangan push
 "QPR BPH (Jawaban).xlsx"
 *.xlsx
+.claude/

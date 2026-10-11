@@ -9,7 +9,10 @@ import { useToast, Confirm, SkeletonCard, Card, copyText, ErrorState, useEscape,
 // QPR v2 — tanpa login (model kejujuran). BPH kelola periode + roster nama;
 // anggota buka link publik, pilih namanya dari dropdown, isi skala 1-5,
 // submit → nama hilang dari daftar (tanda sudah isi).
-const STATUS_LABEL = { draft: "Draft", open: "Berlangsung", closed: "Selesai" };
+const STATUS_LABEL = { draft: "Draft", scheduled: "Terjadwal", open: "Berlangsung", closed: "Ditutup" };
+// effective_status dari server (jadwal + status dasar). Fallback status dasar untuk data lama.
+const statusLabel = (p) => STATUS_LABEL[p.effective_status ?? p.status] ?? p.status;
+const badgeClass = (p) => ({ scheduled: "upcoming", closed: "closed" })[p.effective_status ?? p.status] ?? (p.effective_status ?? p.status);
 
 const PUBLIC_BASE = "https://cms.sga-cakrawala.org/#/qpr";
 
@@ -47,7 +50,7 @@ function ParticipationView() {
 			<label className="field-label" htmlFor="participation-period">Periode</label>
 			<select id="participation-period" value={periodId} onChange={(e) => setPeriodId(e.target.value)}>{periods.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}</select>
 			{!err && detail?.requestedPeriodId === periodId && detail.retry === retry ? <div className="card qpr-participation" style={{ marginTop: 12 }}>
-				<h2>{detail.period.title}</h2><p>{detail.done_entries} sudah mengisi · {detail.pending_entries} belum mengisi · {detail.total_entries} anggota</p><ParticipationMeter done={detail.done_entries} total={detail.total_entries} /><p><span className={`badge ${detail.period.status}`}>{STATUS_LABEL[detail.period.status]}</span></p>{detail.period.status === "open" && <a className="btn" href={`#/qpr/${periodId}`}>Buka form pengisian</a>}<label className="field-label" htmlFor="participation-search">Cari anggota</label><input id="participation-search" type="search" value={search} onChange={(e) => setSearch(e.target.value)} />
+				<h2>{detail.period.title}</h2><p>{detail.done_entries} sudah mengisi · {detail.pending_entries} belum mengisi · {detail.total_entries} anggota</p><ParticipationMeter done={detail.done_entries} total={detail.total_entries} /><p><span className={`badge ${badgeClass(detail.period)}`}>{statusLabel(detail.period)}</span></p>{(detail.period.effective_status ?? detail.period.status) === "open" && <a className="btn" href={`#/qpr/${periodId}`}>Buka form pengisian</a>}<label className="field-label" htmlFor="participation-search">Cari anggota</label><input id="participation-search" type="search" value={search} onChange={(e) => setSearch(e.target.value)} />
 				<label htmlFor="participation-filter">Status</label>
 				<select id="participation-filter" value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Semua</option><option value="done">Sudah mengisi</option><option value="pending">Belum mengisi</option></select>
 				<ul>{detail.entries.filter((e) => (filter === "all" || e.done === (filter === "done")) && e.name.toLocaleLowerCase("id-ID").includes(search.toLocaleLowerCase("id-ID"))).map((e, i) => <li key={i}>{e.display_name || e.name}{e.role ? ` (${e.role})` : ""} — {e.done ? "Sudah mengisi" : "Belum mengisi"}</li>)}</ul>
@@ -73,11 +76,11 @@ function AdminView() {
 		catch (e) { setErr(errText(e)); }
 	}, []);
 	useEffect(() => { load(); }, [load]);
-	const visible = periods?.filter((p) => (status === "all" || p.status === status) && p.title.toLocaleLowerCase("id-ID").includes(search.toLocaleLowerCase("id-ID")));
+	const visible = periods?.filter((p) => (status === "all" || (p.effective_status ?? p.status) === status) && p.title.toLocaleLowerCase("id-ID").includes(search.toLocaleLowerCase("id-ID")));
 	return <>
 		<div className="qpr-page-head"><div><p className="studio-kicker">QUARTERLY PERFORMANCE REVIEW</p><h1>Kampanye QPR</h1><p className="muted">Susun penilaian, bagikan form, pantau partisipasi.</p></div><button className="btn gold" onClick={() => setShowCreate(true)}>+ Periode baru</button></div>
 		<div className="qpr-filter-row"><label>Cari kampanye<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari judul periode" /></label><label>Status<select value={status} onChange={(e) => setStatus(e.target.value)}><option value="all">Semua status</option>{Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
-		{err ? <ErrorState message={err} onRetry={load} /> : periods === null ? <SkeletonCard /> : !visible.length ? <div className="empty-state"><h2>Belum ada kampanye yang cocok</h2><p>Buat periode baru atau ubah pencarian.</p></div> : <div className="qpr-campaign-list">{visible.map((p) => <article className="card qpr-campaign" key={p.id}><div className="qpr-question-top"><span className={`badge ${p.status}`}>{STATUS_LABEL[p.status]}</span><span className="muted small">{p.closesAt ? `Tutup ${new Date(p.closesAt).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "Tanpa jadwal tutup"}</span></div><h2><Link to={`/qpr/periods/${p.id}`}>{p.title}</Link></h2><p className="muted">{p.description || "Penilaian pengurus SGA"}</p><ParticipationMeter done={p.done_entries} total={p.total_entries} /><div className="row-actions"><Link className="btn" to={`/qpr/periods/${p.id}`}>Kelola</Link><Link className="btn ghost" to={`/qpr/periods/${p.id}?tab=responses`}>Rekap</Link></div></article>)}</div>}
+		{err ? <ErrorState message={err} onRetry={load} /> : periods === null ? <SkeletonCard /> : !visible.length ? <div className="empty-state"><h2>Belum ada kampanye yang cocok</h2><p>Buat periode baru atau ubah pencarian.</p></div> : <div className="qpr-campaign-list">{visible.map((p) => <article className="card qpr-campaign" key={p.id}><div className="qpr-question-top"><span className={`badge ${badgeClass(p)}`}>{statusLabel(p)}</span><span className="muted small">{p.closesAt ? `Tutup ${new Date(p.closesAt).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "Tanpa jadwal tutup"}</span></div><h2><Link to={`/qpr/periods/${p.id}`}>{p.title}</Link></h2><p className="muted">{p.description || "Penilaian pengurus SGA"}</p><ParticipationMeter done={p.done_entries} total={p.total_entries} /><div className="row-actions"><Link className="btn" to={`/qpr/periods/${p.id}`}>Kelola</Link><Link className="btn ghost" to={`/qpr/periods/${p.id}?tab=responses`}>Rekap</Link></div></article>)}</div>}
 		<CreatePeriodModal open={showCreate} onClose={() => setShowCreate(false)} onDone={load} toast={toast} />
 	</>;
 }
@@ -313,13 +316,13 @@ function Workspace({ periodId, draftKey }) {
 	const visible = entries.filter((e) => (filter === "all" || e.done === (filter === "done")) && (division === "all" || (e.divisionSlug || e.division || "Belum dipetakan") === division) && `${e.name} ${e.memberKey || ""}`.toLocaleLowerCase("id-ID").includes(search.toLocaleLowerCase("id-ID")));
 	return <div className="qpr-workspace">
 		<Link className="qpr-back" to="/qpr">← Semua kampanye</Link>
-		<header className="qpr-page-head"><div><p className="studio-kicker">WORKSPACE QPR</p><h1>{period.title}</h1><p className="muted">{entries.length} pengisi · {done} respons final</p></div><span className={`badge ${period.status}`}>{STATUS_LABEL[period.status]}</span></header>
+		<header className="qpr-page-head"><div><p className="studio-kicker">WORKSPACE QPR</p><h1>{period.title}</h1><p className="muted">{entries.length} pengisi · {done} respons final</p></div><span className={`badge ${badgeClass(period)}`}>{statusLabel(period)}</span></header>
 		<nav className="qpr-tabs" aria-label="Bagian kampanye">{Object.entries(tabs).map(([key, label]) => <button key={key} type="button" className={tab === key ? "active" : ""} aria-current={tab === key ? "page" : undefined} onClick={() => changeTab(key)}>{label}{key === "responses" ? ` (${done})` : ""}</button>)}</nav>
 		{error && <ErrorState message={error} onRetry={() => { setError(""); load(); }} />}
 		{tab === "overview" && <>
 			<div className="card qpr-overview"><h2>Progres pengisian</h2><ParticipationMeter done={done} total={entries.length} /><p>{period.description || "Belum ada deskripsi."}</p><p className="muted small">{period.opensAt ? `Buka: ${new Date(period.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "Buka manual"} · {period.closesAt ? `Tutup: ${new Date(period.closesAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "Tutup manual"}</p>
 				<div className="row-actions"><button className="btn gold" disabled={busy} onClick={() => setConfirmStatus(period.status === "open" ? "close" : "open")}>{period.status === "open" ? "Tutup pengisian" : period.status === "closed" ? "Buka kembali" : "Buka kampanye"}</button><button className="btn ghost" onClick={() => copyText(`${PUBLIC_BASE}/${periodId}`).then(() => toast("Link disalin."), () => toast("Tidak bisa menyalin link.", "err"))}>Salin link</button><button className="btn ghost" onClick={() => changeTab("questions")}>Edit form</button></div>
-				{frozen ? <p className="login-notice">Snapshot dan roster terkunci sejak kampanye pertama dibuka. Metadata tetap dapat diedit melalui tab Pertanyaan.</p> : <p className="muted small">Sebelum membuka: lengkapi nama target, pertanyaan, dan roster. Periksa Pratinjau.</p>}
+				{frozen ? <p className="login-notice">Snapshot dan roster terkunci sejak kampanye pertama dibuka. Metadata tetap dapat diedit melalui tab Pertanyaan.</p> : <SetupChecklist period={period} entries={entries} onGo={changeTab} />}
 			</div>
 			<div className="card"><h2>Partisipasi per divisi</h2><div className="tbl-wrap"><table className="tbl"><thead><tr><th scope="col">Divisi</th><th scope="col">Final / Pengisi</th><th scope="col">Progres</th></tr></thead><tbody>{divisions.map((name) => { const rows = entries.filter((e) => (e.divisionSlug || e.division || "Belum dipetakan") === name); const count = rows.filter((e) => e.done).length; return <tr key={name}><td>{name}</td><td>{count} / {rows.length}</td><td>{Math.round(count / rows.length * 100)}%</td></tr>; })}{!entries.length && <tr><td colSpan={3}>Belum ada pengisi.</td></tr>}</tbody></table></div></div>
 		</>}
@@ -337,6 +340,22 @@ function Workspace({ periodId, draftKey }) {
 	</div>;
 }
 
+/** Checklist setup sebelum buka: tiap butir link ke tab terkait. Edit lokal tab Pertanyaan tidak dibuang. */
+function SetupChecklist({ period, entries, onGo }) {
+	const snapshot = isSnapshot(period.questions);
+	const needsTargets = snapshot && period.questions?.version === 3;
+	const targetMissing = needsTargets && (period.questions.target_config?.targets ?? []).some((t) => !t.label?.trim());
+	const items = [
+		{ tab: "questions", done: !targetMissing, label: targetMissing ? "Lengkapi nama target penilaian" : "Nama target dan pertanyaan" },
+		{ tab: "entries", done: entries.length > 0 && entries.every((e) => e.divisionSlug || e.division), label: entries.length ? "Daftar pengisi terisi" : "Isi daftar pengisi" },
+		{ tab: "preview", done: null, label: "Periksa Pratinjau & blocker kesiapan" },
+	];
+	return <div className="qpr-setup-checklist"><h3 className="small" style={{ margin: "8px 0 4px" }}>Sebelum membuka:</h3><ul style={{ margin: 0, paddingLeft: 0, listStyle: "none" }}>{items.map((item) => <li key={item.tab} style={{ display: "flex", gap: 8, alignItems: "center", padding: "4px 0" }}>
+		<span aria-hidden>{item.done === null ? "□" : item.done ? "✓" : "!"}</span>
+		<button type="button" className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={() => onGo(item.tab)}>{item.label}</button>
+	</li>)}</ul></div>;
+}
+
 function QprPreview({ preview, title }) {
 	const [entryId, setEntryId] = useState(preview.entries[0]?.id || "");
 	const [step, setStep] = useState(0);
@@ -347,7 +366,11 @@ function QprPreview({ preview, title }) {
 	return <div className="qpr-preview"><p className="login-notice">Mode pratinjau. Jawaban hanya lokal dan tidak dikirim sebagai respons.</p><label className="field-label" htmlFor="qpr-preview-entry">Pratinjau sebagai pengisi</label><select id="qpr-preview-entry" value={entryId} onChange={(e) => { setEntryId(e.target.value); setStep(0); setAnswers({}); }}>{preview.entries.map((e) => <option key={e.id} value={e.id}>{e.display_name || e.name} · {e.role} · {e.required} wajib</option>)}</select>{!entry ? <p>Tambahkan pengisi untuk melihat jalur form.</p> : <div className="qpr-form-canvas"><div className="card qpr-form-header"><h1 className="qpr-title">{title}</h1><p>{entry.display_name || entry.name}</p><QprProgress filled={required.filter((q) => complete(q, answers)).length} total={required.length} /></div>{step < sections.length ? <QprSection section={sections[step]} answers={answers} legend={preview.scale_legend} onChange={(id, value) => setAnswers((a) => ({ ...a, [id]: value }))} /> : <QprReview sections={sections} answers={answers} onEdit={setStep} />}<div className="row-actions">{step > 0 && <button className="btn ghost" onClick={() => setStep(step - 1)}>Kembali</button>}{step < sections.length && <button className="btn" onClick={() => setStep(step + 1)}>{step === sections.length - 1 ? "Tinjau jawaban" : "Berikutnya"}</button>}</div></div>}</div>;
 }
 
-/** Modal tambah nama pengisi — textarea "Nama | Divisi" per baris. */
+/** Modal tambah nama pengisi — satu baris = "Nama | Divisi | Jabatan" berlabel manusiawi. */
+const DIVISION_LABEL = { bph: "BPH", ristek: "Ristek", ukm: "UKM", advo: "Advo", bnp: "BNP", icd: "ICD", pr: "PR", media: "Media" };
+const ROLE_LABEL = { anggota: "Anggota", kadiv: "Kadiv", wakadiv: "Wakadiv", bendiv: "Bendiv", sekdiv: "Sekdiv", bendum: "Bendum", sekum: "Sekum", controller: "Controller" };
+const ROLES = Object.keys(ROLE_LABEL);
+
 function AddEntriesModal({ open, periodId, version, onClose, onAdded, toast }) {
 	const [raw, setRaw] = useState("");
 	const [itemsPreview, setItemsPreview] = useState(null);
@@ -356,15 +379,36 @@ function AddEntriesModal({ open, periodId, version, onClose, onAdded, toast }) {
 	useEscape(() => open && !busy && onClose());
 	if (!open) return null;
 
+	// Parse "Nama | Divisi | Jabatan" per baris (member_key opsional di kolom 4).
+	// Error dikumpulkan per nomor baris — impor tidak jalan bila ada baris salah.
+	const parseRows = () => {
+		const items = [];
+		const errors = [];
+		raw.trim().split("\n").forEach((line, i) => {
+			if (!line.trim()) return;
+			const parts = line.split("|").map((s) => s.trim());
+			const [name, division, role, member_key] = parts;
+			const n = i + 1;
+			if (!name) { errors.push(`Baris ${n}: nama kosong.`); return; }
+			if (version === 3) {
+				const slug = (division || "").toLowerCase();
+				const roleLower = (role || "").toLowerCase();
+				if (!DIVISIONS.includes(slug)) { errors.push(`Baris ${n}: divisi "${division || "—"}" tidak dikenal (gunakan: ${Object.keys(DIVISION_LABEL).join(", ")}).`); return; }
+				if (!ROLES.includes(roleLower)) { errors.push(`Baris ${n}: jabatan "${role || "—"}" tidak dikenal (gunakan: ${ROLES.join(", ")}).`); return; }
+				items.push({ name, division_slug: slug, role: roleLower, member_key: member_key || `auto-${slug}-${roleLower}-${name.toLowerCase().replace(/\s+/g, "-")}` });
+			} else {
+				items.push({ name, division: division || null, role: role || null });
+			}
+		});
+		return { items, errors };
+	};
+
 	const submit = async (e) => {
 		e.preventDefault();
-		const items = raw.trim().split("\n").map((line) => {
-			const [name, division, role, member_key] = line.split("|").map((s) => s.trim());
-			return version === 3 ? { name, division_slug: division, role, member_key } : { name, division: division || null, role: role || null };
-		}).filter((a) => a.name);
-		if (!items.length) { toast("Format tidak terbaca.", "err"); return; }
-		if (version === 3 && items.some((item) => !DIVISIONS.includes(item.division_slug) || !["anggota", "kadiv", "wakadiv", "bendiv", "sekdiv", "bendum", "sekum", "controller"].includes(item.role) || !item.member_key)) { toast("Wajib nama, division_slug kanonis, jabatan valid, dan member_key stabil.", "err"); return; }
-		if (version === 3 && new Set(items.map((item) => item.member_key)).size !== items.length) { toast("member_key harus unik dalam impor.", "err"); return; }
+		const { items, errors } = parseRows();
+		if (errors.length) { setItemsPreview(null); toast(errors.join("\n"), "err"); return; }
+		if (!items.length) { toast("Tidak ada baris yang terbaca. Format: Nama | Divisi | Jabatan", "err"); return; }
+		if (version === 3 && new Set(items.map((item) => item.member_key)).size !== items.length) { toast("Ada nama kembar dengan kolom member_key kosong — tulis member_key berbeda untuk mereka.", "err"); return; }
 		if (!itemsPreview) { setItemsPreview(items); return; }
 		setBusy(true);
 		try {
@@ -385,11 +429,11 @@ function AddEntriesModal({ open, periodId, version, onClose, onAdded, toast }) {
 			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Tambah nama pengisi">
 				<h3>Tambah nama pengisi</h3>
 				<div style={{ marginTop: 10 }}>
-					<label className="field-label" htmlFor="qp-entries">{version === 3 ? "Nama | division_slug | role | member_key (satu per baris)" : "Nama | Divisi | Jabatan (satu per baris)"}</label>
-					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => { setRaw(e.target.value); setItemsPreview(null); }} placeholder={version === 3 ? "Anggota Contoh | ristek | anggota | anggota-001" : "Anggota Contoh | Ristek | anggota"} required />
-					<p className="muted small">Jabatan: anggota, kadiv, wakadiv, bendiv, sekdiv, bendum, sekum, controller. Versi 3: divisi kanonis wajib; member_key tetap sama saat impor ulang, berbeda untuk nama kembar.</p>
+					<label className="field-label" htmlFor="qp-entries">{version === 3 ? "Nama | Divisi | Jabatan — satu orang per baris" : "Nama | Divisi | Jabatan (opsional) — satu orang per baris"}</label>
+					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => { setRaw(e.target.value); setItemsPreview(null); }} placeholder={"Anggota Contoh | ristek | anggota\nAnggota Lain | ukm | kadiv"} required />
+					<p className="muted small">Divisi: {Object.entries(DIVISION_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}. Jabatan: {Object.entries(ROLE_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}. Nama kembar: tulis member_key berbeda di kolom keempat.</p>
 				</div>
-				<div>{itemsPreview && <><h4>Preview impor ({itemsPreview.length})</h4><ul>{itemsPreview.map((item, i) => <li key={i}>{item.name} · {item.division_slug || item.division} · {item.role} · {item.member_key}</li>)}</ul></>}</div>
+				<div>{itemsPreview && <><h4>Preview impor ({itemsPreview.length})</h4><ul>{itemsPreview.map((item, i) => <li key={i}>{item.name} · {DIVISION_LABEL[item.division_slug] || item.division} · {ROLE_LABEL[item.role] || item.role || "—"}{item.member_key ? ` · ${item.member_key}` : ""}</li>)}</ul></>}</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
 					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
 					<button className="btn" type="submit" disabled={busy || !raw.trim()}>{busy ? "Menyimpan…" : itemsPreview ? "Impor" : "Preview impor"}</button>

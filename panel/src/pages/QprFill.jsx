@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errText } from "../api.js";
 import { Card, SkeletonCard } from "../components/ui.jsx";
-import { QprSection, QprReview, QprProgress, complete, targetTitle } from "../components/QprForm.jsx";
+import { QprSection, QprSectionNav, QprReview, QprProgress, complete, targetTitle } from "../components/QprForm.jsx";
 
 const payload = (answers) => Object.entries(answers).map(([question_id, value]) => ({ question_id, value }));
 
@@ -19,6 +19,7 @@ function Fill({ periodId, initialRoster }) {
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [done, setDone] = useState(false);
+	const [proof, setProof] = useState(null);
 	const [confirmed, setConfirmed] = useState(false);
 	const current = useRef(null);
 	const loading = useRef(null);
@@ -160,14 +161,19 @@ function Fill({ periodId, initialRoster }) {
 		setBusy(true);
 		try {
 			await flush(s);
-			await api(`/qpr/${periodId}/submit-v2`, { method: "POST", json: { entry_id: s.entry.id, expected_version: s.version, answers: payload(s.answers) } });
+			const result = await api(`/qpr/${periodId}/submit-v2`, { method: "POST", json: { entry_id: s.entry.id, expected_version: s.version, answers: payload(s.answers) } });
 			if (mounted.current && current.current === s) {
 				setRoster((r) => ({ ...r, remaining: r.remaining.filter((entry) => entry.id !== s.entry.id) }));
+				setProof(result?.submitted_at ?? null);
 				setDone(true);
 			}
 		} catch (e) {
 			if (e.statusCode === 409 && e.errors?.state?.includes("already_final")) {
-				if (mounted.current && current.current === s) setDone(true);
+				// Timeout setelah commit terpulihkan di sini: server sudah terima kiriman.
+				if (mounted.current && current.current === s) {
+					setProof(e.errors?.submitted_at ?? null);
+					setDone(true);
+				}
 				return;
 			}
 			if (e.statusCode === 409) s.conflict = true;
@@ -175,10 +181,11 @@ function Fill({ periodId, initialRoster }) {
 		} finally { s.submitting = false; if (mounted.current) setBusy(false); }
 	};
 
-	if (done) return <Card><h1>Terima kasih!</h1><p role="status">Penilaian terkirim. Jawabanmu sudah tersimpan. Halaman ini boleh ditutup.</p></Card>;
+	if (done) return <Card><h1>Terima kasih!</h1><p role="status">Penilaian terkirim. Jawabanmu sudah tersimpan. Halaman ini boleh ditutup.</p>{proof && <p className="muted small">Bukti kirim: {new Date(proof).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB</p>}</Card>;
 	if (!roster && !error) return <SkeletonCard lines={5} />;
 	if (!roster) return <Card><p role="alert">{error}</p><button className="btn" onClick={() => window.location.reload()}>Coba lagi</button></Card>;
 	const divisions = [...new Set(roster.remaining.map((r) => r.division || "Belum dipetakan"))];
+	const eff = roster.effective_status ?? roster.status;
 	const sections = session?.sections ?? [];
 	const questions = sections.flatMap((s) => s.questions);
 	const required = questions.filter((q) => q.required);
@@ -190,6 +197,8 @@ function Fill({ periodId, initialRoster }) {
 			<p className="studio-kicker">PENILAIAN PENGURUS</p>
 			<h1 className="qpr-title">{roster.title}</h1>
 			{roster.description && <p>{roster.description}</p>}
+		<p className="muted small">{roster.opensAt ? `Buka: ${new Date(roster.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : ""}{roster.opensAt && roster.closesAt ? " · " : ""}{roster.closesAt ? `Tutup: ${new Date(roster.closesAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : ""}{!roster.opensAt && !roster.closesAt ? "Tanpa jadwal — tutup manual oleh BPH." : ""}</p>
+		{eff === "scheduled" && <p className="login-notice" role="status">Penilaian belum dibuka. Form dapat diisi mulai {roster.opensAt ? new Date(roster.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : ""} WIB.</p>}
 			<p className="login-notice">Form tanpa login memakai model kejujuran. Pilih nama sendiri. Pemegang tautan yang memilih namamu dapat melihat dan mengubah draftmu. Isian ini bukan anonim atau rahasia; jangan bagikan tautan di luar anggota SGA.</p>
 		</header>
 		{!session ? <Card>
@@ -218,6 +227,7 @@ function Fill({ periodId, initialRoster }) {
 			</Card>
 			<form ref={form} onSubmit={section ? (e) => { e.preventDefault(); navigate(step + 1, true); } : submit}>
 				<h2 ref={heading} tabIndex={-1}>{section ? `Langkah ${step + 1} dari ${sections.length}: ${targetTitle(section)}` : "Tinjau penilaian"}</h2>
+				{session && <QprSectionNav sections={sections} answers={session.answers} step={step} onJump={(target) => navigate(target)} disabled={busy} />}
 				{section ? <QprSection section={section} answers={session.answers} onChange={change} disabled={busy} legend={session.scale_legend} /> : <>
 					<QprReview sections={sections} answers={session.answers} onEdit={(index) => navigate(index)} disabled={busy} />
 					<label style={{ display: "flex", gap: 8, alignItems: "center", minHeight: 44 }}><input type="checkbox" checked={confirmed} required disabled={busy} onChange={(e) => setConfirmed(e.target.checked)} />Saya sudah meninjau jawaban dan siap mengirim penilaian final.</label>

@@ -45,6 +45,21 @@ export function QprReview({ sections, answers, onEdit, disabled }) {
 	</div>;
 }
 
+// Navigator bagian: posisi aktif + kelengkapan required (kosong/sebagian/lengkap).
+export function QprSectionNav({ sections, answers, step, onJump, disabled }) {
+	const stateOf = (section) => {
+		const req = section.questions.filter((q) => q.required);
+		const filled = req.filter((q) => complete(q, answers)).length;
+		return !req.length || filled === req.length ? "lengkap" : filled ? "sebagian" : "kosong";
+	};
+	return <nav className="qpr-section-nav" aria-label="Daftar bagian penilaian">
+		{sections.map((section, index) => <button key={section.id} type="button" disabled={disabled} aria-current={index === step ? "step" : undefined} className={`qpr-nav-item ${index === step ? "active" : ""}`} onClick={() => onJump(index)}>
+			<span>{index + 1}. {targetTitle(section)}</span>
+			<span className={`muted small qpr-nav-state qpr-nav-${stateOf(section)}`}>{stateOf(section)}</span>
+		</button>)}
+	</nav>;
+}
+
 export function QprProgress({ filled, total }) {
 	return <div className="qpr-progress">
 		<progress aria-label="Pertanyaan wajib terisi" value={filled} max={total || 1} />

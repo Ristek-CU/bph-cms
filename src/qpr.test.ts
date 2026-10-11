@@ -497,6 +497,8 @@ const final3=await h.req(`${PUB}/${v3id}/submit-v2`,{method:"POST",json:{entry_i
 eq("v3 final latest version success",final3.status,200);
 const again3=await h.req(`${PUB}/${v3id}/submit-v2`,{method:"POST",json:{entry_id:findV3("ka").id,expected_version:1,answers:va}});
 eq("final accepted retry distinct state",again3.body.errors?.state,["already_final"]);
+// T10: retry setelah timeout harus membawa bukti kirim (waktu submit) di 409.
+ok("already_final 409 carries submitted_at proof",typeof again3.body.errors?.submitted_at === "string" && !Number.isNaN(Date.parse(again3.body.errors.submitted_at)),again3.body.errors);
 const statusAfter=await h.req(`/api/v1/qpr-participation/${v3id}`,{token:"tok-a-admin"});
 eq("own final changes status",statusAfter.body.data.done_entries,1);
 const ownB=await h.req(`/api/v1/qpr-participation/${v3id}`,{token:"tok-b-admin"});
@@ -755,6 +757,29 @@ eq("direct update duplicate pair rejected", duplicateUpdate?.statusCode, 422);
 await qprService.addEntries(realDb, pairPeriod.id, [{ name: "Pair respondent" }]);
 await qprService.setStatus(realDb, pairPeriod.id, "open");
 eq("same label different categories submit succeeds", (await h.req(`${PUB}/${pairPeriod.id}/submit`, { method: "POST", json: { name: "Pair respondent", answers: pairQuestions.map(q => ({ ...q, score: 4 })) } })).status, 200);
+
+// ── Status efektif (T1): jadwal menentukan Terjadwal/Berlangsung/Ditutup ────
+section("Effective status");
+const now = Date.now();
+const schedPeriod = await qprService.createPeriod(realDb, { title: "Status efektif", questions: [QUESTIONS[0]], userId: "u-bph", opens_at: new Date(now + 3_600_000).toISOString(), closes_at: new Date(now + 86_400_000).toISOString() });
+await qprService.addEntries(realDb, schedPeriod.id, [{ name: "Status Responden" }]);
+await qprService.setStatus(realDb, schedPeriod.id, "open");
+const schedList = (await h.req(`${ADMIN}/periods`, { token: "tok-bph" })).body?.data?.find((p: any) => p.id === schedPeriod.id);
+eq("open + opens_at future = scheduled", schedList?.effective_status, "scheduled");
+const schedRoster = await h.req(`${PUB}/${schedPeriod.id}`);
+eq("scheduled roster 404 with belum-dibuka message", [schedRoster.status, schedRoster.body?.message?.includes("belum dibuka")], [404, true]);
+await h.sql(`UPDATE qpr_periods SET opens_at=?, closes_at=? WHERE id=?`, new Date(now - 3_600_000).toISOString(), new Date(now + 3_600_000).toISOString(), schedPeriod.id);
+const openList = (await h.req(`${ADMIN}/periods`, { token: "tok-bph" })).body?.data?.find((p: any) => p.id === schedPeriod.id);
+eq("open inside window = open", openList?.effective_status, "open");
+await h.sql(`UPDATE qpr_periods SET closes_at=? WHERE id=?`, new Date(now - 1_000).toISOString(), schedPeriod.id);
+const pastList = (await h.req(`${ADMIN}/periods`, { token: "tok-bph" })).body?.data?.find((p: any) => p.id === schedPeriod.id);
+eq("open past closes_at = closed", pastList?.effective_status, "closed");
+const pastRoster = await h.req(`${PUB}/${schedPeriod.id}`);
+eq("expired roster 404 with ditutup message", [pastRoster.status, pastRoster.body?.message?.includes("sudah ditutup")], [404, true]);
+// Tutup manual mengalahkan jadwal: status closed tetap closed meski jendela aktif.
+await h.sql(`UPDATE qpr_periods SET status='closed', closes_at=? WHERE id=?`, new Date(now + 3_600_000).toISOString(), schedPeriod.id);
+const closedList = (await h.req(`${ADMIN}/periods`, { token: "tok-bph" })).body?.data?.find((p: any) => p.id === schedPeriod.id);
+eq("manual closed beats schedule", closedList?.effective_status, "closed");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.
