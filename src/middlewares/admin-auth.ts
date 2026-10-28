@@ -2,6 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { eq } from "drizzle-orm";
 import { ApiError } from "../shared/api-error";
+import { allowsDevPanelOrigin } from "../shared/panel-origin";
 import { cmsMemberships, divisions } from "../db/schema";
 import { ROLE_PERMISSIONS } from "../shared/permissions";
 import type { AppContext, UserMembership } from "../types";
@@ -17,8 +18,12 @@ export const adminAuth: MiddlewareHandler<AppContext> = async (c, next) => {
 	if (authHeader === "Bearer panel-session") {
 		const origin = c.req.header("Origin");
 		const ownOrigin = new URL(c.req.url).origin;
-		if ((origin && origin !== ownOrigin) ||
-			(!["GET", "HEAD"].includes(c.req.method) && origin !== ownOrigin) ||
+		// Dev lokal: Vite proxy meneruskan Origin asli browser (:5189) sementara
+		// origin request sudah ditulis ulang ke Worker (:8791). Lihat
+		// shared/panel-origin.ts — pengecualian ini mati di production.
+		const devPanel = allowsDevPanelOrigin(c.env, c.req.url, origin);
+		if ((origin && origin !== ownOrigin && !devPanel) ||
+			(!["GET", "HEAD"].includes(c.req.method) && origin !== ownOrigin && !devPanel) ||
 			c.req.header("Sec-Fetch-Site") === "cross-site") {
 			throw ApiError.forbidden("Invalid session request origin");
 		}

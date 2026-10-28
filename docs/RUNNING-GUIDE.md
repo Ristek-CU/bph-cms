@@ -230,6 +230,35 @@ npx wrangler login
 
 Kalau `AUTH_SERVICE` tampil `[not connected]` di local dev, endpoint admin/login bisa gagal. Endpoint publik dan build tetap bisa dites, tetapi login admin perlu auth service lokal/remote yang benar.
 
+#### Login panel lokal (Vite + wrangler dev)
+
+Panel dev berjalan di port Vite (mis. `:5189`) dan mem-proxy `/api/v1` ke `:8791`.
+Ada dua jebakan yang membuat login lokal gagal padahal di production normal:
+
+1. **`Invalid session request origin` (403).** Vite menulis ulang `Host` menjadi
+   origin Worker (`changeOrigin: true`) tetapi meneruskan `Origin` asli browser
+   (`:5189`). Guard `panelOrigin` / `adminAuth` membandingkan `Origin` dengan origin
+   request, jadi selalu beda. Pengecualiannya dibatasi di `src/shared/panel-origin.ts`:
+   hanya aktif bila `ALLOW_DEV_AUTH=true` **dan** kedua sisi hostname lokal.
+   Tanpa `ALLOW_DEV_AUTH` perbandingan tetap ketat (lihat
+   `src/security.test.ts` → "tanpa ALLOW_DEV_AUTH: Origin beda port tetap 403").
+2. **`Service auth membalas respons non-JSON` (500).** Service binding
+   `AUTH_SERVICE` tidak tersambung. Nyalakan stub lokal di folder gitignored
+   `.wrangler/auth-stub` (namanya sengaja sama dengan `service` di `wrangler.jsonc`
+   supaya terhubung lewat dev registry):
+
+   ```bash
+   cd .wrangler/auth-stub && ../../node_modules/.bin/wrangler dev --port 8899
+   ```
+
+   Stub ini memetakan semua kredensial ke akun BPH dev
+   (`bph@cakrawala.com`, `platform_admin`), jadi password apa pun diterima.
+   Jangan dipakai menguji perilaku otorisasi yang sebenarnya, dan jangan pernah
+   di-deploy.
+
+Setelah keduanya jalan, `POST /api/v1/auth/panel-sign-in` dari halaman login panel
+mengembalikan `200` + cookie `__Host-bph_session`.
+
 Untuk local dev sementara, set `ALLOW_DEV_AUTH=true` di `.dev.vars` agar token `dev-token`
 diterima sebagai BPH bootstrap. Sejak 10 Sep 2026 flag ini **hanya berlaku untuk request
 yang datang lewat hostname lokal**, jadi menyalakannya di production tidak lagi membuka

@@ -10,6 +10,7 @@ import { openAPIRouteHandler, describeRoute, resolver } from "hono-openapi";
 import { successWrapper, errorWrapper, authDataSchema } from "./modules/openapi/schemas";
 import { errorHandler } from "./shared/error-handler";
 import { ApiError } from "./shared/api-error";
+import { allowsDevPanelOrigin } from "./shared/panel-origin";
 import { ApiResponse } from "./shared/api-response";
 import { STATUS_CODES, type StatusCode } from "./shared/status-codes";
 import { dbMiddleware } from "./db/connection";
@@ -263,7 +264,11 @@ const signUpLimiter = d1RateLimiter({
 });
 
 const panelOrigin: Handler<AppContext> = async (c, next) => {
-	if (c.req.header("Origin") !== new URL(c.req.url).origin) {
+	const origin = c.req.header("Origin");
+	// Pengecualian dev: panel Vite mem-proxy ke Worker sehingga Origin (:5189)
+	// tidak sama dengan origin request (:8791). Hanya berlaku saat ALLOW_DEV_AUTH
+	// aktif dan keduanya hostname lokal — production tetap harus sama persis.
+	if (origin !== new URL(c.req.url).origin && !allowsDevPanelOrigin(c.env, c.req.url, origin)) {
 		throw ApiError.forbidden("Invalid session request origin");
 	}
 	return next();

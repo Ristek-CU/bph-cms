@@ -871,6 +871,35 @@ const devLocal = await hDev.req("/api/v1/me", { token: "dev-token", host: "local
 eq("ALLOW_DEV_AUTH=true + host localhost → 200", devLocal.status, 200);
 eq("dev-auth lokal memakai identitas dev", devLocal.body?.data?.user?.email, "bph@cakrawala.com");
 
+// Panel dev: Vite mem-proxy ke Worker sehingga Origin (:5189) ≠ origin request
+// (:8791). Pengecualian ini hanya boleh hidup untuk hostname lokal.
+const devPanelProxyLogin = await hDev.req("/api/v1/auth/panel-sign-in", {
+	method: "POST",
+	host: "localhost",
+	headers: { Origin: "http://localhost:5189" },
+	json: { email: "bph@cakrawala.com", password: "fixture-password" },
+});
+eq("panel dev: Origin port lain tapi host lokal → 200", devPanelProxyLogin.status, 200);
+
+const devPanelProxyLoginRemoteOrigin = await hDev.req("/api/v1/auth/panel-sign-in", {
+	method: "POST",
+	host: "localhost",
+	headers: { Origin: "https://evil.example.com" },
+	json: { email: "bph@cakrawala.com", password: "fixture-password" },
+});
+eq("panel dev: Origin non-lokal tetap 403", devPanelProxyLoginRemoteOrigin.status, 403);
+
+// Tanpa ALLOW_DEV_AUTH (kondisi production): perbandingan origin tetap ketat.
+const hProd = await startHarness();
+const prodPanelProxyLogin = await hProd.req("/api/v1/auth/panel-sign-in", {
+	method: "POST",
+	host: "localhost",
+	headers: { Origin: "http://localhost:5189" },
+	json: { email: "bph@cakrawala.com", password: "fixture-password" },
+});
+eq("tanpa ALLOW_DEV_AUTH: Origin beda port tetap 403", prodPanelProxyLogin.status, 403);
+await hProd.dispose();
+
 await hDev.dispose();
 
 // ─────────────────────────────────────────────────────────────────────────────
