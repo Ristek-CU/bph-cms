@@ -144,7 +144,35 @@ test('offline failure keeps answers and explicit retry uses unchanged version', 
 	await expect(page.getByLabel('Saran Ketua', { exact: true })).toHaveValue('Jawaban offline');
 });
 
- test('already-final retry counts as accepted and same-tick final sends once', async ({ page }) => {
+ test('switching to the next person brings the step heading and first question into view', async ({ page }) => {
+	await page.setViewportSize({ width: 390, height: 640 });
+	await setup(page);
+	const heading = page.getByRole('heading', { name: /^Langkah 1 dari 2:/ });
+	await expect(heading).toBeVisible();
+
+	// Scroll to the end of the section like someone done filling it.
+	await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+	await expect(page.getByRole('heading', { name: /^Langkah 1 dari 2:/ })).toBeVisible();
+	await fillSection(page, 'Ketua');
+	await page.getByRole('button', { name: 'Berikutnya', exact: true }).click();
+
+	// New target: heading + first question must be on screen without manual scrolling.
+	await expect(page.getByRole('heading', { name: /^Langkah 2 dari 2:/ })).toBeVisible();
+	await expect.poll(async () => page.evaluate(() => {
+		const inView = (el) => { const b = el.getBoundingClientRect(); return b.top >= -2 && b.top < window.innerHeight - 40; };
+		const h2 = document.querySelector('.qpr-form-canvas form h2');
+		const first = document.querySelector('.qpr-form-canvas form section .qpr-question');
+		return Boolean(h2 && first && inView(h2) && inView(first));
+	})).toBe(true);
+
+	// The section navigator must stay one compact row instead of pushing content away.
+	expect(await page.evaluate(() => {
+		const nav = document.querySelector('.qpr-section-nav');
+		return nav ? nav.getBoundingClientRect().height : 0;
+	})).toBeLessThanOrEqual(60);
+});
+
+test('already-final retry counts as accepted and same-tick final sends once', async ({ page }) => {
 	const state = await setup(page, { draft: full, alreadyFinal: true });
 	await page.getByRole('checkbox').check();
 	await page.locator('form').evaluate((form) => {

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api, errText } from "../api.js";
 import { Card, SkeletonCard } from "../components/ui.jsx";
-import { QprSection, QprSectionNav, QprReview, QprProgress, complete, targetTitle } from "../components/QprForm.jsx";
+import { QprSection, QprSectionNav, QprReview, QprProgress, complete, targetTitle, QPR_ROLE_LABEL, useStepScroll } from "../components/QprForm.jsx";
 
 const payload = (answers) => Object.entries(answers).map(([question_id, value]) => ({ question_id, value }));
+const isRubric360 = (roster) => roster?.questions?.version === 4;
 
 export default function QprFill({ periodId, initialRoster }) {
 	return <Fill key={periodId} periodId={periodId} initialRoster={initialRoster} />;
@@ -25,6 +26,8 @@ function Fill({ periodId, initialRoster }) {
 	const loading = useRef(null);
 	const form = useRef(null);
 	const heading = useRef(null);
+	const stepBody = useRef(null);
+	const shownSession = useRef(null);
 	const mounted = useRef(true);
 	const [, render] = useState(0);
 
@@ -83,7 +86,9 @@ function Fill({ periodId, initialRoster }) {
 		};
 	}, [periodId]);
 
-	useEffect(() => { heading.current?.focus(); }, [step, session]);
+	// Pindah orang/langkah: fokus ke judul langkah (pembaca layar) lalu gulir ke sana,
+	// supaya pergantian target langsung terlihat. Lihat useStepScroll.
+	useStepScroll({ step, session, headingRef: heading, formRef: form });
 
 	const pick = async (id) => {
 		loading.current?.abort();
@@ -184,7 +189,8 @@ function Fill({ periodId, initialRoster }) {
 	if (done) return <Card><h1>Terima kasih!</h1><p role="status">Penilaian terkirim. Jawabanmu sudah tersimpan. Halaman ini boleh ditutup.</p>{proof && <p className="muted small">Bukti kirim: {new Date(proof).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB</p>}</Card>;
 	if (!roster && !error) return <SkeletonCard lines={5} />;
 	if (!roster) return <Card><p role="alert">{error}</p><button className="btn" onClick={() => window.location.reload()}>Coba lagi</button></Card>;
-	const divisions = [...new Set(roster.remaining.map((r) => r.division || "Belum dipetakan"))];
+	const divisions = [...new Set(roster.remaining.map((r) => r.division || "Pengurus Inti"))];
+	const singleDivision = divisions.length === 1 ? divisions[0] : "";
 	const eff = roster.effective_status ?? roster.status;
 	const sections = session?.sections ?? [];
 	const questions = sections.flatMap((s) => s.questions);
@@ -199,26 +205,29 @@ function Fill({ periodId, initialRoster }) {
 			{roster.description && <p>{roster.description}</p>}
 		<p className="muted small">{roster.opensAt ? `Buka: ${new Date(roster.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : ""}{roster.opensAt && roster.closesAt ? " · " : ""}{roster.closesAt ? `Tutup: ${new Date(roster.closesAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : ""}{!roster.opensAt && !roster.closesAt ? "Tanpa jadwal — tutup manual oleh BPH." : ""}</p>
 		{eff === "scheduled" && <p className="login-notice" role="status">Penilaian belum dibuka. Form dapat diisi mulai {roster.opensAt ? new Date(roster.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : ""} WIB.</p>}
-			<p className="login-notice">Form tanpa login memakai model kejujuran. Pilih nama sendiri. Pemegang tautan yang memilih namamu dapat melihat dan mengubah draftmu. Isian ini bukan anonim atau rahasia; jangan bagikan tautan di luar anggota SGA.</p>
+			<p className="login-notice">Form tanpa login memakai model kejujuran: pilih namamu sendiri. Setelah kamu kirim, jawabanmu dipisahkan dari namamu — BPH melihat hasil secara agregat dan anonim, tetapi tetap bisa melihat nama yang belum mengisi. Jangan bagikan tautan di luar anggota SGA.</p>
 		</header>
 		{!session ? <Card>
 			{!roster.remaining.length ? <p>Semua nama telah mengisi penilaian ini.</p> : <>
-				<label className="field-label" htmlFor="qpr-division">Divisimu</label>
-				<select id="qpr-division" value={division} disabled={busy} onChange={(e) => setDivision(e.target.value)}>
-					<option value="" disabled>Pilih divisi…</option>
-					{divisions.map((d) => <option key={d}>{d}</option>)}
-				</select>
+				{singleDivision ? <p className="muted small">Divisi: <strong>{singleDivision}</strong></p> : <>
+					<label className="field-label" htmlFor="qpr-division">Divisimu</label>
+					<select id="qpr-division" value={division} disabled={busy} onChange={(e) => setDivision(e.target.value)}>
+						<option value="" disabled>Pilih divisi…</option>
+						{divisions.map((d) => <option key={d}>{d}</option>)}
+					</select>
+				</>}
 				<label className="field-label" htmlFor="qpr-name">Namamu</label>
-				<select id="qpr-name" value="" disabled={!division || busy} onChange={(e) => pick(e.target.value)}>
+				<select id="qpr-name" value="" disabled={busy || (!singleDivision && !division)} onChange={(e) => pick(e.target.value)}>
 					<option value="" disabled>Pilih namamu…</option>
-					{roster.remaining.filter((r) => (r.division || "Belum dipetakan") === division).map((r) => <option key={r.id} value={r.id}>{r.display_name || r.name}{r.role ? ` — ${r.role}` : ""}</option>)}
+					{roster.remaining.filter((r) => (r.division || "Pengurus Inti") === (singleDivision || division)).map((r) => <option key={r.id} value={r.id}>{r.display_name || r.name}{r.role ? ` — ${QPR_ROLE_LABEL[r.role] || r.role}` : ""}</option>)}
 				</select>
 			</>}
 			{busy && <p role="status">Memuat draft…</p>}
 		</Card> : <>
 			<Card>
-			<p>Mengisi sebagai <strong>{session.entry.name}</strong> · {session.entry.division} · Jabatan: <strong>{session.entry.role || "Tidak tercantum"}</strong></p>
+			<p>Mengisi sebagai <strong>{session.entry.name}</strong> · {session.entry.division} · Jabatan: <strong>{QPR_ROLE_LABEL[session.entry.role] || session.entry.role || "Tidak tercantum"}</strong></p>
 			<button type="button" className="btn ghost" disabled={busy} onClick={switchName}>Ganti nama</button>
+			{isRubric360(roster) && <p className="muted small">Kamu akan menilai {sections.length} orang. Setiap orang punya pertanyaan yang sama; jawaban tidak ditautkan ke namamu.</p>}
 			<p className="field-help" role="status" aria-live="polite">{status === "saving" ? "Menyimpan…" : status === "saved" ? "Tersimpan" : status === "conflict" ? "Konflik — edit lokal belum tersimpan. Tidak akan menimpa draft server." : status === "error" ? "Gagal tersimpan — edit lokal tetap ada." : ""}</p>
 			<QprProgress filled={filled} total={required.length} />
 			<p className="muted small">Jangan tutup tab sebelum status Tersimpan.</p>

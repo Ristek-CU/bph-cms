@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-import { periodPath, workspace, snapshot, setup } from './fixtures/qpr-admin.js';
+import { periodPath, workspace, snapshot, snapshotV4, setup } from './fixtures/qpr-admin.js';
 
 const tab = (page, name) => page.getByRole('navigation', { name: 'Bagian kampanye' }).getByRole('button', { name, exact: true });
 
@@ -28,6 +28,23 @@ test('campaign links open routed workspace and all five tabs', async ({ page }) 
   await page.getByRole('link', { name: '← Semua kampanye' }).click();
   await page.getByRole('link', { name: 'Rekap', exact: true }).click();
   await expect(tab(page, 'Respons (0)')).toHaveAttribute('aria-current', 'page');
+});
+
+test('360° recap groups questions by category and roster shows managed divisions', async ({ page }) => {
+  const calls = await setup(page, { version: 4, path: `${workspace}?tab=responses` });
+  await expect(page.getByRole('heading', { name: 'Respons kampanye' })).toBeVisible();
+  await expect(page.getByLabel('Target penilaian', { exact: true })).toHaveValue('e1');
+  await expect(page.getByRole('heading', { name: 'Kepemimpinan', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Komunikasi', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Kedisiplinan', exact: true })).toHaveCount(0);
+  await page.getByLabel('Target penilaian', { exact: true }).selectOption('e2');
+  await expect(page.getByRole('heading', { name: 'Kedisiplinan', exact: true })).toBeVisible();
+  expect(calls.some(c => c.path === `${periodPath}/recap-v2`)).toBe(true);
+
+  const rosterCalls = await setup(page, { version: 4, path: `${workspace}?tab=entries` });
+  await expect(page.getByRole('columnheader', { name: 'Divisi diurus' })).toBeVisible();
+  await expect(page.getByRole('row', { name: /Anggota Contoh/ }).getByRole('cell', { name: 'Anggota', exact: true })).toBeVisible();
+  expect(rosterCalls.filter(c => c.method !== 'GET')).toEqual([]);
 });
 
 test('editor adds, reorders, changes type and required flag, then persists exact snapshot contract', async ({ page }) => {
@@ -69,6 +86,67 @@ test('editor adds, reorders, changes type and required flag, then persists exact
   await expect(page.getByLabel('Pertanyaan 3', { exact: true })).toHaveValue('Saran untuk Ketua');
   await expect(page.getByRole('button', { name: 'Simpan form' })).toBeDisabled();
 });
+
+test('division picker is only sent when changed, and create modal offers per-division periods', async ({ page }) => {
+  const calls = await setup(page, { path: `${workspace}?tab=questions` });
+  // Editor: default (tanpa divisi) tidak dikirim pada save metadata biasa.
+  await page.getByLabel('Judul periode', { exact: true }).fill('Metadata divisi');
+  await page.getByRole('button', { name: 'Simpan form' }).click();
+  await expect(page.getByText('Semua perubahan tersimpan', { exact: true })).toBeVisible();
+  const plainPut = calls.filter(c => c.method === 'PUT')[0];
+  expect(plainPut.body.division_slug).toBeUndefined();
+
+  // Mengubah divisi mengirim division_slug pada PUT berikutnya.
+  await page.getByLabel('Divisi penilai', { exact: true }).selectOption('ristek');
+  await page.getByRole('button', { name: 'Simpan form' }).click();
+  await expect.poll(() => calls.filter(c => c.method === 'PUT').length).toBe(2);
+  const divisionPut = calls.filter(c => c.method === 'PUT')[1];
+  expect(divisionPut.body.division_slug).toBe('ristek');
+
+  // Modal periode baru default 360° (kategori, tanpa divisi penilai), dan
+  // divisi penilai kembali muncul untuk jalur non-360°.
+  await page.goto('/#/qpr', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: '+ Periode baru' }).click();
+  await expect(page.getByRole('radio', { name: /Penilaian 360°/ })).toBeChecked();
+  await expect(page.getByLabel('Divisi penilai (opsional)', { exact: true })).toHaveCount(0);
+  await page.getByRole('radio', { name: /Penilaian sederhana/ }).check();
+  await expect(page.getByLabel('Divisi penilai (opsional)', { exact: true })).toBeVisible();
+  await expect(page.getByRole('option', { name: 'Ristek', exact: true })).toHaveCount(1);
+  await page.getByLabel('Judul periode', { exact: true }).fill('QPR Ristek baru');
+  await page.getByLabel('Divisi penilai (opsional)', { exact: true }).selectOption('ukm');
+  await page.getByRole('button', { name: 'Buat periode', exact: true }).click();
+  await expect.poll(() => calls.filter(c => c.method === 'POST' && c.path === '/admin/qpr/periods').length).toBe(1);
+  expect(calls.filter(c => c.method === 'POST' && c.path === '/admin/qpr/periods')[0].body.division_slug).toBe('ukm');
+});
+
+test('360° period create sends default categories and editor persists categories', async ({ page }) => {
+  const calls = await setup(page, { path: '/qpr' });
+  await page.getByRole('button', { name: '+ Periode baru' }).click();
+  await page.getByLabel('Judul periode', { exact: true }).fill('QPR 360 Oktober');
+  await page.getByRole('button', { name: 'Buat periode', exact: true }).click();
+  await expect.poll(() => calls.filter(c => c.method === 'POST' && c.path === '/admin/qpr/periods').length).toBe(1);
+  const create = calls.find(c => c.method === 'POST' && c.path === '/admin/qpr/periods').body;
+  expect(create.form_kind).toBe('division');
+  expect(create.categories.map(c => [c.title, c.questions.length])).toEqual([
+    ['Kepemimpinan', 3], ['Komunikasi', 3], ['Kedisiplinan', 3],
+  ]);
+  expect(create.division_slug).toBeNull();
+
+  const v4 = await setup(page, { version: 4, path: `${workspace}?tab=questions` });
+  await expect(page.getByText(/Setiap pengisi otomatis menilai orang-orang sesuai jabatannya/)).toBeVisible();
+  await expect(page.getByLabel('Nama kategori 1', { exact: true })).toBeVisible();
+  await page.getByLabel('Nama kategori 1', { exact: true }).fill('Integritas');
+  await page.getByLabel('Pertanyaan 1.1', { exact: true }).fill('Menjaga amanah?');
+  await page.getByRole('button', { name: 'Simpan form', exact: true }).click();
+  await expect(page.getByText('Semua perubahan tersimpan', { exact: true })).toBeVisible();
+  const put = v4.find(c => c.method === 'PUT');
+  expect(put.body.categories[0].title).toBe('Integritas');
+  expect(put.body.categories[0].questions[0].label).toBe('Menjaga amanah?');
+  expect(put.body.expected_snapshot).toEqual(snapshotV4);
+  expect(put.body.sections).toBeUndefined();
+  expect(put.body.target_config).toBeUndefined();
+});
+
 
 test('clicking active questions tab preserves dirty edits and later discard confirmation', async ({ page }) => {
   await setup(page, { path: `${workspace}?tab=questions` });
@@ -204,9 +282,10 @@ for (const [name, slug, permission, path] of [
   await expect(page.getByRole('progressbar', { name: 'Progres respons final' })).toHaveAttribute('max', '2');
   await expect(page.getByRole('link', { name: 'Buka form pengisian' })).toHaveAttribute('href', '#/qpr/period-admin');
   if (path !== '/qpr') await expect(page.getByText('Pengelolaan dan hasil QPR khusus BPH.')).toBeVisible();
-  await page.getByLabel('Status', { exact: true }).selectOption('pending');
+  await expect(page.getByText('Hanya nama yang belum mengisi yang ditampilkan. Identitas pengisi tidak ditautkan ke jawaban (hasil anonim).')).toBeVisible();
   await expect(page.getByText('Draft Ristek (anggota) — Belum mengisi')).toBeVisible();
-  await expect(page.getByText('Selesai Ristek (anggota) — Sudah mengisi')).toHaveCount(0);
+  await expect(page.getByText(/Selesai Ristek.*Sudah mengisi/)).toHaveCount(0);
+  await expect(page.getByLabel('Status', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Pengisi Kedua', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Bagian kampanye' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '+ Periode baru' })).toHaveCount(0);

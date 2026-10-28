@@ -431,6 +431,9 @@ export const qprPeriods = sqliteTable(
 		formKind: text("form_kind", { enum: ["legacy", "bph", "division"] })
 			.notNull()
 			.default("legacy"),
+		// Divisi pemilik periode (satu periode QPR = satu divisi). Null = periode
+		// lama / lintas divisi yang belum dipetakan.
+		divisionSlug: text("division_slug"),
 		status: text("status", { enum: ["draft", "open", "closed"] })
 			.notNull()
 			.default("draft"),
@@ -459,6 +462,8 @@ export const qprEntries = sqliteTable(
 		memberRole: text("member_role"), // jabatan organisasi, mis. 'kadiv'
 		divisionSlug: text("division_slug"), // slug divisi kanonis
 		memberKey: text("member_key"), // ID anggota stabil — nama kembar terbedakan
+		// Khusus QPR v4: JSON array slug divisi yang diurus seorang controller.
+		managedDivisions: text("managed_divisions"),
 		done: integer("done", { mode: "boolean" }).notNull().default(false),
 		submittedAt: text("submitted_at"),
 		// Draft autosave lintas perangkat (model kejuhuran: cukup pilih nama).
@@ -487,13 +492,42 @@ export const qprAnswers = sqliteTable(
 	(table) => [uniqueIndex("qpr_answers_entry_unique").on(table.entryId)],
 );
 
+// Jawaban final anonim (snapshot v2/v3): TIDAK ada tautan ke qpr_entries.
+// Partisipasi dilacak terpisah lewat qpr_entries.done, sedangkan isi jawaban
+// hanya bisa diagregasi — BPH tidak dapat memetakan jawaban ke orang.
+// `role` disimpan untuk routing/agregasi per jalur jabatan, bukan identitas.
+export const qprResponses = sqliteTable(
+	"qpr_responses",
+	{
+		id: text("id").primaryKey(),
+		periodId: text("period_id")
+			.notNull()
+			.references(() => qprPeriods.id, { onDelete: "cascade" }),
+		role: text("role"),
+		divisionSlug: text("division_slug"),
+		// JSON array [{ question_id, value }]
+		answers: text("answers").notNull(),
+		// v4: ID roster orang-orang yang dinilai respons ini (JSON array teks).
+		// Tanpa nama, hanya untuk memetakan pertanyaan ke target saat rekap.
+		targetIds: text("target_ids"),
+		scoreTotal: integer("score_total").notNull().default(0),
+		submittedAt: text("submitted_at").notNull(),
+	},
+	(table) => [index("qpr_responses_period_idx").on(table.periodId)],
+);
+
 export const qprPeriodsRelations = relations(qprPeriods, ({ many }) => ({
 	entries: many(qprEntries),
+	responses: many(qprResponses),
 }));
 
 export const qprEntriesRelations = relations(qprEntries, ({ one, many }) => ({
 	period: one(qprPeriods, { fields: [qprEntries.periodId], references: [qprPeriods.id] }),
 	answers: many(qprAnswers),
+}));
+
+export const qprResponsesRelations = relations(qprResponses, ({ one }) => ({
+	period: one(qprPeriods, { fields: [qprResponses.periodId], references: [qprPeriods.id] }),
 }));
 
 // ---- Roro AI assistant — percakapan per akun, memori, kuota (RORO-PLAN.md). ----

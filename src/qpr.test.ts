@@ -397,13 +397,25 @@ await h.req(`${PUB}/${rPid}/entries/${rIds[3]}/draft`, { method: "PUT", json: { 
 const rv2 = await h.req(`${ADMIN}/periods/${rPid}/recap-v2`, { token: "tok-bph" });
 eq("recap-v2 → 200", rv2.status, 200);
 eq("done 3", rv2.body?.data?.done_entries, 3);
+// Kontrak anonim: rekap tidak boleh mengekspos pemetaan jawaban → orang.
+ok("rekap tanpa daftar responden", rv2.body?.data?.respondents === undefined, Object.keys(rv2.body?.data ?? {}));
+const rRecapJson = JSON.stringify(rv2.body?.data ?? {});
+ok("rekap tidak memuat nama pengisi final", !["R1", "R2", "R3"].some((n) => rRecapJson.includes(`"${n}"`)), rRecapJson.slice(0, 400));
+ok("pending tetap berisi nama yang belum mengisi", rv2.body?.data?.pending?.length === 2, rv2.body?.data?.pending);
 const rSection = rv2.body?.data?.sections?.find((s: any) => s.target_id === "ketum");
 const rQ = rSection?.questions?.find((q: any) => q.id === firstScale.id);
 ok("distribusi 1/4/5 masing-masing 1", rQ?.distribution?.filter((d: any) => d.count > 0).length === 3 && rQ.distribution.every((d: any) => [1, 4, 5].includes(d.value) ? d.count === 1 : d.count === 0), rQ?.distribution);
 eq("mean 3.33", rQ?.mean, 3.33);
 eq("denominator 3 (bukan 4 — draft tidak dihitung)", rQ?.responses, 3);
+// Poin = akumulasi nilai skala 1–5 pada jalur responden; teks tidak menyumbang.
+const rScaleCount = rQuestions.filter((q: any) => q.type === "scale").length;
+ok("agregat poin anonim (mean/max/min dari 3 respons)", rv2.body?.data?.score_total?.responses === 3
+	&& rv2.body?.data?.score_total?.mean === Math.round(rScaleCount * ((1 + 4 + 5) / 3) * 100) / 100
+	&& rv2.body?.data?.score_total?.max === rScaleCount * 5
+	&& rv2.body?.data?.score_total?.min === rScaleCount * 1, rv2.body?.data?.score_total);
 const rText = rSection?.questions?.find((q: any) => q.type === "text");
 ok("teks terkumpul 3", rText?.texts?.length === 3, rText?.texts);
+ok("rekap teks tanpa identitas pengisi", rText?.text_responses === undefined, rText && Object.keys(rText));
 
 // Legacy periode → recap-v2 menolak (arahkan ke recap lama)
 const legacyRecap = await h.req(`${ADMIN}/periods/legacy-periode-1/recap-v2`, { token: "tok-bph" });
@@ -415,6 +427,10 @@ const csvText = typeof csvRes.body === "string" ? csvRes.body : "";
 ok("CSV 3 baris data + header", csvText.split("\r\n").length === 4, csvText.split("\r\n").length);
 	ok("kolom header pakai question_id unik", csvText.replace(/^\ufeff/, "").startsWith("\"waktu_kirim\"") && csvText.includes(firstScale.id));
 ok("hanya 3 baris final (draft tidak diekspor)", !csvText.includes("R4 Draft"));
+// Anonim: tanpa kolom identitas, dan tidak ada nama pengisi di seluruh isi CSV.
+const csvHeader = csvText.replace(/^\ufeff/, "").split("\r\n")[0];
+ok("CSV tanpa kolom nama/divisi/jabatan/role", !/"(nama|divisi|jabatan|role)"/.test(csvHeader), csvHeader);
+ok("CSV tanpa nama pengisi", !["R1", "R2", "R3"].some((n) => csvText.includes(`"${n}"`)), csvText);
 
 // Formula injection: teks berawalan = + - @ di-quote+prefix ' oleh Excel
 const injId = rEntries.body?.data?.find((e: any) => e.name === "=INJECT")?.id;
@@ -509,6 +525,16 @@ eq("controller2 also rated by same kadiv",recap3.body.data.sections.find((s:any)
 const csv3=await h.req(`${ADMIN}/periods/${v3id}/export`,{token:"tok-bph"});
 ok("CSV target ID label header",csv3.body.includes('Nama sintetis controller1 | controller1-s01 | Controller'));
 ok("CSV multiline quote Unicode preserved",csv3.body.includes('Unicode 你好, ""quote""\nnext'));
+// Invarian anonim di level DB: jawaban final tidak punya jalur ke nama pengisi.
+const respSchema=await h.sql(`PRAGMA table_info(qpr_responses)`);
+ok("qpr_responses tanpa kolom entry_id/nama",!respSchema.some((c:any)=>["entry_id","name","member_key","member_id"].includes(c.name)),respSchema.map((c:any)=>c.name));
+const resp3=await h.sql(`SELECT id,period_id,role,division_slug,score_total FROM qpr_responses WHERE period_id=?`,v3id);
+eq("satu respons anonim tersimpan",resp3.length,1);
+ok("respons anonim tidak menyimpan nama",!JSON.stringify(resp3).includes("Kadiv A"),resp3);
+const answer3=await h.sql(`SELECT answers FROM qpr_answers a JOIN qpr_entries e ON e.id=a.entry_id WHERE e.id=?`,findV3("ka").id);
+eq("qpr_answers periode snapshot hanya baris penanda",JSON.parse(answer3[0].answers),[]);
+const csv3NoName=!["Kadiv A","Kadiv B","Bendiv","Sekdiv"].some((n)=>csv3.body.includes(n));
+ok("CSV v3 tanpa nama pengisi",csv3NoName,csv3.body.slice(0,300));
 await h.req(`${ADMIN}/periods/${v3id}/close`,{token:"tok-bph",method:"POST"});
 eq("reopen frozen valid snapshot",(await h.req(`${ADMIN}/periods/${v3id}/open`,{token:"tok-bph",method:"POST"})).status,200);
 
@@ -633,13 +659,18 @@ let duplicateLegacy:any;
 try{await qprService.submitPublic(realDb,legacyDupPeriod.id,{name:"Legacy Same",answers:[{...QUESTIONS[0],score:4},{...QUESTIONS[0],score:5}]});}catch(e){duplicateLegacy=e;}
 eq("legacy final duplicate rejected",duplicateLegacy?.statusCode,422);
 // Superset recap/export query uses one JSON binding, not one per entry.
+// Anonim: 100 final disimulasikan di qpr_responses (tanpa entry_id), sama
+// seperti hasil submit sebenarnya untuk periode snapshot.
 const largeRows=await h.sql(`SELECT id FROM qpr_entries WHERE period_id=?`,large.id);
 for(const e of largeRows){
- await h.sql(`UPDATE qpr_entries SET done=1 WHERE id=?`,e.id);
- await h.sql(`INSERT INTO qpr_answers(id,entry_id,answers,submitted_at) VALUES (?,?,?,?)`,`answer-${e.id}`,e.id,JSON.stringify(full(offsetDraft)),new Date().toISOString());
+ await h.sql(`UPDATE qpr_entries SET done=1, submitted_at=? WHERE id=?`,new Date().toISOString(),e.id);
+ await h.sql(`INSERT INTO qpr_responses(id,period_id,role,division_slug,answers,score_total,submitted_at) VALUES (?,?,?,?,?,?,?)`,
+  `response-${e.id}`,large.id,"anggota","ristek",JSON.stringify(full(offsetDraft).map((a:any)=>({question_id:a.question_id,value:a.value}))),0,new Date().toISOString());
 }
 eq("100-final recap avoids D1 bind ceiling",(await qprService.recapV2(realDb,large.id)).done_entries,100);
-ok("100-final CSV avoids D1 bind ceiling",(await qprService.exportCsv(realDb,large.id)).csv.includes("Member 99"));
+const largeCsv=(await qprService.exportCsv(realDb,large.id)).csv;
+ok("100-final CSV avoids D1 bind ceiling",largeCsv.split("\r\n").length===101,largeCsv.split("\r\n").length);
+ok("CSV anonim: tanpa nama pengisi",!largeCsv.includes("Member 99")&&!/\bMember \d+\b/.test(largeCsv));
 
 section("Full v3 questionnaire mutation");
 const editable = await qprService.createPeriod(realDb, { form_kind: "bph", title: "Editable v3", target_config: config, userId: "u-bph" });
@@ -757,6 +788,111 @@ eq("direct update duplicate pair rejected", duplicateUpdate?.statusCode, 422);
 await qprService.addEntries(realDb, pairPeriod.id, [{ name: "Pair respondent" }]);
 await qprService.setStatus(realDb, pairPeriod.id, "open");
 eq("same label different categories submit succeeds", (await h.req(`${PUB}/${pairPeriod.id}/submit`, { method: "POST", json: { name: "Pair respondent", answers: pairQuestions.map(q => ({ ...q, score: 4 })) } })).status, 200);
+
+// ── QPR v4: rubrik 360° (kategori + routing dari roster) ────────────────────
+section("QPR v4 rubrik 360°");
+const TOPIC_CATEGORIES = [
+	{ title: "Kepemimpinan", scope: "all", questions: [{ type: "scale", label: "Memberi arahan yang jelas", required: true }] },
+	{ title: "Komunikasi", scope: "all", questions: [{ type: "scale", label: "Mudah diajak berdiskusi", required: true }] },
+	{ title: "Kedisiplinan", scope: "positions", questions: [{ type: "text", label: "Satu hal yang perlu diperbaiki", required: true }] },
+];
+const v4 = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "division", title: "QPR 360 Oktober 2026", categories: TOPIC_CATEGORIES } });
+eq("v4 create with categories", v4.status, 201);
+const v4id = v4.body.data.id;
+eq("v4 snapshot version", v4.body.data.questions.version, 4);
+eq("v4 category questions kept", v4.body.data.questions.categories.map((c: any) => [c.title, c.scope, c.questions.length]), [["Kepemimpinan", "all", 1], ["Komunikasi", "all", 1], ["Kedisiplinan", "positions", 1]]);
+eq("v4 create without categories rejected", (await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "division", title: "Tanpa kategori" } })).status, 422);
+
+// Roster: president, VP, 2 controller (satu mengurus 2 divisi), sekum, bendum,
+// kadiv/wakadiv/sekdiv/bendiv/anggota ristek, anggota ukm.
+const rosterItems = [
+	{ name: "Presiden Satu", role: "president" },
+	{ name: "Wapres Satu", role: "vice_president" },
+	{ name: "Controller Ristek UKM", role: "controller", division_slug: "ristek", manages: ["ristek", "ukm"] },
+	{ name: "Controller Media", role: "controller", division_slug: "media", manages: ["media"] },
+	{ name: "Sekum Satu", role: "sekum", division_slug: "bph" },
+	{ name: "Bendum Satu", role: "bendum", division_slug: "bph" },
+	{ name: "Kadiv Ristek", role: "kadiv", division_slug: "ristek" },
+	{ name: "Wakadiv Ristek", role: "wakadiv", division_slug: "ristek" },
+	{ name: "Sekdiv Ristek", role: "sekdiv", division_slug: "ristek" },
+	{ name: "Bendiv Ristek", role: "bendiv", division_slug: "ristek" },
+	{ name: "Anggota Ristek", role: "anggota", division_slug: "ristek" },
+	{ name: "Anggota UKM", role: "anggota", division_slug: "ukm" },
+];
+eq("v4 controller without manages rejected", (await h.req(`${ADMIN}/periods/${v4id}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "Controller Tanpa Divisi", role: "controller", division_slug: "ristek" }] } })).status, 422);
+eq("v4 manages only for controller", (await h.req(`${ADMIN}/periods/${v4id}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "Kadiv Salah", role: "kadiv", division_slug: "ristek", manages: ["ukm"] }] } })).status, 422);
+eq("v4 non-leader needs division", (await h.req(`${ADMIN}/periods/${v4id}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "Tanpa Divisi", role: "kadiv" }] } })).status, 422);
+const v4rows = await h.req(`${ADMIN}/periods/${v4id}/entries`, { token: "tok-bph", method: "POST", json: { entries: rosterItems } });
+eq("v4 roster accepted", v4rows.status, 201);
+const v4entry = (name: string) => v4rows.body.data.find((e: any) => e.name === name);
+eq("v4 controller manages persisted", JSON.parse(v4entry("Controller Ristek UKM").managedDivisions), ["ristek", "ukm"]);
+
+const v4preview = await h.req(`${ADMIN}/periods/${v4id}/preview`, { token: "tok-bph" });
+eq("v4 preview no blockers", v4preview.body.data.blockers, []);
+const targetsOf = (name: string) => v4preview.body.data.entries.find((e: any) => e.name === name).targets.map((id: string) => v4rows.body.data.find((e: any) => e.id === id).name).sort();
+eq("president assesses executive board", targetsOf("Presiden Satu"), ["Bendum Satu", "Controller Media", "Controller Ristek UKM", "Sekum Satu"]);
+eq("vp assesses executive board", targetsOf("Wapres Satu"), ["Bendum Satu", "Controller Media", "Controller Ristek UKM", "Sekum Satu"]);
+eq("controller assesses leaders + heads it manages", targetsOf("Controller Ristek UKM"), ["Kadiv Ristek", "Presiden Satu", "Wakadiv Ristek", "Wapres Satu"]);
+eq("controller media only assesses leaders", targetsOf("Controller Media"), ["Presiden Satu", "Wapres Satu"]);
+eq("sekum assesses all sekdiv", targetsOf("Sekum Satu"), ["Presiden Satu", "Sekdiv Ristek", "Wapres Satu"]);
+eq("bendum assesses all bendiv", targetsOf("Bendum Satu"), ["Bendiv Ristek", "Presiden Satu", "Wapres Satu"]);
+eq("sekdiv assesses sekum + own division heads", targetsOf("Sekdiv Ristek"), ["Kadiv Ristek", "Presiden Satu", "Sekum Satu", "Wakadiv Ristek", "Wapres Satu"]);
+eq("bendiv assesses bendum + own division heads", targetsOf("Bendiv Ristek"), ["Bendum Satu", "Kadiv Ristek", "Presiden Satu", "Wakadiv Ristek", "Wapres Satu"]);
+eq("kadiv assesses members incl. sekdiv/bendiv + leaders + managing controller", targetsOf("Kadiv Ristek"), ["Anggota Ristek", "Bendiv Ristek", "Controller Ristek UKM", "Presiden Satu", "Sekdiv Ristek", "Wapres Satu"]);
+eq("anggota assesses leaders + its division heads", targetsOf("Anggota UKM"), ["Presiden Satu", "Wapres Satu"]);
+eq("self assessment never included", v4preview.body.data.entries.every((e: any) => !e.targets.includes(e.id)), true);
+const v4required = (name: string) => v4preview.body.data.entries.find((e: any) => e.name === name).required;
+eq("v4 positions category skipped for member targets", [v4required("Anggota Ristek"), v4required("Kadiv Ristek")], [12, 17]);
+eq("v4 member path groups questions by category", v4preview.body.data.entries.find((e: any) => e.name === "Kadiv Ristek").sections.find((s: any) => s.targetLabel === "Anggota Ristek").questions.map((q: any) => q.category), ["Kepemimpinan", "Komunikasi"]);
+
+eq("v4 open", (await h.req(`${ADMIN}/periods/${v4id}/open`, { token: "tok-bph", method: "POST" })).status, 200);
+eq("v4 roster frozen after open", (await h.req(`${ADMIN}/periods/${v4id}/entries`, { token: "tok-bph", method: "POST", json: { entries: rosterItems } })).status, 409);
+eq("v4 snapshot frozen after open", (await h.req(`${ADMIN}/periods/${v4id}`, { token: "tok-bph", method: "PUT", json: { categories: v4.body.data.questions.categories, expected_snapshot: v4.body.data.questions } })).status, 409);
+
+const memberDraft = (await h.req(`${PUB}/${v4id}/entries/${v4entry("Anggota Ristek").id}/draft`)).body.data;
+eq("v4 member final accepted", (await h.req(`${PUB}/${v4id}/submit-v2`, { method: "POST", json: { entry_id: v4entry("Anggota Ristek").id, expected_version: 0, answers: full(memberDraft) } })).status, 200);
+const v4resp = await h.sql(`SELECT role, division_slug, target_ids, score_total, answers FROM qpr_responses WHERE period_id=?`, v4id);
+eq("v4 response stored anonymously", { role: v4resp[0].role, division: v4resp[0].division_slug, score: v4resp[0].score_total }, { role: "anggota", division: "ristek", score: 32 });
+ok("v4 response names no respondent", !String(v4resp[0].answers).includes("Anggota Ristek") && !String(v4resp[0].answers).includes(v4entry("Anggota Ristek").id));
+eq("v4 target_ids maps assessed people", (JSON.parse(v4resp[0].target_ids) as string[]).map((id) => v4rows.body.data.find((e: any) => e.id === id).name).sort(), ["Kadiv Ristek", "Presiden Satu", "Wakadiv Ristek", "Wapres Satu"]);
+
+const v4recap = await h.req(`${ADMIN}/periods/${v4id}/recap-v2`, { token: "tok-bph" });
+eq("v4 recap lists every assessable person", v4recap.body.data.sections.length, rosterItems.length);
+const kadivRecap = v4recap.body.data.sections.find((s: any) => s.target_label === "Kadiv Ristek");
+eq("v4 recap aggregates per target", kadivRecap.questions.filter((q: any) => q.type === "scale").map((q: any) => [q.category, q.responses, q.mean]), [["Kepemimpinan", 1, 4], ["Komunikasi", 1, 4]]);
+const presidentRecap = v4recap.body.data.sections.find((s: any) => s.target_label === "Presiden Satu");
+eq("v4 recap top-level target includes member scores", presidentRecap.questions.map((q: any) => [q.category, q.responses]), [["Kepemimpinan", 1], ["Komunikasi", 1], ["Kedisiplinan", 1]]);
+const v4csv = await h.req(`${ADMIN}/periods/${v4id}/export`, { token: "tok-bph" });
+const v4csvText = typeof v4csv.body === "string" ? v4csv.body : "";
+ok("v4 export header names assessee", v4csvText.includes("Kadiv Ristek") && v4csvText.split("\r\n").length === 2);
+ok("v4 export includes per-target question ids", v4csvText.includes(`${v4entry("Kadiv Ristek").id}~cat-1-q1`));
+
+// Blocker: roster tanpa president tidak boleh dibuka.
+const noLeader = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "division", title: "QPR tanpa presiden", categories: TOPIC_CATEGORIES } });
+const noLeaderId = noLeader.body.data.id;
+await h.req(`${ADMIN}/periods/${noLeaderId}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "Kadiv Tanpa Presiden", role: "kadiv", division_slug: "ristek" }] } });
+const noLeaderPreview = await h.req(`${ADMIN}/periods/${noLeaderId}/preview`, { token: "tok-bph" });
+ok("v4 blocker: missing president", noLeaderPreview.body.data.blockers.some((b: string) => b.includes("President")));
+ok("v4 blocker: no person actually assessable", noLeaderPreview.body.data.blockers.some((b: string) => b.includes("belum ada target")));
+eq("v4 open blocked by roster blockers", (await h.req(`${ADMIN}/periods/${noLeaderId}/open`, { token: "tok-bph", method: "POST" })).status, 422);
+
+// Editor kategori: ganti seluruh daftar kategori sebelum dibuka.
+const editableV4 = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "division", title: "QPR editor kategori", categories: TOPIC_CATEGORIES } });
+const editableV4Id = editableV4.body.data.id;
+const editedCategories = [
+	{ id: "cat-1", title: "Visi", scope: "all", questions: [{ id: "cat-1-q1", type: "scale", label: "Visi jelas?", required: true }] },
+	{ id: "cat-2", title: "Etika", scope: "positions", questions: [
+		{ id: "cat-2-q1", type: "text", label: "Contoh etika baik?", required: true },
+		{ id: "cat-2-q2", type: "text", label: "Perbaikan etika?", required: false },
+	] },
+];
+const editV4 = await h.req(`${ADMIN}/periods/${editableV4Id}`, { token: "tok-bph", method: "PUT", json: { categories: editedCategories, expected_snapshot: editableV4.body.data.questions } });
+eq("v4 category edit accepted", editV4.status, 200);
+eq("v4 category edit replaces list", editV4.body.data.questions.categories.map((c: any) => [c.title, c.scope, c.questions.length]), [["Visi", "all", 1], ["Etika", "positions", 2]]);
+eq("v4 stale category baseline rejected", (await h.req(`${ADMIN}/periods/${editableV4Id}`, { token: "tok-bph", method: "PUT", json: { categories: editedCategories, expected_snapshot: editableV4.body.data.questions } })).status, 409);
+eq("v4 category edit needs baseline", (await h.req(`${ADMIN}/periods/${editableV4Id}`, { token: "tok-bph", method: "PUT", json: { categories: editedCategories } })).status, 422);
+eq("v4 categories cannot mix with target_config", (await h.req(`${ADMIN}/periods/${editableV4Id}`, { token: "tok-bph", method: "PUT", json: { categories: editedCategories, expected_snapshot: editV4.body.data.questions, target_config: config } })).status, 422);
+eq("v4 empty category title rejected", (await h.req(`${ADMIN}/periods/${editableV4Id}`, { token: "tok-bph", method: "PUT", json: { categories: [{ title: "  ", scope: "all", questions: [] }], expected_snapshot: editV4.body.data.questions } })).status, 422);
 
 // ── Status efektif (T1): jadwal menentukan Terjadwal/Berlangsung/Ditutup ────
 section("Effective status");

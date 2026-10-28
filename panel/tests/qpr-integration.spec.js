@@ -91,7 +91,7 @@ test('BPH membuat, tamu melanjutkan lintas browser, divisi hanya melihat status'
 		await expect(fill.getByRole('option', { name: /Pengisi Ristek/ })).toHaveCount(0);
 
 		await page.getByRole('button', { name: /^Respons/ }).click();
-		await expect(page.getByText('Rekap — 1/2 sudah isi')).toBeVisible();
+		await expect(page.getByText(/Rekap — 1\/2 sudah isi · hasil anonim/)).toBeVisible();
 		const download = page.waitForEvent('download');
 		await page.getByRole('button', { name: 'Ekspor CSV', exact: true }).click();
 		expect((await download).suggestedFilename()).toMatch(/\.csv$/);
@@ -99,7 +99,10 @@ test('BPH membuat, tamu melanjutkan lintas browser, divisi hanya melihat status'
 		const status = await division.newPage();
 		await login(status, 'admin.a@example.com', 'fixture-password');
 		await expect(status.getByRole('heading', { name: 'Status pengisian QPR' })).toBeVisible();
-		await expect(status.getByText(/Pengisi Ristek.*Sudah mengisi/)).toBeVisible();
+		// Anonim: pengisi yang sudah mengirim tidak lagi dienumerasi, jadi daftar
+		// hanya berisi nama yang belum mengisi (dan di sini sudah kosong).
+		await expect(status.getByText('Semua anggota sudah mengisi.')).toBeVisible();
+		await expect(status.getByText(/Pengisi Ristek/)).toHaveCount(0);
 		await expect(status.getByText(/Pengisi UKM/)).toHaveCount(0);
 		await expect(status.getByRole('button', { name: '+ Periode baru' })).toHaveCount(0);
 		const denied = await status.evaluate(async (id) => {

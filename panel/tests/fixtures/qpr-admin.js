@@ -10,18 +10,57 @@ export const snapshot = {
   routing: Object.fromEntries(['anggota', 'controller', 'sekum', 'bendum', 'kadiv', 'wakadiv', 'bendiv', 'sekdiv'].map(role => [role, ['ketum']])),
 };
 
-export async function setup(page, { slug = 'bph', permission = true, frozen = false, path = '/qpr', blockers = [] } = {}) {
+// Rubrik 360° (v4): kategori pertanyaan + routing dihitung server dari roster.
+export const snapshotV4 = {
+  version: 4,
+  categories: [
+    { id: 'cat-1', title: 'Kepemimpinan', scope: 'all', questions: [
+      { id: 'cat-1-q1', label: 'Memberi arahan jelas?', type: 'scale', required: true },
+    ] },
+    { id: 'cat-2', title: 'Komunikasi', scope: 'all', questions: [
+      { id: 'cat-2-q1', label: 'Mudah diajak diskusi?', type: 'scale', required: true },
+    ] },
+    { id: 'cat-3', title: 'Kedisiplinan', scope: 'positions', questions: [
+      { id: 'cat-3-q1', label: 'Satu hal yang perlu diperbaiki', type: 'text', required: true },
+    ] },
+  ],
+};
+
+/** Satu orang yang dinilai beserta pertanyaan kategorinya (dipakai preview/rekap). */
+function targetSection(target, { includePositions = true } = {}) {
+  return {
+    id: target.id, title: target.sectionTitle, targetId: target.id, targetLabel: target.name,
+    questions: snapshotV4.categories.filter(c => includePositions || c.scope === 'all').flatMap(category =>
+      category.questions.map(q => ({
+        ...q, id: `${target.id}~${q.id}`, category: category.title, category_id: category.id,
+        ...(q.type === 'scale' ? { responses: 0, mean: null, distribution: [] } : { responses: 0, texts: [] }),
+      }))),
+  };
+}
+
+export async function setup(page, {
+  slug = 'bph', permission = true, frozen = false, path = '/qpr', blockers = [], version = 3,
+} = {}) {
   const calls = [];
+  const rubric = version === 4;
+  const roster = rubric ? [
+    { id: 'e1', name: 'Anggota Contoh', divisionSlug: 'ristek', division: 'Ristek', memberRole: 'anggota', memberKey: 'member-1', managedDivisions: [], done: false, sectionTitle: 'Anggota — Ristek' },
+    { id: 'e2', name: 'Pengisi Kedua', divisionSlug: 'media', division: 'Media', memberRole: 'kadiv', memberKey: 'member-2', managedDivisions: [], done: frozen, sectionTitle: 'Kepala Divisi — Media' },
+  ] : [
+    { id: 'e1', name: 'Anggota Contoh', divisionSlug: 'ristek', memberRole: 'anggota', memberKey: 'member-1', done: false },
+    { id: 'e2', name: 'Pengisi Kedua', divisionSlug: 'media', memberRole: 'anggota', memberKey: 'member-2', done: frozen },
+  ];
   const period = {
     id: 'period-admin', title: 'Periode Contoh', description: 'Evaluasi Oktober', status: frozen ? 'closed' : 'draft',
     total_entries: 2, done_entries: frozen ? 1 : 0, pending_entries: frozen ? 1 : 2,
     firstOpenedAt: frozen ? '2026-10-01T00:00:00Z' : null, updatedAt: '2026-10-01T00:00:00Z',
-    opensAt: '2026-10-01T08:00:00Z', closesAt: '2026-10-31T08:00:00Z', questions: structuredClone(snapshot),
-    entries: [
-      { id: 'e1', name: 'Anggota Contoh', divisionSlug: 'ristek', memberRole: 'anggota', memberKey: 'member-1', done: false },
-      { id: 'e2', name: 'Pengisi Kedua', divisionSlug: 'media', memberRole: 'anggota', memberKey: 'member-2', done: frozen },
-    ],
+    opensAt: '2026-10-01T08:00:00Z', closesAt: '2026-10-31T08:00:00Z',
+    questions: structuredClone(rubric ? snapshotV4 : snapshot),
+    entries: roster,
   };
+  const sectionsFor = (entry) => rubric
+    ? [targetSection({ id: 'e2', name: 'Pengisi Kedua', sectionTitle: 'Kepala Divisi — Media' }, { includePositions: entry.memberRole !== 'anggota' })]
+    : period.questions.sections;
   await page.addInitScript(() => {
     sessionStorage.setItem('bph_cms_token', 'panel-session');
     localStorage.setItem('bph_cms_workspace', 'panel-session');
@@ -40,25 +79,48 @@ export async function setup(page, { slug = 'bph', permission = true, frozen = fa
     if (path === '/qpr-participation') return reply([{ id: period.id, title: period.title, status: 'open' }]);
     if (path === '/qpr-participation/period-admin') return reply({
       period: { id: period.id, title: period.title, status: 'open' }, total_entries: 2, done_entries: 1, pending_entries: 1,
-      entries: [{ name: 'Selesai Ristek', role: 'anggota', done: true }, { name: 'Draft Ristek', role: 'anggota', done: false }],
+      entries: [{ name: 'Draft Ristek', role: 'anggota' }],
     });
     if (path === '/admin/qpr/periods' && method === 'GET') return reply([period]);
+    if (path === '/admin/qpr/periods' && method === 'POST') {
+      if (body.form_kind === 'division' && !body.categories?.length) {
+        return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message: 'Kategori penilaian wajib diisi minimal satu' } }) });
+      }
+      if (body.categories) period.questions = { version: 4, categories: body.categories.map((c, i) => ({ id: `cat-${i + 1}`, ...c })) };
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ success: true, data: { ...period, id: period.id, title: body.title, divisionSlug: body.division_slug ?? null } }) });
+    }
     if (path === periodPath && method === 'PUT') {
       if (body.sections && JSON.stringify(body.expected_snapshot) !== JSON.stringify(period.questions)) {
         return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message: 'Snapshot changed; reload before saving' } }) });
       }
+      if (body.categories && JSON.stringify(body.expected_snapshot) !== JSON.stringify(period.questions)) {
+        return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message: 'Snapshot changed; reload before saving' } }) });
+      }
       Object.assign(period, { title: body.title, description: body.description, opensAt: body.opens_at, closesAt: body.closes_at, updatedAt: `2026-10-07T01:00:0${calls.filter(c => c.method === 'PUT').length}Z` });
       if (body.sections) period.questions = { ...period.questions, sections: body.sections, target_config: body.target_config };
+      if (body.categories) period.questions = { ...period.questions, categories: body.categories };
       return reply(period);
     }
     if (path === periodPath && method === 'GET') return reply(period);
     if (path === `${periodPath}/preview` && method === 'GET') return reply({ blockers,
       scale_legend: { 1: 'Sangat Kurang', 2: 'Kurang', 3: 'Cukup', 4: 'Baik', 5: 'Sangat Baik' },
-      entries: period.entries.map(e => ({ id: e.id, name: e.name, role: e.memberRole, required: 2, targets: ['ketum'], sections: period.questions.sections })),
+      entries: roster.map(e => ({
+        id: e.id, name: e.name, display_name: e.name, role: e.memberRole, division_slug: e.divisionSlug,
+        required: sectionsFor(e).reduce((n, s) => n + s.questions.filter(q => q.required).length, 0),
+        targets: rubric ? ['e2'] : ['ketum'], sections: sectionsFor(e),
+      })),
     });
-    if (path === `${periodPath}/recap-v2` && method === 'GET') return reply({ total_entries: 2, done_entries: 0, pending: period.entries,
-      sections: [{ id: 'ketum', target_label: 'Ketua Contoh', questions: [{ id: 'ketum-s01', label: 'Arahan Ketua jelas?', type: 'scale', responses: 0, mean: null, distribution: [] }] }],
-    });
+    if (path === `${periodPath}/recap-v2` && method === 'GET') {
+      if (!rubric) return reply({ total_entries: 2, done_entries: 0, pending: period.entries,
+        sections: [{ id: 'ketum', target_label: 'Ketua Contoh', questions: [{ id: 'ketum-s01', label: 'Arahan Ketua jelas?', type: 'scale', responses: 0, mean: null, distribution: [] }] }],
+      });
+      return reply({ total_entries: 2, done_entries: 0, pending: period.entries,
+        score_total: { responses: 0, mean: null, max: null, min: null },
+        sections: [
+          targetSection({ id: 'e1', name: 'Anggota Contoh', sectionTitle: 'Anggota — Ristek' }, { includePositions: false }),
+          targetSection({ id: 'e2', name: 'Pengisi Kedua', sectionTitle: 'Kepala Divisi — Media' }),
+        ] });
+    }
     return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ success: false, error: { message: `Unexpected ${method} ${path}` } }) });
   });
   await page.goto(`${process.env.QPR_TEST_BASE_URL || ''}/#${path}`, { waitUntil: 'domcontentloaded' });

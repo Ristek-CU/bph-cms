@@ -282,6 +282,80 @@ memakai raw `c.env.DB.prepare(...)` karena butuh perbandingan leksikografis `exp
 dan `used_at IS NULL` yang lebih bersih ditulis sebagai SQL. Bukan bug, tapi jangan cari
 query-nya di Drizzle.
 
+### Tabel QPR dan kontrak anonimitas (migrasi `0017`)
+
+Tabel QPR: `qpr_periods`, `qpr_entries`, `qpr_answers`, dan sejak `0017`
+`qpr_responses`.
+
+- `qpr_periods.division_slug` — satu periode QPR = satu divisi (nullable; `NULL`
+  berarti periode lama atau lintas divisi yang belum dipetakan).
+- `qpr_entries` — roster per periode. `done`/`submitted_at` melacak
+  **partisipasi** (siapa belum mengisi). Draft per orang tetap di sini.
+- `qpr_responses` — jawaban final untuk periode snapshot (v2/v3). **Tidak punya
+  `entry_id`.** Berisi `period_id`, `role`, `division_slug`, `answers`,
+  `score_total`, `submitted_at`. `role`/`division_slug` hanya untuk routing
+  agregasi, bukan identitas.
+- `qpr_answers` — untuk periode snapshot hanya menyimpan **baris penanda**
+  (`answers = '[]'`) sebagai pengunci unik per nama; untuk periode
+  `legacy`/`bph` lama tetap menyimpan isi jawaban seperti sebelumnya.
+
+Konsekuensi yang harus dijaga saat menambah fitur:
+
+- `recapV2`, `exportCsv`, dan `participation` **tidak boleh** menjoin jawaban ke
+  `qpr_entries`. CSV hanya memuat `waktu_kirim`, `poin_total`, dan kolom
+  pertanyaan — tanpa nama/divisi/jabatan/role.
+- Nama yang **belum** mengisi tetap ditampilkan (BPH perlu menagih); daftar nama
+  yang **sudah** mengisi tidak pernah dienumerasi.
+- Anonimitas ini tingkat aplikasi: D1 tetap menyimpan `role`, jadi grup
+  beranggota satu orang masih bisa disimpulkan. Jangan klaim jaminan
+  kriptografis.
+- Skor: pertanyaan `scale` menyumbang nilai 1–5, `text` menyumbang 0
+  (`src/modules/qpr/qpr.scoring.ts`).
+
+### Rubrik 360° (snapshot v4, migrasi `0018`)
+
+Periode `form_kind = "division"` baru memakai **snapshot v4**:
+`{"version":4,"categories":[...]}` di kolom `qpr_periods.questions`. Tidak ada
+migrasi data lama — periode `legacy`/`bph` (v2/v3) tetap jalan apa adanya, dan
+"Penilaian sederhana" tidak diubah.
+
+- `categories` = **apa** yang ditanyakan. Tiap kategori berisi pertanyaan
+  `scale` (1–5, menyumbang poin) atau `text` (esai, 0 poin) dan punya `scope`:
+  `all` (semua target) atau `positions` (dilewati untuk target berjabatan
+  `anggota`, supaya kadiv tidak menulis esai per anggota).
+- **Siapa menilai siapa tidak disimpan sebagai data.** Routing dihitung fungsi
+  murni `assesseesFor` di `src/modules/qpr/qpr.topics.ts` dari roster:
+
+  | Pengisi | Menilai |
+  | --- | --- |
+  | President / Vice President | Controller, Sekum, Bendum |
+  | Controller | President, VP, Kadiv & Wakadiv divisi yang dia urus |
+  | Sekum | President, VP, seluruh Sekdiv |
+  | Bendum | President, VP, seluruh Bendiv |
+  | Sekdiv / Bendiv | President, VP, seluruh Sekum / Bendum, **plus Kadiv & Wakadiv divisinya sendiri** (mereka juga anggota divisi) |
+  | Kadiv / Wakadiv | **anggota divisinya termasuk Sekdiv & Bendiv**, President, VP, Controller yang mengurus divisinya |
+  | Anggota | President, VP, Kadiv & Wakadiv divisinya |
+
+  Pengisi tidak pernah menilai dirinya sendiri; target duplikat dibuang.
+- `qpr_entries.managed_divisions` (JSON array slug) menyimpan divisi yang diurus
+  controller. Wajib untuk jabatan `controller`, ditolak untuk jabatan lain.
+  Divisi juga wajib untuk semua jabatan v4 kecuali `president`/`vice_president`;
+  `member_key` dibuat sistem bila kosong; nama duplikat ditolak.
+- ID pertanyaan per target = `<entryId>~<templateQuestionId>`, sehingga rekap dan
+  ekspor tidak perlu menebak jalur dari jabatan pengisi.
+- `qpr_responses.target_ids` (JSON array ID roster) menyimpan **siapa yang
+  dinilai** — bukan siapa yang menilai. Anonimitas tetap: `entry_id` tidak ada
+  di `qpr_responses`.
+- Blocker publikasi (`topicPublishBlockers`): kategori wajib punya pertanyaan,
+  roster wajib berisi President + VP, controller wajib punya divisi urus, dan
+  setiap pengisi harus punya minimal satu target dengan total ≤ 500 pertanyaan.
+- BPH mengubah isi kategori lewat PUT `categories` + `expected_snapshot`
+  (CAS). `sections`, `target_config`, dan `question_labels` tidak berlaku untuk
+  v4.
+
+⚠️ Template BPH (`form_kind = "bph"`, v3) **sengaja belum diubah** — ia tetap
+memakai template 10 target dan test regresinya harus tetap lulus.
+
 ---
 
 ## 7. Run Development
