@@ -894,6 +894,81 @@ eq("v4 category edit needs baseline", (await h.req(`${ADMIN}/periods/${editableV
 eq("v4 categories cannot mix with target_config", (await h.req(`${ADMIN}/periods/${editableV4Id}`, { token: "tok-bph", method: "PUT", json: { categories: editedCategories, expected_snapshot: editV4.body.data.questions, target_config: config } })).status, 422);
 eq("v4 empty category title rejected", (await h.req(`${ADMIN}/periods/${editableV4Id}`, { token: "tok-bph", method: "PUT", json: { categories: [{ title: "  ", scope: "all", questions: [] }], expected_snapshot: editV4.body.data.questions } })).status, 422);
 
+// ── QPR v5: matriks penilai × target ────────────────────────────────────────
+section("QPR v5 matriks penilai × target");
+// Pasangan yang mungkin = irisan routing v4 dengan roster yang sama.
+const v4roleById = new Map(v4rows.body.data.map((e: any) => [e.id, e.memberRole]));
+const feasiblePairs = [...new Map(v4preview.body.data.entries.flatMap((e: any) => e.targets.map((id: string) => ({ assessor: e.role, target: v4roleById.get(id) }))).filter((p: any) => p.assessor && p.target).map((p: any) => [`${p.assessor}>${p.target}`, p])).values()];
+ok("v5 feasible pairs derived from routing", feasiblePairs.length > 5 && feasiblePairs.some((p: any) => p.assessor === "sekum" && p.target === "sekdiv") && feasiblePairs.some((p: any) => p.assessor === "bendum" && p.target === "bendiv"));
+const V5_INSTRUMENTS = [
+	{ title: "Penilaian umum", applies: feasiblePairs, questions: [{ type: "scale", label: "Seberapa baik orang ini menjalankan perannya?", required: true }] },
+	{ title: "Umpan balik anggota", applies: feasiblePairs.filter((p: any) => p.assessor === "anggota"), questions: [{ type: "text", label: "Apa saran untuk atasan divisimu?", required: true }] },
+];
+const v5 = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "division", title: "QPR matriks 360", instruments: V5_INSTRUMENTS } });
+eq("v5 create with instruments", v5.status, 201);
+const v5id = v5.body.data.id;
+eq("v5 snapshot version", v5.body.data.questions.version, 5);
+eq("v5 instrument/question ids generated", v5.body.data.questions.instruments.map((i: any) => [i.id, i.questions.map((q: any) => q.id)]), [["inst-1", ["inst-1-q1"]], ["inst-2", ["inst-2-q1"]]]);
+eq("v5 empty instruments allowed for draft", (await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "division", title: "QPR matriks kosong", instruments: [] } })).status, 201);
+const v5rows = await h.req(`${ADMIN}/periods/${v5id}/entries`, { token: "tok-bph", method: "POST", json: { entries: rosterItems } });
+eq("v5 roster accepted", v5rows.status, 201);
+const v5entry = (name: string) => v5rows.body.data.find((e: any) => e.name === name);
+const v5preview = await h.req(`${ADMIN}/periods/${v5id}/preview`, { token: "tok-bph" });
+eq("v5 preview no blockers when every pair covered", v5preview.body.data.blockers, []);
+const v5section = (viewer: string, target: string) => v5preview.body.data.entries.find((e: any) => e.name === viewer).sections.find((s: any) => s.targetLabel === target);
+eq("v5 routing unchanged: controller manages heads", v5preview.body.data.entries.find((e: any) => e.name === "Controller Ristek UKM").targets.map((id: string) => v5rows.body.data.find((e: any) => e.id === id).name).sort(), ["Kadiv Ristek", "Presiden Satu", "Wakadiv Ristek", "Wapres Satu"]);
+eq("v5 questions differ by assessor: anggota → kadiv", v5section("Anggota Ristek", "Kadiv Ristek").questions.map((q: any) => [q.category, q.type]), [["Penilaian umum", "scale"], ["Umpan balik anggota", "text"]]);
+eq("v5 questions differ by assessor: sekdiv → kadiv", v5section("Sekdiv Ristek", "Kadiv Ristek").questions.map((q: any) => [q.category, q.type]), [["Penilaian umum", "scale"]]);
+eq("v5 required count follows pair matrix", [v5preview.body.data.entries.find((e: any) => e.name === "Anggota Ristek").required, v5preview.body.data.entries.find((e: any) => e.name === "Sekdiv Ristek").required], [8, 5]);
+
+// Blocker: pasangan yang belum punya instrumen harus menghalangi publikasi.
+const v5gap = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "division", title: "QPR matriks bolong", instruments: [{ title: "Hanya presiden", applies: [{ assessor: "controller", target: "president" }], questions: [{ type: "scale", label: "Presiden?", required: true }] }] } });
+await h.req(`${ADMIN}/periods/${v5gap.body.data.id}/entries`, { token: "tok-bph", method: "POST", json: { entries: rosterItems } });
+const gapPreview = await h.req(`${ADMIN}/periods/${v5gap.body.data.id}/preview`, { token: "tok-bph" });
+ok("v5 blocker names uncovered pair", gapPreview.body.data.blockers.some((b: string) => b.includes("Sekretaris Umum") && b.includes("Sekretaris Divisi")));
+eq("v5 open blocked by uncovered pairs", (await h.req(`${ADMIN}/periods/${v5gap.body.data.id}/open`, { token: "tok-bph", method: "POST" })).status, 422);
+
+eq("v5 open", (await h.req(`${ADMIN}/periods/${v5id}/open`, { token: "tok-bph", method: "POST" })).status, 200);
+const memberDraft5 = (await h.req(`${PUB}/${v5id}/entries/${v5entry("Anggota Ristek").id}/draft`)).body.data;
+eq("v5 member path has base + member instrument", memberDraft5.questions.length, 8);
+eq("v5 member final accepted", (await h.req(`${PUB}/${v5id}/submit-v2`, { method: "POST", json: { entry_id: v5entry("Anggota Ristek").id, expected_version: 0, answers: full(memberDraft5) } })).status, 200);
+const v5resp = await h.sql(`SELECT role, target_ids, score_total FROM qpr_responses WHERE period_id=?`, v5id);
+eq("v5 score = scale only (essay 0)", { role: v5resp[0].role, score: v5resp[0].score_total }, { role: "anggota", score: 16 });
+eq("v5 target_ids unchanged", (JSON.parse(v5resp[0].target_ids) as string[]).map((id) => v5rows.body.data.find((e: any) => e.id === id).name).sort(), ["Kadiv Ristek", "Presiden Satu", "Wakadiv Ristek", "Wapres Satu"]);
+const v5recap = await h.req(`${ADMIN}/periods/${v5id}/recap-v2`, { token: "tok-bph" });
+const v5kadiv = v5recap.body.data.sections.find((s: any) => s.target_label === "Kadiv Ristek");
+eq("v5 recap keeps instruments apart", v5kadiv.questions.map((q: any) => [q.category, q.responses]), [["Penilaian umum", 1], ["Umpan balik anggota", 1]]);
+eq("v5 recap scale mean", v5kadiv.questions.find((q: any) => q.type === "scale").mean, 4);
+const v5csv = await h.req(`${ADMIN}/periods/${v5id}/export`, { token: "tok-bph" });
+const v5csvText = typeof v5csv.body === "string" ? v5csv.body : "";
+ok("v5 export separates instrument question ids", v5csvText.includes(`${v5entry("Kadiv Ristek").id}~inst-1-q1`) && v5csvText.includes(`${v5entry("Kadiv Ristek").id}~inst-2-q1`));
+
+// Editor matriks: ganti seluruh daftar instrumen sebelum dibuka.
+const editableV5 = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "division", title: "QPR editor matriks", instruments: [] } });
+const editableV5Id = editableV5.body.data.id;
+const editedInstruments = [
+	{ id: "inst-1", title: "Visi", applies: feasiblePairs, questions: [{ id: "inst-1-q1", type: "scale", label: "Visi jelas?", required: true }] },
+	{ id: "inst-2", title: "Etika", applies: feasiblePairs.filter((p: any) => p.target !== "anggota"), questions: [{ id: "inst-2-q1", type: "text", label: "Contoh etika?", required: false }] },
+];
+const editV5 = await h.req(`${ADMIN}/periods/${editableV5Id}`, { token: "tok-bph", method: "PUT", json: { instruments: editedInstruments, expected_snapshot: editableV5.body.data.questions } });
+eq("v5 instrument edit accepted", editV5.status, 200);
+eq("v5 instrument edit replaces list", editV5.body.data.questions.instruments.map((i: any) => [i.title, i.applies.length, i.questions.length]), [["Visi", feasiblePairs.length, 1], ["Etika", feasiblePairs.filter((p: any) => p.target !== "anggota").length, 1]]);
+eq("v5 stale instrument baseline rejected", (await h.req(`${ADMIN}/periods/${editableV5Id}`, { token: "tok-bph", method: "PUT", json: { instruments: editedInstruments, expected_snapshot: editableV5.body.data.questions } })).status, 409);
+eq("v5 instrument edit needs baseline", (await h.req(`${ADMIN}/periods/${editableV5Id}`, { token: "tok-bph", method: "PUT", json: { instruments: editedInstruments } })).status, 422);
+eq("v5 categories rejected on matrix period", (await h.req(`${ADMIN}/periods/${editableV5Id}`, { token: "tok-bph", method: "PUT", json: { categories: editedCategories, expected_snapshot: editV5.body.data.questions } })).status, 422);
+
+// Upgrade v4 → v5: pertanyaan lama dipertahankan, routing jadi matriks.
+const upgradeBase = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "division", title: "QPR upgrade matriks", categories: TOPIC_CATEGORIES } });
+await h.req(`${ADMIN}/periods/${upgradeBase.body.data.id}/entries`, { token: "tok-bph", method: "POST", json: { entries: rosterItems } });
+const upgraded = await h.req(`${ADMIN}/periods/${upgradeBase.body.data.id}/upgrade-matrix`, { token: "tok-bph", method: "POST" });
+eq("v4 → v5 upgrade accepted", upgraded.status, 200);
+eq("upgrade keeps categories as instruments", upgraded.body.data.questions.instruments.map((i: any) => [i.title, i.id, i.questions[0].id]), [["Kepemimpinan", "cat-1", "cat-1-q1"], ["Komunikasi", "cat-2", "cat-2-q1"], ["Kedisiplinan", "cat-3", "cat-3-q1"]]);
+ok("upgrade maps scope all to every feasible pair", upgraded.body.data.questions.instruments[0].applies.length === feasiblePairs.length);
+ok("upgrade maps scope positions to non-member targets", upgraded.body.data.questions.instruments[2].applies.every((p: any) => p.target !== "anggota") && upgraded.body.data.questions.instruments[2].applies.length > 0);
+eq("upgraded period still has no blockers", (await h.req(`${ADMIN}/periods/${upgradeBase.body.data.id}/preview`, { token: "tok-bph" })).body.data.blockers, []);
+eq("v4 → v5 upgrade is idempotent", (await h.req(`${ADMIN}/periods/${upgradeBase.body.data.id}/upgrade-matrix`, { token: "tok-bph", method: "POST" })).body.data.questions.version, 5);
+
+
 // ── Status efektif (T1): jadwal menentukan Terjadwal/Berlangsung/Ditutup ────
 section("Effective status");
 const now = Date.now();

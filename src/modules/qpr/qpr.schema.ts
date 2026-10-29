@@ -106,6 +106,39 @@ export type QprV4Role = (typeof QPR_V4_ROLES)[number];
 
 export const QPR_DIVISIONS = ["bph", "ristek", "ukm", "advo", "bnp", "icd", "pr", "media"] as const;
 export const QPR_ROLES = ["anggota", "controller", "sekum", "bendum", "kadiv", "wakadiv", "bendiv", "sekdiv"] as const;
+
+// ── Snapshot v5: matriks penilai × target ──────────────────────────────────
+// v4 memakai kategori yang hanya bisa dibedakan per jabatan TARGET dan hanya
+// dua tingkat (semua / bukan-anggota). v5 menggantinya dengan "instrumen":
+// satu set pertanyaan + daftar pasangan (penilai → target) tempat set itu
+// dipakai. Satu pasangan boleh memakai beberapa instrumen (pertanyaannya
+// digabung), dan satu instrumen boleh dipakai banyak pasangan.
+//
+// Contoh yang sudah tidak mungkin di v4 tapi bisa di sini:
+//   Anggota menilai Kadiv   → instrumen A
+//   Sekdiv  menilai Kadiv   → instrumen B (pertanyaan berbeda)
+//
+// Routing tetap dihitung dari roster (bukan data), jadi tidak ada entri ganda.
+export const qprPairSchema = z.object({
+	assessor: z.enum(QPR_V4_ROLES),
+	target: z.enum(QPR_V4_ROLES),
+});
+export type QprPair = z.infer<typeof qprPairSchema>;
+
+export const qprInstrumentSchema = z.object({
+	id: z.string().min(1).max(100),
+	title: z.string().trim().min(1).max(300),
+	// Boleh kosong saat draft; publikasi diblokir sampai semua pasangan terisi.
+	applies: z.array(qprPairSchema).max(100).default([]),
+	questions: z.array(snapshotQuestionSchema).max(100).default([]),
+});
+export type QprInstrument = z.infer<typeof qprInstrumentSchema>;
+
+export const questionnaireV5Schema = z.object({
+	version: z.literal(5),
+	instruments: z.array(qprInstrumentSchema).max(40),
+});
+export type QuestionnaireV5 = z.infer<typeof questionnaireV5Schema>;
 export const targetConfigSchema = z.object({
 	targets: z.array(z.object({
 		id: z.string().regex(/^[a-z][a-z0-9_-]{0,59}$/),
@@ -124,8 +157,8 @@ export const questionnaireV3Schema = z.object({
 export type QuestionnaireV3 = z.infer<typeof questionnaireV3Schema>;
 export type QuestionnaireSnapshot = QuestionnaireV2 | QuestionnaireV3;
 
-/** Parse legacy/v2/v3/v4 without changing historical routes. */
-export const parseQuestions = (raw: string | null): QuestionnaireSnapshot | QuestionnaireV4 | QprQuestion[] | null => {
+/** Parse legacy/v2/v3/v4/v5 without changing historical routes. */
+export const parseQuestions = (raw: string | null): QuestionnaireSnapshot | QuestionnaireV4 | QuestionnaireV5 | QprQuestion[] | null => {
 	if (!raw) return null;
 	const parsed = JSON.parse(raw);
 	if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && parsed.version === 2) {
@@ -133,6 +166,7 @@ export const parseQuestions = (raw: string | null): QuestionnaireSnapshot | Ques
 	}
 	if (parsed?.version === 3) return questionnaireV3Schema.parse(parsed);
 	if (parsed?.version === 4) return questionnaireV4Schema.parse(parsed);
+	if (parsed?.version === 5) return questionnaireV5Schema.parse(parsed);
 	return z.array(qprQuestionSchema).parse(parsed);
 };
 
@@ -153,6 +187,23 @@ export const topicCategoryInputSchema = z.object({
 });
 export type TopicCategoryInput = z.infer<typeof topicCategoryInputSchema>;
 
+/** Input instrumen matriks v5 — ID instrumen/pertanyaan dibuat server. */
+export const topicInstrumentInputSchema = z.object({
+	title: z.string().trim().min(1).max(300),
+	applies: z.array(qprPairSchema).max(100).default([]),
+	questions: z
+		.array(
+			z.object({
+				type: z.enum(["scale", "text"]),
+				label: z.string().trim().min(1).max(2000),
+				required: z.boolean().default(true),
+			}),
+		)
+		.max(100)
+		.default([]),
+});
+export type TopicInstrumentInput = z.infer<typeof topicInstrumentInputSchema>;
+
 export const createPeriodSchema = z.object({
 	form_kind: z.enum(["legacy", "bph", "division"]).default("legacy").nullish(),
 	title: z.string().min(1).max(200),
@@ -163,6 +214,8 @@ export const createPeriodSchema = z.object({
 	// mengirim questions. legacy/division: wajib.
 	questions: legacyQuestionsSchema.nullish(),
 	categories: z.array(topicCategoryInputSchema).max(20).nullish(),
+	// v5: matriks penilai × target. Bila ada, snapshot dibuat v5 (mengalahkan categories).
+	instruments: z.array(topicInstrumentInputSchema).max(40).nullish(),
 	target_config: targetConfigSchema.optional(),
 	opens_at: z
 		.string()
@@ -196,6 +249,14 @@ export const editableCategorySchema = z.object({
 	scope: z.enum(["all", "positions"]).default("all"),
 	questions: z.array(editableQuestionSchema).max(100),
 }).strict();
+// Instrumen matriks (v5): applies boleh kosong dan pertanyaan boleh kosong
+// selama draft — membuka kampanye tetap diblokir lewat preview.
+export const editableInstrumentSchema = z.object({
+	id: stableIdSchema,
+	title: z.string().trim().min(1).max(300),
+	applies: z.array(qprPairSchema).max(100),
+	questions: z.array(editableQuestionSchema).max(100),
+}).strict();
 export const editableTargetSchema = z.object({
 	id: stableIdSchema,
 	label: z.string().trim().min(1).max(200),
@@ -209,19 +270,23 @@ export const updatePeriodSchema = createPeriodSchema.partial().extend({
 	question_labels: z.record(stableIdSchema, z.string().trim().min(1).max(2000)).optional(),
 	sections: z.array(editableSectionSchema).min(1).max(10).optional(),
 	categories: z.array(editableCategorySchema).min(1).max(20).optional(),
-	expected_snapshot: z.union([questionnaireV3Schema, questionnaireV4Schema]).optional(),
+	instruments: z.array(editableInstrumentSchema).max(40).optional(),
+	expected_snapshot: z.union([questionnaireV3Schema, questionnaireV4Schema, questionnaireV5Schema]).optional(),
 }).strict().superRefine((input, ctx) => {
 	const v4Edit = input.categories !== undefined;
+	const v5Edit = input.instruments !== undefined;
 	if (input.sections !== undefined && input.expected_snapshot === undefined)
 		ctx.addIssue({ code: "custom", path: ["expected_snapshot"], message: "Baseline snapshot wajib untuk perubahan sections" });
-	if (v4Edit && input.expected_snapshot === undefined)
-		ctx.addIssue({ code: "custom", path: ["expected_snapshot"], message: "Baseline snapshot wajib untuk perubahan kategori" });
-	if (input.expected_snapshot !== undefined && input.sections === undefined && !v4Edit)
+	if ((v4Edit || v5Edit) && input.expected_snapshot === undefined)
+		ctx.addIssue({ code: "custom", path: ["expected_snapshot"], message: "Baseline snapshot wajib untuk perubahan kategori/instrumen" });
+	if (input.expected_snapshot !== undefined && input.sections === undefined && !v4Edit && !v5Edit)
 		ctx.addIssue({ code: "custom", path: ["expected_snapshot"], message: "Baseline hanya untuk perubahan struktur" });
-	if (input.sections !== undefined && (input.question_labels !== undefined || input.questions !== undefined || v4Edit))
-		ctx.addIssue({ code: "custom", path: ["sections"], message: "sections tidak boleh digabung dengan questions/question_labels/kategori" });
-	if (v4Edit && (input.question_labels !== undefined || input.questions !== undefined || input.target_config !== undefined))
-		ctx.addIssue({ code: "custom", path: ["categories"], message: "kategori tidak boleh digabung dengan questions/target_config" });
+	if (v4Edit && v5Edit)
+		ctx.addIssue({ code: "custom", path: ["instruments"], message: "categories dan instruments tidak boleh dikirim bersamaan" });
+	if (input.sections !== undefined && (input.question_labels !== undefined || input.questions !== undefined || v4Edit || v5Edit))
+		ctx.addIssue({ code: "custom", path: ["sections"], message: "sections tidak boleh digabung dengan questions/question_labels/kategori/instrumen" });
+	if ((v4Edit || v5Edit) && (input.question_labels !== undefined || input.questions !== undefined || input.target_config !== undefined))
+		ctx.addIssue({ code: "custom", path: [v5Edit ? "instruments" : "categories"], message: "kategori/instrumen tidak boleh digabung dengan questions/question_labels/target_config" });
 });
 export type UpdatePeriodInput = z.infer<typeof updatePeriodSchema>;
 

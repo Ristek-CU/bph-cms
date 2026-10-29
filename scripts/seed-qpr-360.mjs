@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Seed satu periode QPR 360° (rubrik v4) lengkap dengan roster pengurus SGA.
+ * Seed satu periode QPR 360° (matriks v5) lengkap dengan roster pengurus SGA.
  *
  * Semua divisi dipetakan ke slug kanonis yang SUDAH ada di tabel `divisions`
  * (seed migration 0001) — tidak ada divisi/slug baru yang dibuat:
@@ -37,17 +37,10 @@ const PASSWORD = flag("password", "fixture-password");
 const TITLE = flag("title", "QPR 360° Pengurus SGA 2026/2027");
 const RECREATE = has("recreate");
 
-// ── Kategori rubrik (sama dengan default panel) ─────────────────────────────
-// 1 skala (menyumbang 1–5 poin) + 2 esai (0 poin) per kategori.
-const CATEGORIES = ["Kepemimpinan", "Komunikasi", "Kedisiplinan"].map((title) => ({
-	title,
-	scope: "all",
-	questions: [
-		{ type: "scale", label: `${title}: menilai kemampuan yang terlihat dalam keseharian organisasi.`, required: true },
-		{ type: "text", label: `Apa hal terbaik dari ${title.toLowerCase()} orang ini?`, required: false },
-		{ type: "text", label: `Apa yang perlu diperbaiki pada ${title.toLowerCase()} orang ini?`, required: false },
-	],
-}));
+// ── Rubrik matriks v5 ───────────────────────────────────────────────────────
+// Periode dibuat dengan instrumen KOSONG: BPH menyusun pasangan penilai →
+// target dan pertanyaannya sendiri di editor matriks panel.
+const INSTRUMENTS = [];
 
 // ── Roster ──────────────────────────────────────────────────────────────────
 // `manages` hanya untuk controller (divisi yang diurus). Urutan baris mengikuti
@@ -240,7 +233,7 @@ const main = async () => {
 			description: "Penilaian 360° seluruh pengurus SGA: atasan, bawahan, dan rekan kerja.",
 			form_kind: "division",
 			division_slug: null,
-			categories: CATEGORIES,
+			instruments: INSTRUMENTS,
 		},
 	});
 	periodId = created?.data?.id;
@@ -260,16 +253,17 @@ const main = async () => {
 	});
 	console.log(`✓ ${added?.data?.length ?? entries.length} nama pengisi ditambahkan`);
 
-	// Verifikasi: tidak boleh ada blocker publikasi.
+	// Verifikasi roster (bukan kelengkapan pertanyaan — matriks sengaja kosong).
 	const preview = await request(`/api/v1/admin/qpr/periods/${periodId}/preview`);
 	const blockers = preview?.data?.blockers ?? [];
-	const payload = preview?.data?.entries ?? [];
-	if (blockers.length) {
-		console.error("\n✗ Masih ada blocker:");
-		for (const b of blockers) console.error(`  - ${b}`);
+	const rosterBlockers = blockers.filter((b) => /Roster|Controller|jabatan|divisi belum|President|Vice President/.test(b));
+	if (rosterBlockers.length) {
+		console.error("\n✗ Roster belum valid:");
+		for (const b of rosterBlockers) console.error(`  - ${b}`);
 		process.exitCode = 1;
 		return;
 	}
+	console.log(`✓ Roster valid; ${blockers.length - rosterBlockers.length} penanda pertanyaan belum diisi (normal untuk matriks kosong)`);
 
 	const perDivision = new Map();
 	for (const row of ROSTER) {
@@ -281,18 +275,14 @@ const main = async () => {
 	for (const [slug, count] of perDivision) console.log(`  ${label[slug].padEnd(34)} ${slug.padEnd(7)} ${count} orang`);
 	console.log(`  ${"TOTAL".padEnd(34)} ${"".padEnd(7)} ${ROSTER.length} orang`);
 
-	const sample = payload.find((e) => e.role === "president") ?? payload[0];
-	const staff = payload.find((e) => e.role === "anggota");
-	const kadiv = payload.find((e) => e.role === "kadiv");
-	console.log("\nJalur penilaian (contoh):");
-	for (const [who, entry] of [["President", sample], ["Kepala Divisi", kadiv], ["Staff", staff]]) {
-		if (!entry) continue;
-		console.log(`  ${who.padEnd(15)} menilai ${entry.targets.length} orang, ${entry.required} pertanyaan wajib`);
-	}
+	const perRole = new Map();
+	for (const [, , role] of ROSTER) perRole.set(role, (perRole.get(role) ?? 0) + 1);
+	console.log("\nRingkasan jabatan:");
+	for (const [role, count] of perRole) console.log(`  ${role.padEnd(16)} ${count} orang`);
 
 	console.log(`\n✓ Selesai. Buka workspace: ${BASE}/#/qpr/periods/${periodId}`);
 	console.log(`  Link publik (setelah "Buka kampanye"): ${BASE}/#/qpr/${periodId}`);
-	console.log(`  Total pertanyaan per orang: ${CATEGORIES.length} kategori × ${CATEGORIES[0].questions.length} pertanyaan = ${CATEGORIES.length * CATEGORIES[0].questions.length}`);
+	console.log("  Pertanyaan belum diisi: susun instrumen penilai → target di tab Pertanyaan.");
 };
 
 main().catch((error) => {

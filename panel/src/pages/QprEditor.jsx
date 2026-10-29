@@ -45,13 +45,14 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 	const [closesAt, setClosesAt] = useState(initial?.closesAt ?? isoToInput(baseline.closesAt));
 	const [sections, setSections] = useState(() => structuredClone(initial?.sections ?? baseline.questions?.sections ?? []));
 	const [categories, setCategories] = useState(() => structuredClone(initial?.categories ?? baseline.questions?.categories ?? []));
+	const [instruments, setInstruments] = useState(() => structuredClone(initial?.instruments ?? baseline.questions?.instruments ?? []));
 	const [legacy, setLegacy] = useState(() => structuredClone(initial?.legacy ?? (Array.isArray(baseline.questions) ? baseline.questions : [])));
 	const [config, setConfig] = useState(() => structuredClone(initial?.config ?? baseline.questions?.target_config ?? null));
 	const [sectionId, setSectionId] = useState(sections[0]?.id || "");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const [remove, setRemove] = useState(null);
-	const value = JSON.stringify({ title, description, divisionSlug, opensAt, closesAt, sections, categories, legacy, config });
+	const value = JSON.stringify({ title, description, divisionSlug, opensAt, closesAt, sections, categories, instruments, legacy, config });
 	const [saved, setSaved] = useState(recovered?.saved ?? value);
 	const dirty = value !== saved;
 	useLayoutEffect(() => {
@@ -76,7 +77,8 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 		try {
 			const structureChanged = !frozen && (
 				(version === 3 && JSON.stringify({ sections, config }) !== JSON.stringify({ sections: baseline.questions.sections, config: baseline.questions.target_config })) ||
-				(version === 4 && JSON.stringify(categories) !== JSON.stringify(baseline.questions.categories))
+				(version === 4 && JSON.stringify(categories) !== JSON.stringify(baseline.questions.categories)) ||
+				(version === 5 && JSON.stringify(instruments) !== JSON.stringify(baseline.questions.instruments))
 			);
 			const result = await api(`/admin/qpr/periods/${period.id}`, { method: "PUT", json: {
 				title: title.trim(), description: description.trim() || null,
@@ -85,6 +87,7 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 				opens_at: opensAt ? toIsoWib(opensAt) : null, closes_at: closesAt ? toIsoWib(closesAt) : null,
 				...(structureChanged && version === 3 ? { sections, target_config: config, expected_snapshot: baseline.questions } : {}),
 				...(structureChanged && version === 4 ? { categories, expected_snapshot: baseline.questions } : {}),
+				...(structureChanged && version === 5 ? { instruments, expected_snapshot: baseline.questions } : {}),
 				...(!frozen && Array.isArray(period.questions) ? { questions: legacy } : {}),
 			} });
 			editorDrafts.delete(draftKey); setSaved(value); onDirty?.(false); toast("Form tersimpan."); await onSaved(result);
@@ -99,7 +102,7 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 			<input id="qpr-edit-title" className="qpr-title-input" required maxLength={200} value={title} disabled={busy} onChange={(e) => edit(setTitle, e.target.value)} />
 			<label className="field-label" htmlFor="qpr-edit-description">Deskripsi</label>
 			<textarea id="qpr-edit-description" rows={2} maxLength={500} value={description} disabled={busy} onChange={(e) => edit(setDescription, e.target.value)} />
-			{version !== 4 && <>
+			{version !== 4 && version !== 5 && <>
 				<label className="field-label" htmlFor="qpr-edit-division">Divisi penilai</label>
 				<select id="qpr-edit-division" value={divisionSlug} disabled={busy} onChange={(e) => edit(setDivisionSlug, e.target.value)}>
 					<option value="">Tanpa divisi / lintas divisi</option>
@@ -115,6 +118,7 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 		{frozen && <p className="login-notice">Pernah dibuka — pertanyaan, target, dan roster terkunci permanen. Judul, deskripsi, divisi, dan jadwal masih dapat diedit.</p>}
 		{version === 2 && <p className="login-notice">Snapshot historis v2 hanya baca. Buat kampanye baru untuk mengubah struktur.</p>}
 		{version === 4 && <TopicCategoryEditor categories={categories} setCategories={setCategories} frozen={frozen} busy={busy} />}
+		{version === 5 && <MatrixInstrumentEditor instruments={instruments} setInstruments={setInstruments} entries={period.entries ?? []} frozen={frozen} busy={busy} />}
 		{sections.length > 0 && <>
 			<div className="qpr-filter-row"><label htmlFor="qpr-editor-section">Bagian penilaian</label><select id="qpr-editor-section" value={sectionId} onChange={(e) => setSectionId(e.target.value)}>{sections.map((s) => <option key={s.id} value={s.id}>{s.targetLabel || s.title} · {s.questions.length} pertanyaan</option>)}</select></div>
 			{section && <>
@@ -212,5 +216,191 @@ function TopicCategoryEditor({ categories, setCategories, frozen, busy }) {
 			</section>;
 		})}
 		<button type="button" className="btn" disabled={disabled || categories.length >= 20} onClick={() => setCategories([...categories, { id: `cat-${crypto.randomUUID()}`, title: "Kategori baru", scope: "all", questions: [] }])}>+ Tambah kategori</button>
+	</div>;
+}
+
+/** Label pendek kolom matriks (judul penuh tetap di title/aria). */
+const MATRIX_SHORT = {
+	president: "Presiden",
+	vice_president: "Wapres",
+	controller: "Controller",
+	sekum: "Sekum",
+	bendum: "Bendum",
+	kadiv: "Kadiv",
+	wakadiv: "Wakadiv",
+	sekdiv: "Sekdiv",
+	bendiv: "Bendiv",
+	anggota: "Anggota",
+};
+
+/**
+ * Pasangan jabatan penilai → target yang benar-benar muncul dari roster.
+ * Cermin `assesseesFor` di server (qpr.topics.ts). Editor hanya menawarkan
+ * pasangan ini; server tetap otoritatif lewat blocker publikasi.
+ */
+function feasibleRolePairs(entries = []) {
+	const people = entries
+		.filter((entry) => entry.memberRole)
+		.map((entry) => ({
+			role: entry.memberRole,
+			divisionSlug: entry.divisionSlug ?? null,
+			managedDivisions: entry.managedDivisions ?? [],
+		}));
+	const pairs = new Set();
+	const byRole = (...roles) => people.filter((person) => roles.includes(person.role));
+	const sameDivision = (a, b) => Boolean(a.divisionSlug) && a.divisionSlug === b.divisionSlug;
+	const leader = byRole("president", "vice_president");
+	const headsOf = (viewer) => people.filter((person) => ["kadiv", "wakadiv"].includes(person.role) && sameDivision(person, viewer));
+	const add = (viewer, targets) => {
+		for (const target of targets) {
+			if (viewer !== target && viewer.role && target.role) pairs.add(`${viewer.role}>${target.role}`);
+		}
+	};
+	for (const viewer of people) {
+		switch (viewer.role) {
+			case "president":
+			case "vice_president":
+				add(viewer, byRole("controller", "sekum", "bendum"));
+				break;
+			case "controller":
+				add(viewer, [...leader, ...people.filter((person) => ["kadiv", "wakadiv"].includes(person.role) && viewer.managedDivisions.includes(person.divisionSlug ?? ""))]);
+				break;
+			case "sekum":
+				add(viewer, [...leader, ...byRole("sekdiv")]);
+				break;
+			case "bendum":
+				add(viewer, [...leader, ...byRole("bendiv")]);
+				break;
+			case "kadiv":
+			case "wakadiv":
+				add(viewer, [
+					...leader,
+					...people.filter((person) => ["anggota", "sekdiv", "bendiv"].includes(person.role) && sameDivision(person, viewer)),
+					...people.filter((person) => person.role === "controller" && (person.managedDivisions ?? []).includes(viewer.divisionSlug ?? "")),
+				]);
+				break;
+			case "sekdiv":
+				add(viewer, [...leader, ...byRole("sekum"), ...headsOf(viewer)]);
+				break;
+			case "bendiv":
+				add(viewer, [...leader, ...byRole("bendum"), ...headsOf(viewer)]);
+				break;
+			case "anggota":
+				add(viewer, [...leader, ...people.filter((person) => ["kadiv", "wakadiv"].includes(person.role) && sameDivision(person, viewer))]);
+				break;
+			default:
+				break;
+		}
+	}
+	return pairs;
+}
+
+/**
+ * Editor matriks QPR 360° (snapshot v5).
+ *
+ * Satu instrumen = satu set pertanyaan + daftar pasangan penilai → target
+ * tempat set itu dipakai. Satu pasangan boleh memakai beberapa instrumen
+ * (pertanyaannya digabung); satu instrumen boleh dipakai banyak pasangan.
+ * Pertanyaan skala menyumbang poin 1–5, esai 0 poin.
+ */
+function MatrixInstrumentEditor({ instruments, setInstruments, entries, frozen, busy }) {
+	const disabled = frozen || busy;
+	const feasible = feasibleRolePairs(entries);
+	const patch = (index, next) => setInstruments(instruments.map((item, i) => (i === index ? next : item)));
+	const moveInstrument = (index, delta) => {
+		const next = [...instruments];
+		[next[index], next[index + delta]] = [next[index + delta], next[index]];
+		setInstruments(next);
+	};
+	const moveQuestion = (mi, qi, delta) => {
+		const questions = [...instruments[mi].questions];
+		[questions[qi], questions[qi + delta]] = [questions[qi + delta], questions[qi]];
+		patch(mi, { ...instruments[mi], questions });
+	};
+	const changeQuestion = (mi, qi, field, value) => patch(mi, {
+		...instruments[mi],
+		questions: instruments[mi].questions.map((question, i) => (i === qi ? { ...question, [field]: value } : question)),
+	});
+	const togglePair = (mi, pair) => {
+		const instrument = instruments[mi];
+		const exists = instrument.applies.some((item) => item.assessor === pair.assessor && item.target === pair.target);
+		const applies = exists
+			? instrument.applies.filter((item) => !(item.assessor === pair.assessor && item.target === pair.target))
+			: [...instrument.applies, pair];
+		patch(mi, { ...instrument, applies });
+	};
+	return <div className="qpr-topic-editor qpr-matrix-editor">
+		<p className="login-notice qpr-topic-hint">Satu instrumen = satu set pertanyaan untuk pasangan penilai → target tertentu. Centang sel matriks untuk memakai instrumen pada pasangan itu; satu pasangan boleh memakai beberapa instrumen (pertanyaannya digabung). Pengisi tidak pernah menilai dirinya sendiri.</p>
+		{!instruments.length && <p className="muted small qpr-topic-empty">Belum ada instrumen. Tambahkan satu, beri nama, centang pasangan yang berlaku, lalu tulis pertanyaannya. Kampanye belum bisa dibuka sampai semua pasangan roster punya pertanyaan.</p>}
+		{instruments.map((instrument, mi) => {
+			const scale = instrument.questions.filter((question) => question.type === "scale").length;
+			const essays = instrument.questions.length - scale;
+			return <section className="card qpr-topic-cat" key={instrument.id} aria-label={`Instrumen ${mi + 1}`}>
+				<header className="qpr-topic-cat-head">
+					<div>
+						<p className="studio-kicker">INSTRUMEN {mi + 1}</p>
+						<p className="muted small qpr-topic-meta">{instrument.applies.length} pasangan · {scale} skala · {essays} esai</p>
+					</div>
+					<div className="row-actions qpr-topic-tools">
+						<button type="button" className="btn ghost" disabled={disabled || mi === 0} aria-label={`Naikkan instrumen ${mi + 1}`} onClick={() => moveInstrument(mi, -1)}>↑</button>
+						<button type="button" className="btn ghost" disabled={disabled || mi === instruments.length - 1} aria-label={`Turunkan instrumen ${mi + 1}`} onClick={() => moveInstrument(mi, 1)}>↓</button>
+						<button type="button" className="btn ghost" disabled={disabled} aria-label={`Hapus instrumen ${mi + 1}`} onClick={() => setInstruments(instruments.filter((_, i) => i !== mi))}>Hapus</button>
+					</div>
+				</header>
+				<label className="field-label" htmlFor={`qpr-inst-${instrument.id}`}>Nama instrumen {mi + 1}</label>
+				<input id={`qpr-inst-${instrument.id}`} maxLength={300} required disabled={disabled} value={instrument.title} onChange={(e) => patch(mi, { ...instrument, title: e.target.value })} />
+				<div className="qpr-matrix-block">
+					<span className="field-label">Dipakai untuk pasangan penilai → target</span>
+					<p className="muted small">Baris = penilai, kolom = target. Sel “—” berarti pasangan itu tidak muncul dari roster.</p>
+					<div className="qpr-matrix-wrap">
+						<table className="qpr-matrix">
+							<thead>
+								<tr>
+									<th scope="col">Penilai \ Target</th>
+									{QPR_V4_ROLES.map(([role, label]) => <th scope="col" key={role} title={label}>{MATRIX_SHORT[role] ?? label}</th>)}
+								</tr>
+							</thead>
+							<tbody>
+								{QPR_V4_ROLES.map(([assessor, assessorLabel]) => <tr key={assessor}>
+									<th scope="row" title={assessorLabel}>{MATRIX_SHORT[assessor] ?? assessorLabel}</th>
+									{QPR_V4_ROLES.map(([target, targetLabel]) => {
+										const available = feasible.has(`${assessor}>${target}`);
+										const checked = instrument.applies.some((pair) => pair.assessor === assessor && pair.target === target);
+										return <td key={target}>
+											{available
+												? <input type="checkbox" checked={checked} disabled={disabled} title={`${assessorLabel} → ${targetLabel}`} aria-label={`${assessorLabel} menilai ${targetLabel}`} onChange={() => togglePair(mi, { assessor, target })} />
+												: <span className="qpr-matrix-na" aria-label={`${assessorLabel} menilai ${targetLabel}: tidak ada di roster`}>—</span>}
+										</td>;
+									})}
+								</tr>)}
+							</tbody>
+						</table>
+					</div>
+				</div>
+				<div className="qpr-topic-questions">
+					{instrument.questions.map((question, qi) => <article className="qpr-editor-question" key={question.id}>
+						<div className="qpr-question-top">
+							<span className="muted small">Pertanyaan {mi + 1}.{qi + 1}</span>
+							<span className="badge outline">{question.type === "scale" ? "Skala 1–5" : "Esai"}</span>
+						</div>
+						<textarea id={`edit-${question.id}`} rows={2} required maxLength={2000} aria-label={`Pertanyaan instrumen ${mi + 1} nomor ${qi + 1}`} disabled={disabled} value={question.label} onChange={(e) => changeQuestion(mi, qi, "label", e.target.value)} />
+						<div className="qpr-question-tools">
+							<label>Jenis jawaban<select aria-label={`Jenis jawaban instrumen ${mi + 1} pertanyaan ${qi + 1}`} value={question.type} disabled={disabled} onChange={(e) => changeQuestion(mi, qi, "type", e.target.value)}>
+								<option value="scale">Skala 1–5</option><option value="text">Esai</option>
+							</select></label>
+							<label className="qpr-check"><input type="checkbox" checked={question.required} disabled={disabled} onChange={(e) => changeQuestion(mi, qi, "required", e.target.checked)} />Wajib diisi</label>
+							<div className="row-actions">
+								<button type="button" className="btn ghost" disabled={disabled || qi === 0} aria-label={`Naikkan instrumen ${mi + 1} pertanyaan ${qi + 1}`} onClick={() => moveQuestion(mi, qi, -1)}>↑</button>
+								<button type="button" className="btn ghost" disabled={disabled || qi === instrument.questions.length - 1} aria-label={`Turunkan instrumen ${mi + 1} pertanyaan ${qi + 1}`} onClick={() => moveQuestion(mi, qi, 1)}>↓</button>
+								<button type="button" className="btn ghost" disabled={disabled} aria-label={`Hapus instrumen ${mi + 1} pertanyaan ${qi + 1}`} onClick={() => patch(mi, { ...instrument, questions: instrument.questions.filter((_, i) => i !== qi) })}>Hapus</button>
+							</div>
+						</div>
+					</article>)}
+					{!instrument.questions.length && <p className="muted small qpr-topic-empty">Belum ada pertanyaan di instrumen ini. Pasangan yang dicentang belum punya pertanyaan sampai diisi.</p>}
+				</div>
+				<button type="button" className="btn sec" disabled={disabled || instrument.questions.length >= 100} onClick={() => patch(mi, { ...instrument, questions: [...instrument.questions, { id: `${instrument.id}-q${instrument.questions.length + 1}-${crypto.randomUUID().slice(0, 8)}`, type: "scale", label: "Pertanyaan baru", required: true }] })}>+ Tambah pertanyaan</button>
+			</section>;
+		})}
+		<button type="button" className="btn" disabled={disabled || instruments.length >= 40} onClick={() => setInstruments([...instruments, { id: `inst-${crypto.randomUUID()}`, title: `Instrumen ${instruments.length + 1}`, applies: [], questions: [] }])}>+ Tambah instrumen</button>
 	</div>;
 }

@@ -1135,6 +1135,23 @@ main.page:has(.qpr-workspace), main.page:has(.builder-fields) { padding-bottom: 
 .qpr-topic-questions .qpr-editor-question textarea { margin-top: 10px; }
 .qpr-topic-empty { margin: 4px 0 0; padding: 14px 16px; border: 1px dashed var(--border); border-radius: 10px; }
 .qpr-topic-cat > .btn.sec { justify-self: start; }
+/* Matriks penilai → target: tabel padat, bisa digeser horizontal, teks tidak
+   keluar sel. Kolom pertama menempel saat digeser. */
+.qpr-matrix-block { display: grid; gap: 6px; min-width: 0; margin-top: 4px; }
+.qpr-matrix-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--card, #fff); }
+.qpr-matrix { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 12px; }
+.qpr-matrix th, .qpr-matrix td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 6px 8px; text-align: center; white-space: nowrap; }
+.qpr-matrix thead th { background: var(--bg); font-weight: 700; color: var(--navy); }
+.qpr-matrix tbody th { text-align: left; background: var(--bg); font-weight: 600; position: sticky; left: 0; }
+.qpr-matrix th:last-child, .qpr-matrix td:last-child { border-right: 0; }
+.qpr-matrix tbody tr:last-child th, .qpr-matrix tbody tr:last-child td { border-bottom: 0; }
+.qpr-matrix input[type="checkbox"] { width: 20px; height: 20px; margin: 0; }
+.qpr-matrix-na { color: var(--muted); opacity: .5; }
+.qpr-matrix-editor .qpr-topic-cat { gap: 12px; }
+@media (max-width: 600px) {
+  .qpr-matrix { min-width: 560px; }
+  .qpr-matrix th, .qpr-matrix td { padding: 5px 6px; }
+}
 .qpr-review dl > div { padding-block: 16px; border-bottom: 1px solid var(--line); }
 .qpr-review dt { font-weight: 600; line-height: 1.7; }
 .qpr-review dd { margin: 8px 0 0; white-space: pre-wrap; }

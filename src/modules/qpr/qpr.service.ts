@@ -5,9 +5,9 @@ import { divisions, qprAnswers, qprEntries, qprPeriods, qprResponses } from "../
 import { parseFieldOptions } from "../forms/form.service";
 import type { Db } from "../../db/connection";
 import { parseQuestions, createPeriodSchema, updatePeriodSchema, QPR_DIVISIONS, QPR_ROLES, QPR_V4_ROLES, type UpdatePeriodInput, type TargetConfig, type QprQuestion, type SubmitAnswersInput } from "./qpr.schema";
-import type { DraftAnswer, QprCategory, QuestionnaireV4, SaveDraftInput, SnapshotQuestion, SubmitV2Input, TopicCategoryInput, TopicSection } from "./qpr.schema";
+import type { DraftAnswer, QprCategory, QuestionnaireV4, QuestionnaireV5, SaveDraftInput, SnapshotQuestion, SubmitV2Input, TopicCategoryInput, TopicInstrumentInput, TopicSection } from "./qpr.schema";
 import { BPH_TARGETS, SCALE_LEGEND, buildBphSections, buildBphSnapshot, resolveSnapshotPath, validateSnapshotMutation, validateTargetConfig, validateBphTemplate } from "./qpr.templates";
-import { allTargetSections, buildTopicSnapshot, sectionsFor, topicPublishBlockers, validateTopicCategories } from "./qpr.topics";
+import { allTargetSections, buildMatrixSnapshot, buildTopicSnapshot, isMatrixSnapshot, migrateV4ToV5, sectionsFor, topicPublishBlockers, validateMatrix, validateTopicCategories } from "./qpr.topics";
 import { scoreResponse } from "./qpr.scoring";
 
 
@@ -52,8 +52,9 @@ const parseV2 = (p: V2Period) => {
  const parsed = parseQuestions(p.questions);
  return parsed && !Array.isArray(parsed) ? parsed : null;
 };
-/** Snapshot v4 = rubrik 360°: kategori pertanyaan + routing dari roster. */
-const isTopicSnapshot = (snapshot: { version: number }): snapshot is QuestionnaireV4 => snapshot.version === 4;
+/** Snapshot v4/v5 = rubrik 360°: pertanyaan + routing dari roster. */
+const isTopicSnapshot = (snapshot: { version: number }): snapshot is QuestionnaireV4 | QuestionnaireV5 =>
+	snapshot.version === 4 || snapshot.version === 5;
 
 type RosterRow = {
 	id: string;
@@ -289,7 +290,7 @@ export const qprService = {
 		};
 	},
 
-	async createPeriod(db: Db, input: { title: string; description?: string | null; division_slug?: string | null; questions?: QprQuestion[] | null; form_kind?: "legacy" | "bph" | "division" | null; categories?: TopicCategoryInput[] | null; opens_at?: string | null; closes_at?: string | null; target_config?: TargetConfig; userId: string }) {
+	async createPeriod(db: Db, input: { title: string; description?: string | null; division_slug?: string | null; questions?: QprQuestion[] | null; form_kind?: "legacy" | "bph" | "division" | null; categories?: TopicCategoryInput[] | null; instruments?: TopicInstrumentInput[] | null; opens_at?: string | null; closes_at?: string | null; target_config?: TargetConfig; userId: string }) {
 		const validated = createPeriodSchema.safeParse(input);
 		if (!validated.success) throw ApiError.validation("Periode tidak valid", { input: validated.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`) });
 		validateSchedule(input.opens_at, input.closes_at);
@@ -310,12 +311,21 @@ export const qprService = {
 			if (errorsConfig.length) throw ApiError.validation("Konfigurasi target tidak valid", { target_config: errorsConfig });
 			questionsJson = JSON.stringify(buildBphSnapshot(input.target_config));
 		} else if (formKind === "division") {
-			const categories = input.categories ?? [];
-			if (!categories.length) throw ApiError.validation("Kategori penilaian wajib diisi minimal satu");
-			const snapshot = buildTopicSnapshot(categories);
-			const errors = validateTopicCategories(snapshot);
-			if (errors.length) throw ApiError.validation("Kategori penilaian tidak valid", { categories: errors });
-			questionsJson = JSON.stringify(snapshot);
+			// v5 (instruments) mengalahkan categories: matriks penilai × target.
+			// Boleh kosong saat draft; publikasi diblokir lewat preview.
+			if (input.instruments != null) {
+				const snapshot = buildMatrixSnapshot(input.instruments);
+				const errors = validateMatrix(snapshot);
+				if (errors.length) throw ApiError.validation("Instrumen penilaian tidak valid", { instruments: errors });
+				questionsJson = JSON.stringify(snapshot);
+			} else {
+				const categories = input.categories ?? [];
+				if (!categories.length) throw ApiError.validation("Kategori penilaian wajib diisi minimal satu");
+				const snapshot = buildTopicSnapshot(categories);
+				const errors = validateTopicCategories(snapshot);
+				if (errors.length) throw ApiError.validation("Kategori penilaian tidak valid", { categories: errors });
+				questionsJson = JSON.stringify(snapshot);
+			}
 		} else {
 			if (!input.questions?.length) throw ApiError.validation("Pertanyaan wajib diisi untuk periode legacy/division");
 			questionsJson = JSON.stringify(input.questions);
@@ -346,36 +356,57 @@ export const qprService = {
 		input = validated.data;
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
-        const changingSnapshot = input.questions !== undefined || input.target_config !== undefined || input.question_labels !== undefined || input.sections !== undefined || input.categories !== undefined || (input.form_kind != null && input.form_kind !== period.formKind);
+        const changingSnapshot = input.questions !== undefined || input.target_config !== undefined || input.question_labels !== undefined || input.sections !== undefined || input.categories !== undefined || input.instruments !== undefined || (input.form_kind != null && input.form_kind !== period.formKind);
         if (input.questions !== undefined && !input.questions?.length) throw ApiError.validation("Pertanyaan wajib diisi");
         if (changingSnapshot && period.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — snapshot terkunci");
         if (input.form_kind != null && input.form_kind !== period.formKind) throw ApiError.validation("Jenis periode tidak bisa diubah");
         if (period.formKind === "bph" && input.questions !== undefined) throw ApiError.validation("Pertanyaan BPH berasal dari template");
         let questionsJson: string | undefined;
-        if (input.target_config !== undefined || input.question_labels !== undefined || input.sections !== undefined || input.categories !== undefined) {
+        if (input.target_config !== undefined || input.question_labels !== undefined || input.sections !== undefined || input.categories !== undefined || input.instruments !== undefined) {
             const current = parseV2(period);
             if (!current) throw ApiError.validation("Kustomisasi hanya untuk periode snapshot");
             if (isTopicSnapshot(current)) {
-                // v4 — kategori pertanyaan. Editor mengirim seluruh daftar kategori;
-                // routing dihitung dari roster sehingga target_config tidak berlaku.
+                // Rubrik 360° — routing dihitung dari roster sehingga
+                // target_config/question_labels/sections tidak berlaku.
                 if (input.target_config !== undefined || input.question_labels !== undefined || input.sections !== undefined)
                     throw ApiError.validation("Rubrik 360° tidak memakai target_config/question_labels/sections");
                 if (input.expected_snapshot && snapshotKey(input.expected_snapshot) !== snapshotKey(current))
                     throw ApiError.conflict("Snapshot berubah — muat ulang sebelum menyimpan");
-                if (!input.categories?.length) throw ApiError.validation("Kategori penilaian wajib diisi minimal satu");
-                const base: QuestionnaireV4 = {
-                    version: 4,
-                    categories: input.categories.map((c) => ({
-                        id: c.id, title: c.title, scope: c.scope ?? "all",
-                        questions: c.questions.map((q) => ({ id: q.id, type: q.type, label: q.label, required: q.required ?? true })),
-                    })),
-                };
-                const snapshotErrors = validateTopicCategories(base);
-                if (snapshotErrors.length) throw ApiError.validation("Kategori penilaian tidak valid", { categories: snapshotErrors });
-                questionsJson = JSON.stringify(base);
+                if (isMatrixSnapshot(current)) {
+                    // v5 — matriks penilai × target. Editor mengirim instrumen.
+                    if (input.categories !== undefined)
+                        throw ApiError.validation("Periode matriks memakai instruments, bukan categories");
+                    const base: QuestionnaireV5 = {
+                        version: 5,
+                        instruments: (input.instruments ?? []).map((instrument) => ({
+                            id: instrument.id,
+                            title: instrument.title,
+                            applies: instrument.applies,
+                            questions: instrument.questions.map((q) => ({ id: q.id, type: q.type, label: q.label, required: q.required ?? true })),
+                        })),
+                    };
+                    const snapshotErrors = validateMatrix(base);
+                    if (snapshotErrors.length) throw ApiError.validation("Instrumen penilaian tidak valid", { instruments: snapshotErrors });
+                    questionsJson = JSON.stringify(base);
+                } else {
+                    // v4 — kategori pertanyaan. Upgrade ke v5 lewat endpoint khusus.
+                    if (input.instruments !== undefined)
+                        throw ApiError.validation("Periode kategori v4 harus di-upgrade ke matriks lebih dulu");
+                    if (!input.categories?.length) throw ApiError.validation("Kategori penilaian wajib diisi minimal satu");
+                    const base: QuestionnaireV4 = {
+                        version: 4,
+                        categories: input.categories.map((c) => ({
+                            id: c.id, title: c.title, scope: c.scope ?? "all",
+                            questions: c.questions.map((q) => ({ id: q.id, type: q.type, label: q.label, required: q.required ?? true })),
+                        })),
+                    };
+                    const snapshotErrors = validateTopicCategories(base);
+                    if (snapshotErrors.length) throw ApiError.validation("Kategori penilaian tidak valid", { categories: snapshotErrors });
+                    questionsJson = JSON.stringify(base);
+                }
             } else {
-                if (current.version !== 3) throw ApiError.validation("Kustomisasi hanya untuk snapshot v2/v3/v4");
-                if (input.categories !== undefined) throw ApiError.validation("Kategori hanya untuk rubrik 360°");
+                if (current.version !== 3) throw ApiError.validation("Kustomisasi hanya untuk snapshot v2/v3/v4/v5");
+                if (input.categories !== undefined || input.instruments !== undefined) throw ApiError.validation("Kategori/instrumen hanya untuk rubrik 360°");
                 if (input.expected_snapshot && snapshotKey(input.expected_snapshot) !== snapshotKey(current))
                     throw ApiError.conflict("Snapshot berubah — muat ulang sebelum menyimpan");
                 const configErrors = input.target_config ? validateTargetConfig(input.target_config) : [];
@@ -409,6 +440,32 @@ export const qprService = {
 				updatedAt: now,
 			})
 			.where(and(eq(qprPeriods.id, id), changingSnapshot ? sql`${qprPeriods.firstOpenedAt} IS NULL` : undefined, changingSnapshot ? eq(qprPeriods.questions, period.questions) : undefined))
+			.returning();
+		if (!updated) throw ApiError.conflict("Snapshot berubah atau periode pernah dibuka — muat ulang sebelum menyimpan");
+		return { ...withEffective(updated), questions: parseFieldOptions(updated.questions) };
+	},
+
+	/**
+	 * Naikkan snapshot v4 (kategori) ke v5 (matriks penilai × target).
+	 * Dipisah dari updatePeriod supaya konversi tidak terjadi tanpa sengaja:
+	 * BPH memilih kapan periode lama dipindah ke editor matriks.
+	 */
+	async upgradeToMatrix(db: Db, id: string) {
+		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
+		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
+		if (period.formKind !== "division") throw ApiError.validation("Upgrade hanya untuk periode rubrik 360°");
+		if (period.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — snapshot terkunci");
+		const current = parseV2(period);
+		if (!current || !isTopicSnapshot(current)) throw ApiError.validation("Periode ini bukan rubrik 360°");
+		if (isMatrixSnapshot(current)) return { ...withEffective(period), questions: parseFieldOptions(period.questions) };
+		const entries = await db.select().from(qprEntries).where(eq(qprEntries.periodId, id));
+		const snapshot = migrateV4ToV5(current, topicRoster(entries));
+		const errors = validateMatrix(snapshot);
+		if (errors.length) throw ApiError.validation("Migrasi matriks tidak valid", { instruments: errors });
+		const [updated] = await db
+			.update(qprPeriods)
+			.set({ questions: JSON.stringify(snapshot), updatedAt: new Date().toISOString() })
+			.where(and(eq(qprPeriods.id, id), eq(qprPeriods.questions, period.questions), sql`${qprPeriods.firstOpenedAt} IS NULL`))
 			.returning();
 		if (!updated) throw ApiError.conflict("Snapshot berubah atau periode pernah dibuka — muat ulang sebelum menyimpan");
 		return { ...withEffective(updated), questions: parseFieldOptions(updated.questions) };
@@ -456,7 +513,8 @@ export const qprService = {
         if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
         if (period.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — roster terkunci");
         const snapshot = parseV2(period);
-        const v4 = snapshot?.version === 4;
+        // v4 & v5 memakai roster berjabatan yang sama (routing dihitung, bukan disimpan).
+        const v4 = snapshot?.version === 4 || snapshot?.version === 5;
         const existing = await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId));
         const canonical = await db.select({ slug: divisions.slug, name: divisions.name }).from(divisions).where(inArray(divisions.slug, [...QPR_DIVISIONS]));
         const keys = new Set<string>();

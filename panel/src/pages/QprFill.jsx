@@ -4,7 +4,7 @@ import { Card, SkeletonCard } from "../components/ui.jsx";
 import { QprSection, QprSectionNav, QprReview, QprProgress, complete, targetTitle, QPR_ROLE_LABEL, useStepScroll } from "../components/QprForm.jsx";
 
 const payload = (answers) => Object.entries(answers).map(([question_id, value]) => ({ question_id, value }));
-const isRubric360 = (roster) => roster?.questions?.version === 4;
+const isRubric360 = (roster) => roster?.questions?.version === 4 || roster?.questions?.version === 5;
 
 export default function QprFill({ periodId, initialRoster }) {
 	return <Fill key={periodId} periodId={periodId} initialRoster={initialRoster} />;
@@ -227,7 +227,7 @@ function Fill({ periodId, initialRoster }) {
 			<Card>
 			<p>Mengisi sebagai <strong>{session.entry.name}</strong> · {session.entry.division} · Jabatan: <strong>{QPR_ROLE_LABEL[session.entry.role] || session.entry.role || "Tidak tercantum"}</strong></p>
 			<button type="button" className="btn ghost" disabled={busy} onClick={switchName}>Ganti nama</button>
-			{isRubric360(roster) && <p className="muted small">Kamu akan menilai {sections.length} orang. Setiap orang punya pertanyaan yang sama; jawaban tidak ditautkan ke namamu.</p>}
+			{isRubric360(roster) && <p className="muted small">Kamu akan menilai {sections.length} orang. Pertanyaan mengikuti pasangan penilai → target; jawaban tidak ditautkan ke namamu.</p>}
 			<p className="field-help" role="status" aria-live="polite">{status === "saving" ? "Menyimpan…" : status === "saved" ? "Tersimpan" : status === "conflict" ? "Konflik — edit lokal belum tersimpan. Tidak akan menimpa draft server." : status === "error" ? "Gagal tersimpan — edit lokal tetap ada." : ""}</p>
 			<QprProgress filled={filled} total={required.length} />
 			<p className="muted small">Jangan tutup tab sebelum status Tersimpan.</p>

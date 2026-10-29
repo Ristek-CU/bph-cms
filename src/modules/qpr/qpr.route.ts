@@ -218,6 +218,22 @@ adminQprRouter.put(
 );
 
 adminQprRouter.post(
+	"/periods/:id/upgrade-matrix",
+	describe(
+		"Upgrade rubrik ke matriks",
+		"Ubah snapshot v4 (kategori) menjadi v5 (instrumen penilai × target) tanpa mengubah pertanyaan. Ditolak bila periode pernah dibuka.",
+		successWrapper(z.object({})),
+		{ 404: { description: "Not found" }, 409: { description: "Snapshot terkunci / pernah dibuka" } },
+	),
+	async (c) => {
+		const { id } = parseParams(c, idParamSchema);
+		const result = await qprService.upgradeToMatrix(getDb(c.env.DB), id);
+		await recordAuditLog(c, { action: "qpr.period_upgrade_matrix", resourceType: "qpr_period", resourceId: id });
+		return ApiResponse.ok(c, "Periode di-upgrade ke matriks", result);
+	},
+);
+
+adminQprRouter.post(
 	"/periods/:id/open",
 	describe("Buka periode", "Link publik mulai aktif.", successWrapper(z.object({}))),
 	async (c) => {

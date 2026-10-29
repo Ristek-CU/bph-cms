@@ -59,10 +59,10 @@ function ParticipationView() {
 }
 
 const DIVISIONS = ["bph", "ristek", "ukm", "advo", "bnp", "icd", "pr", "media"];
-// Snapshot = v2/v3 (sections) atau v4 (categories). Keduanya memakai alur
-// draft/submit-v2, bukan jalur legacy.
-const isSnapshot = (questions) => !Array.isArray(questions) && (Array.isArray(questions?.sections) || Array.isArray(questions?.categories));
-const isTopicRubric = (questions) => !Array.isArray(questions) && questions?.version === 4;
+// Snapshot = v2/v3 (sections), v4 (categories), atau v5 (instruments). Semuanya
+// memakai alur draft/submit-v2, bukan jalur legacy.
+const isSnapshot = (questions) => !Array.isArray(questions) && (Array.isArray(questions?.sections) || Array.isArray(questions?.categories) || Array.isArray(questions?.instruments));
+const isTopicRubric = (questions) => !Array.isArray(questions) && (questions?.version === 4 || questions?.version === 5);
 const isFrozen = (period) => Boolean(period.firstOpenedAt);
 const legacyQuestionKey = (question) => JSON.stringify([question.label, question.category]);
 
@@ -91,16 +91,7 @@ function ParticipationMeter({ done, total }) {
 	return <div className="qpr-participation-meter"><div><strong>{done} / {total}</strong><span className="muted"> respons final · {total ? Math.round(done / total * 100) : 0}%</span></div><progress aria-label="Progres respons final" value={done} max={total || 1} /><p className="muted small">{Math.max(0, total - done)} belum mengirim · draft tidak dihitung final</p></div>;
 }
 
-/** Modal buat periode — pertanyaan default PRD §4.3, bisa diubah via PUT nanti. */
-const DEFAULT_TOPIC_CATEGORIES = ["Kepemimpinan", "Komunikasi", "Kedisiplinan"].map((title) => ({
-	title,
-	scope: "all",
-	questions: [
-		{ type: "scale", label: `${title}: menilai kemampuan yang terlihat dalam keseharian organisasi.`, required: true },
-		{ type: "text", label: `Apa hal terbaik dari ${title.toLowerCase()} orang ini?`, required: false },
-		{ type: "text", label: `Apa yang perlu diperbaiki pada ${title.toLowerCase()} orang ini?`, required: false },
-	],
-}));
+/** Modal buat periode — 360° mulai dari matriks kosong; form BPH/legacy memakai template bawaan. */
 
 function CreatePeriodModal({ open, onClose, onDone, toast }) {
 	const navigate = useNavigate();
@@ -124,9 +115,9 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 					description: desc.trim() || null,
 					form_kind: formKind,
 					division_slug: divisionSlug || null,
-					// 360°: kategori awal Kepemimpinan/Komunikasi/Kedisiplinan dengan
-					// 1 skala + 2 esai per kategori, bisa diubah di editor.
-					...(formKind === "division" && { categories: DEFAULT_TOPIC_CATEGORIES }),
+					// 360° matriks: mulai kosong — BPH menyusun instrumen penilai →
+					// target dan pertanyaannya sendiri di editor.
+					...(formKind === "division" && { instruments: [] }),
 					// form bph: pertanyaan dari template resmi server; legacy: default 3 kategori.
 					...(formKind === "legacy" && {
 						questions: [
@@ -159,7 +150,7 @@ function CreatePeriodModal({ open, onClose, onDone, toast }) {
 						<div style={{ display: "grid", gap: 6, marginTop: 4 }}>
 							<label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
 								<input type="radio" name="qp-kind" value="division" checked={formKind === "division"} onChange={() => setFormKind("division")} style={{ marginTop: 3 }} />
-								<span><strong>Penilaian 360° (semua jabatan)</strong><span className="muted small" style={{ display: "block" }}>Kategori Kepemimpinan, Komunikasi, Kedisiplinan (1 skala + 2 esai). Tiap orang menilai atasan, bawahan, dan rekan sesuai jabatannya.</span></span>
+								<span><strong>Penilaian 360° (matriks penilai × target)</strong><span className="muted small" style={{ display: "block" }}>Pertanyaan berbeda untuk tiap pasangan penilai → target. Setelah dibuat, susun instrumen dan centang pasangan yang berlaku.</span></span>
 							</label>
 							<label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
 								<input type="radio" name="qp-kind" value="bph" checked={formKind === "bph"} onChange={() => setFormKind("bph")} style={{ marginTop: 3 }} />
@@ -387,11 +378,12 @@ function Workspace({ periodId, draftKey }) {
 function SetupChecklist({ period, entries, onGo }) {
 	const snapshot = isSnapshot(period.questions);
 	const needsTargets = snapshot && period.questions?.version === 3;
-	const needsRosterRoles = snapshot && period.questions?.version === 4;
+	const needsRosterRoles = snapshot && (period.questions?.version === 4 || period.questions?.version === 5);
 	const targetMissing = needsTargets && (period.questions.target_config?.targets ?? []).some((t) => !t.label?.trim());
-	const categoryMissing = needsRosterRoles && (period.questions.categories ?? []).some((c) => !c.questions.length);
+	const categoryMissing = period.questions?.version === 4 && (period.questions.categories ?? []).some((c) => !c.questions.length);
+	const instrumentMissing = period.questions?.version === 5 && (!(period.questions.instruments ?? []).length || period.questions.instruments.some((instrument) => !instrument.questions.length || !instrument.applies.length));
 	const items = [
-		{ tab: "questions", done: !targetMissing && !categoryMissing, label: targetMissing ? "Lengkapi nama target penilaian" : categoryMissing ? "Lengkapi pertanyaan tiap kategori" : needsRosterRoles ? "Kategori dan pertanyaan penilaian" : "Nama target dan pertanyaan" },
+		{ tab: "questions", done: !targetMissing && !categoryMissing && !instrumentMissing, label: targetMissing ? "Lengkapi nama target penilaian" : categoryMissing ? "Lengkapi pertanyaan tiap kategori" : instrumentMissing ? "Lengkapi instrumen dan pasangan penilaian" : needsRosterRoles ? "Instrumen dan pasangan penilaian" : "Nama target dan pertanyaan" },
 		{ tab: "entries", done: entries.length > 0 && (!needsRosterRoles || entries.every((e) => e.divisionSlug || e.memberRole === "president" || e.memberRole === "vice_president")) && entries.every((e) => e.divisionSlug || e.division), label: entries.length ? "Daftar pengisi terisi" : "Isi daftar pengisi" },
 		{ tab: "preview", done: null, label: "Periksa Pratinjau & blocker kesiapan" },
 	];
@@ -430,6 +422,9 @@ function AddEntriesModal({ open, periodId, version, onClose, onAdded, toast }) {
 	useEscape(() => open && !busy && onClose());
 	if (!open) return null;
 
+	// v4 (kategori) dan v5 (matriks) sama-sama memakai impor roster berjabatan.
+	const topic = version === 4 || version === 5;
+
 	// Parse "Nama | Divisi | Jabatan | Divisi diurus (controller) | member_key (opsional)"
 	// per baris. Error dikumpulkan per nomor baris — impor tidak jalan bila ada baris salah.
 	const parseRows = () => {
@@ -439,7 +434,7 @@ function AddEntriesModal({ open, periodId, version, onClose, onAdded, toast }) {
 			if (!line.trim()) return;
 			const parts = line.split("|").map((s) => s.trim());
 			const n = i + 1;
-			if (version === 4) {
+			if (topic) {
 				const [name, division, role, manages, member_key] = parts;
 				if (!name) { errors.push(`Baris ${n}: nama kosong.`); return; }
 				const slug = (division || "").toLowerCase();
@@ -490,7 +485,7 @@ function AddEntriesModal({ open, periodId, version, onClose, onAdded, toast }) {
 		}
 	};
 
-	const help = version === 4
+	const help = topic
 		? `Format: Nama | Divisi | Jabatan | Divisi diurus (khusus Controller, pisah koma). Jabatan: ${Object.entries(ROLE_V4_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}.`
 		: `Divisi: ${Object.entries(DIVISION_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}. Jabatan: ${Object.entries(ROLE_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}. Nama kembar: tulis member_key berbeda di kolom keempat.`;
 
@@ -499,11 +494,11 @@ function AddEntriesModal({ open, periodId, version, onClose, onAdded, toast }) {
 			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Tambah nama pengisi">
 				<h3>Tambah nama pengisi</h3>
 				<div style={{ marginTop: 10 }}>
-					<label className="field-label" htmlFor="qp-entries">{version === 4 ? "Nama | Divisi | Jabatan | Divisi diurus — satu orang per baris" : version === 3 ? "Nama | Divisi | Jabatan — satu orang per baris" : "Nama | Divisi | Jabatan (opsional) — satu orang per baris"}</label>
-					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => { setRaw(e.target.value); setItemsPreview(null); }} placeholder={version === 4 ? "Presiden Contoh | | president\nKadiv Ristek | ristek | kadiv\nController Satu | bph | controller | ristek,ukm\nAnggota Ristek | ristek | anggota" : "Anggota Contoh | ristek | anggota\nAnggota Lain | ukm | kadiv"} required />
+					<label className="field-label" htmlFor="qp-entries">{topic ? "Nama | Divisi | Jabatan | Divisi diurus — satu orang per baris" : version === 3 ? "Nama | Divisi | Jabatan — satu orang per baris" : "Nama | Divisi | Jabatan (opsional) — satu orang per baris"}</label>
+					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => { setRaw(e.target.value); setItemsPreview(null); }} placeholder={topic ? "Presiden Contoh | | president\nKadiv Ristek | ristek | kadiv\nController Satu | bph | controller | ristek,ukm\nAnggota Ristek | ristek | anggota" : "Anggota Contoh | ristek | anggota\nAnggota Lain | ukm | kadiv"} required />
 					<p className="muted small">{help}</p>
 				</div>
-				<div>{itemsPreview && <><h4>Preview impor ({itemsPreview.length})</h4><ul>{itemsPreview.map((item, i) => <li key={i}>{item.name} · {DIVISION_LABEL[item.division_slug] || item.division || "—"} · {(version === 4 ? ROLE_V4_LABEL : ROLE_LABEL)[item.role] || item.role || "—"}{item.manages?.length ? ` · mengurus: ${item.manages.map((m) => DIVISION_LABEL[m] || m).join(", ")}` : ""}{item.member_key ? ` · ${item.member_key}` : ""}</li>)}</ul></>}</div>
+				<div>{itemsPreview && <><h4>Preview impor ({itemsPreview.length})</h4><ul>{itemsPreview.map((item, i) => <li key={i}>{item.name} · {DIVISION_LABEL[item.division_slug] || item.division || "—"} · {(topic ? ROLE_V4_LABEL : ROLE_LABEL)[item.role] || item.role || "—"}{item.manages?.length ? ` · mengurus: ${item.manages.map((m) => DIVISION_LABEL[m] || m).join(", ")}` : ""}{item.member_key ? ` · ${item.member_key}` : ""}</li>)}</ul></>}</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
 					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
 					<button className="btn" type="submit" disabled={busy || !raw.trim()}>{busy ? "Menyimpan…" : itemsPreview ? "Impor" : "Preview impor"}</button>
