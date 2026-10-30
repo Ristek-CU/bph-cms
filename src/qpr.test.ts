@@ -509,6 +509,17 @@ eq("save v3",saveV3.status,200);
 const staleV3=await h.req(`${PUB}/${v3id}/submit-v2`,{method:"POST",json:{entry_id:findV3("ka").id,expected_version:0,answers:va}});
 eq("stale final 409",staleV3.status,409);
 eq("draft conflict state",staleV3.body.errors?.state,["draft_conflict"]);
+// Autosave ulang isi identik setelah responsnya hilang: versi sudah naik oleh
+// tulisan itu sendiri, jadi server mengakui tanpa menulis apa pun.
+const kbId=findV3("kb").id;
+const kbDraft=(await h.req(`${PUB}/${v3id}/entries/${kbId}/draft`)).body.data;
+const kbAnswers=full(kbDraft);
+eq("kb first save",(await h.req(`${PUB}/${v3id}/entries/${kbId}/draft`,{method:"PUT",json:{expected_version:0,answers:kbAnswers}})).status,200);
+const replayed=await h.req(`${PUB}/${v3id}/entries/${kbId}/draft`,{method:"PUT",json:{expected_version:0,answers:[...kbAnswers].reverse()}});
+eq("identical autosave replay ack",[replayed.status,replayed.body.data?.draft_version],[200,1]);
+const kbChanged=kbAnswers.map((a:any,i:number)=>i===0?{...a,value:a.value===4?5:4}:a);
+const different=await h.req(`${PUB}/${v3id}/entries/${kbId}/draft`,{method:"PUT",json:{expected_version:0,answers:kbChanged}});
+eq("different content still conflicts",[different.status,different.body.errors?.state],[409,["draft_conflict"]]);
 const statusA=await h.req(`/api/v1/qpr-participation/${v3id}?division=ukm`,{token:"tok-a-admin",headers:{"X-Division-Id":"ukm"}});
 eq("forged division header only own status",statusA.body.data.total_entries,7);
 eq("draft counted pending",statusA.body.data.done_entries,0);

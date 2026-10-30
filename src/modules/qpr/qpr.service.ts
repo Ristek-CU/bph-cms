@@ -181,6 +181,14 @@ const validateDraftAnswers = (questions: SnapshotQuestion[], answers: DraftAnswe
 	}
 };
 
+// Isi draft sama, urutan bebas: dipakai untuk mengakui autosave ulang yang
+// CAS-nya kalah oleh tulisan identik itu sendiri, bukan oleh tab lain.
+const sameDraft = (stored: DraftAnswer[], incoming: DraftAnswer[]) => {
+	if (stored.length !== incoming.length) return false;
+	const key = (a: DraftAnswer) => JSON.stringify([a.question_id, a.value]);
+	return new Set(stored.map(key)).size === new Set([...stored, ...incoming].map(key)).size;
+};
+
 export const qprService = {
     async preview(db: Db, periodId: string) {
         const period = await this.getPeriod(db, periodId);
@@ -638,9 +646,12 @@ export const qprService = {
 	async submitPublic(db: Db, periodId: string, input: SubmitAnswersInput) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
-		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const entries = await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId));
 		const entry = entries.find((e) => e.name.toLowerCase() === input.name.trim().toLowerCase());
+		// Bukti kirim menang atas tutup; nama lain tetap 404 supaya roster tidak
+		// bocor lewat periode tertutup (dulu "nama tidak terdaftar" membocorkan).
+		if (entry?.done) throw finalConflict(entry.submittedAt);
+		if (!periodIsOpen(period)) closedOrNotFound(period);
 		if (!entry) throw ApiError.validation("Nama tidak terdaftar", { name: ["Pilih nama dari daftar."] });
 		// Jawaban harus cocok dengan pertanyaan periode — klien liar tidak bisa
 		// menyuntik kategori/skor palsu ke rekap.
@@ -668,10 +679,13 @@ export const qprService = {
 	async getDraft(db: Db, periodId: string, entryId: string) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
-		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, entryId), eq(qprEntries.periodId, periodId))).limit(1);
 		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
+		// Bukti kirim tetap terbaca pemiliknya walau periode sudah ditutup: respons
+		// final yang hilang tidak boleh jadi "tidak pernah mengirim". Entry yang
+		// belum final tetap 404 setelah tutup (roster/pertanyaan tidak bocor).
 		if (entry.done) throw finalConflict(entry.submittedAt);
+		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const v2 = parseV2(period);
 		if (!v2) throw ApiError.validation("Periode ini memakai format lama — draft tidak tersedia");
 		// Jalur responden dari snapshot identitas roster; entry legacy tanpa
@@ -708,10 +722,10 @@ export const qprService = {
 	async saveDraft(db: Db, periodId: string, entryId: string, input: SaveDraftInput) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
-		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, entryId), eq(qprEntries.periodId, periodId))).limit(1);
 		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
 		if (entry.done) throw finalConflict(entry.submittedAt);
+		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const v2 = parseV2(period);
 		if (!v2) throw ApiError.validation("Periode ini memakai format lama — draft tidak tersedia");
 		const roster = isTopicSnapshot(v2) ? await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId)) : [entry];
@@ -724,7 +738,18 @@ export const qprService = {
 			.set({ draftAnswers: JSON.stringify(input.answers), draftVersion: sql`${qprEntries.draftVersion} + 1`, draftUpdatedAt: now })
 			.where(and(eq(qprEntries.id, entryId), eq(qprEntries.done, false), eq(qprEntries.draftVersion, input.expected_version), eq(qprEntries.periodId, periodId), openSql))
 			.returning({ id: qprEntries.id, draftVersion: qprEntries.draftVersion });
-		if (!updated.length) return writeConflict(db, periodId, entryId);
+		if (!updated.length) {
+			// Autosave ulang dengan isi identik (respons pertama hilang di jaringan,
+			// tab mengulang): versi sudah naik oleh simpanan itu sendiri. Akui tanpa
+			// menulis apa pun. Isi berbeda tetap 409 — tab lain tidak tertimpa diam-diam.
+			const [again] = await db.select().from(qprEntries).where(eq(qprEntries.id, entryId)).limit(1);
+			const [fresh] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
+			if (
+				again && !again.done && fresh && periodIsOpen(fresh) && again.draftAnswers != null &&
+				sameDraft(parseFieldOptions(again.draftAnswers) as DraftAnswer[], input.answers)
+			) return { draft_version: again.draftVersion, saved_at: again.draftUpdatedAt };
+			return writeConflict(db, periodId, entryId);
+		}
 		return { draft_version: updated[0].draftVersion, saved_at: now };
 	},
 
@@ -737,10 +762,12 @@ export const qprService = {
 	async submitV2(db: Db, periodId: string, input: SubmitV2Input) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
-		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, input.entry_id), eq(qprEntries.periodId, periodId))).limit(1);
 		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
+		// Bukti kirim menang atas tutup — respons final yang hilang tidak boleh
+		// jadi "tidak pernah mengirim". Entry belum final tetap 404 setelah tutup.
 		if (entry.done) throw finalConflict(entry.submittedAt);
+		if (!periodIsOpen(period)) closedOrNotFound(period);
 		const v2 = parseV2(period);
 		if (!v2) throw ApiError.validation("Periode ini memakai format lama — gunakan submit lama");
         if (v2.version === 3 && input.expected_version == null) throw ApiError.validation("expected_version wajib untuk snapshot v3");

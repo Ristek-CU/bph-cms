@@ -37,6 +37,19 @@ function Fill({ periodId, initialRoster }) {
 		if (mounted.current && current.current === s) { setStatus(state); setError(message); }
 	};
 
+	// Satu tempat memutuskan jenis kegagalan tulis, supaya pesan tidak salah sebab.
+	const verdict = (e) => {
+		if (e.statusCode === 409) {
+			const state = e.errors?.state ?? [];
+			if (state.includes("already_final")) return "final";
+			if (state.includes("draft_conflict")) return "conflict";
+			return "error";
+		}
+		if (e.statusCode === 404) return "closed";
+		if (e.statusCode == null) return navigator.onLine === false ? "offline" : "error";
+		return "error";
+	};
+
 	// One writer per identity. Edits coalesce, but every successful response advances CAS version.
 	const flush = (s = current.current) => {
 		if (!s) return Promise.resolve();
@@ -50,18 +63,35 @@ function Fill({ periodId, initialRoster }) {
 				while (s.saved !== s.revision) {
 					const revision = s.revision;
 					const answers = payload(s.answers);
-					const result = await api(`/qpr/${periodId}/entries/${s.entry.id}/draft`, {
-						method: "PUT", signal: s.controller.signal,
-						json: { expected_version: s.version, answers },
-					});
+					let result;
+					for (let attempt = 0; ; attempt++) {
+						try {
+							result = await api(`/qpr/${periodId}/entries/${s.entry.id}/draft`, {
+								method: "PUT", signal: s.controller.signal,
+								json: { expected_version: s.version, answers },
+							});
+							break;
+						} catch (e) {
+							// Tanpa statusCode = gagal jaringan/abort: tulis mungkin sudah
+							// masuk. Kirim ulang isi yang sama aman — server mengakui
+							// autosave identik yang CAS-nya kalah oleh dirinya sendiri.
+							if (e.statusCode == null && attempt < 1) continue;
+							throw e;
+						}
+					}
 					s.version = result.draft_version;
 					if (mounted.current && current.current === s) setSavedAt(result.saved_at);
 					s.saved = revision;
 				}
 				updateStatus(s, "saved");
 			} catch (e) {
-				if (e.statusCode === 409) s.conflict = true;
-				updateStatus(s, s.conflict ? "conflict" : "error", errText(e));
+				const kind = verdict(e);
+				if (kind === "final") {
+					if (mounted.current && current.current === s) { setProof(e.errors?.submitted_at ?? null); setDone(true); }
+					return;
+				}
+				if (kind === "conflict") s.conflict = true;
+				updateStatus(s, kind, errText(e));
 				throw e;
 			} finally { s.pending = null; }
 		})();
@@ -188,7 +218,16 @@ function Fill({ periodId, initialRoster }) {
 		setBusy(true);
 		try {
 			await flush(s);
-			const result = await api(`/qpr/${periodId}/submit-v2`, { method: "POST", json: { entry_id: s.entry.id, expected_version: s.version, answers: payload(s.answers) } });
+			const send = () => api(`/qpr/${periodId}/submit-v2`, { method: "POST", json: { entry_id: s.entry.id, expected_version: s.version, answers: payload(s.answers) } });
+			let result;
+			try {
+				result = await send();
+			} catch (e) {
+				// Respons hilang setelah commit: kirim ulang sekali. Kalau ternyata
+				// sudah masuk, server membalas 409 already_final + bukti kirim.
+				if (e.statusCode != null) throw e;
+				result = await send();
+			}
 			if (mounted.current && current.current === s) {
 				setRoster((r) => ({ ...r, remaining: r.remaining.filter((entry) => entry.id !== s.entry.id) }));
 				setProof(result?.submitted_at ?? null);
@@ -203,8 +242,11 @@ function Fill({ periodId, initialRoster }) {
 				}
 				return;
 			}
-			if (e.statusCode === 409) s.conflict = true;
-			updateStatus(s, s.conflict ? "conflict" : "error", errText(e));
+			const kind = verdict(e);
+			// Tutup/nama hilang: form tidak bisa dilanjutkan, tapi jawaban lokal
+			// tetap ada dan bisa disalin sebelum halaman ditinggalkan.
+			if (kind === "conflict") s.conflict = true;
+			updateStatus(s, kind === "final" ? "error" : kind, errText(e));
 		} finally { s.submitting = false; if (mounted.current) setBusy(false); }
 	};
 
@@ -254,7 +296,7 @@ function Fill({ periodId, initialRoster }) {
 			<p>Mengisi sebagai <strong>{session.entry.name}</strong> · {session.entry.division} · Jabatan: <strong>{QPR_ROLE_LABEL[session.entry.role] || session.entry.role || "Tidak tercantum"}</strong></p>
 			<button type="button" className="btn ghost" disabled={busy} onClick={switchName}>Ganti nama</button>
 			{isRubric360(roster) && <p className="muted small">Kamu akan menilai {sections.length} orang. Pertanyaan mengikuti pasangan penilai → target; jawaban tidak ditautkan ke namamu.</p>}
-			<p className="field-help" role="status" aria-live="polite">{status === "saving" ? "Menyimpan…" : status === "saved" ? <span className="qpr-save-label">Tersimpan</span> : status === "conflict" ? "Konflik — edit lokal belum tersimpan. Tidak akan menimpa draft server." : status === "error" ? "Belum tersimpan — akan dicoba lagi." : ""}
+			<p className="field-help" role="status" aria-live="polite">{status === "saving" ? "Menyimpan…" : status === "saved" ? <span className="qpr-save-label">Tersimpan</span> : status === "conflict" ? "Konflik — edit lokal belum tersimpan. Tidak akan menimpa draft server." : status === "offline" ? "Koneksi terputus — edit lokal aman di tab ini, belum tersimpan ke server." : status === "closed" ? "Periode sudah ditutup — jawaban lokal tidak bisa dikirim lagi." : status === "error" ? "Belum tersimpan — akan dicoba lagi." : ""}
 			{status === "saved" && savedAt && <span className="muted small qpr-save-time"> {timeID(savedAt)}</span>}</p>
 			<QprProgress filled={filled} total={required.length} />
 			<p className="muted small">Jangan tutup tab sebelum status Tersimpan.</p>
