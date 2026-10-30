@@ -272,6 +272,8 @@ export const updatePeriodSchema = createPeriodSchema.partial().extend({
 	categories: z.array(editableCategorySchema).min(1).max(20).optional(),
 	instruments: z.array(editableInstrumentSchema).max(40).optional(),
 	expected_snapshot: z.union([questionnaireV3Schema, questionnaireV4Schema, questionnaireV5Schema]).optional(),
+	// Revisi metadata (judul/jadwal/deskripsi): dua tab tidak saling menimpa diam-diam.
+	expected_updated_at: z.string().datetime({ offset: true }).optional(),
 }).strict().superRefine((input, ctx) => {
 	const v4Edit = input.categories !== undefined;
 	const v5Edit = input.instruments !== undefined;

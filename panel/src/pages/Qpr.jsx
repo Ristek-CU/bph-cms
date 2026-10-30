@@ -16,6 +16,8 @@ const badgeClass = (p) => ({ scheduled: "upcoming", closed: "closed" })[p.effect
 
 // Status jadwal kampanye (dijadwalkan/dibuka/ditutup/tanpa jadwal) + tanggal buka/tutup.
 const fmtDate = (iso) => new Date(iso).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta" });
+// Konfirmasi buka menyebut tanggal + jam; jam lokal pengurus membingungkan bila beda zona.
+const fmtTime = (iso) => new Date(iso).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
 const scheduleNote = (p) => {
 	const s = p.effective_status ?? p.status;
 	const state = s === "scheduled" ? "Dijadwalkan" : s === "open" ? "Dibuka" : s === "closed" ? "Ditutup" : "Tanpa jadwal";
@@ -364,11 +366,11 @@ function Workspace({ periodId, draftKey }) {
 		catch (e) { setError(errText(e)); }
 		finally { setBusy(false); }
 	};
+	// Draft editor bertahan saat pindah tab (editorDrafts per pengguna+divisi+periode).
+	// Simpan/buang diminta eksplisit, bukan dihapus diam-diam.
 	const changeTab = async (next) => {
 		if (next === tab) return;
-		if (dirty && !window.confirm("Perubahan form belum disimpan. Pindah tab sekarang akan MENGHAPUS draft lokal editor (isi yang belum disimpan hilang permanen). Hapus draft dan pindah tab?")) return;
-		if (dirty) editorDrafts.delete(draftKey);
-		setDirty(false); setParams({ tab: next }, { replace: true }); setError("");
+		setParams({ tab: next }, { replace: true }); setError("");
 	};
 	useEffect(() => {
 		let active = true;
@@ -397,16 +399,16 @@ function Workspace({ periodId, draftKey }) {
 	return <div className="qpr-workspace">
 		<Link className="qpr-back" to="/qpr">← Semua kampanye</Link>
 		<header className="qpr-page-head"><div><p className="studio-kicker">WORKSPACE QPR</p><h1>{period.title}</h1><p className="muted">{entries.length} pengisi · {done} respons final</p></div><span className={`badge ${badgeClass(period)}`}>{statusLabel(period)}</span></header>
-		<nav className="qpr-tabs" aria-label="Bagian kampanye">{Object.entries(tabs).map(([key, label]) => <button key={key} type="button" className={tab === key ? "active" : ""} aria-current={tab === key ? "page" : undefined} onClick={() => changeTab(key)}>{label}{key === "responses" ? ` (${done})` : ""}</button>)}</nav>
+		<nav className="qpr-tabs" aria-label="Bagian kampanye">{Object.entries(tabs).map(([key, label]) => <button key={key} type="button" className={tab === key ? "active" : ""} aria-current={tab === key ? "page" : undefined} onClick={() => changeTab(key)}>{label}{key === "responses" ? ` (${done})` : key === "questions" && dirty ? " •" : ""}</button>)}</nav>
 		{error && <ErrorState message={error} onRetry={() => { setError(""); load(); }} />}
 		{tab === "overview" && <>
 			<div className="card qpr-overview"><h2>Progres pengisian</h2><ParticipationMeter done={done} total={entries.length} /><p>{period.description || "Belum ada deskripsi."}</p><p className="muted small">{period.opensAt ? `Buka: ${new Date(period.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "Buka manual"} · {period.closesAt ? `Tutup: ${new Date(period.closesAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : "Tutup manual"}</p>
 				<div className="row-actions"><button className="btn gold" disabled={busy} onClick={() => setConfirmStatus(period.status === "open" ? "close" : "open")}>{period.status === "open" ? "Tutup pengisian" : period.status === "closed" ? "Buka kembali" : "Buka kampanye"}</button><button className="btn ghost" onClick={() => copyText(`${PUBLIC_BASE}/${periodId}`).then(() => toast("Link disalin."), () => toast("Tidak bisa menyalin link.", "err"))}>Salin link</button><button className="btn ghost" onClick={() => changeTab("questions")}>Edit form</button></div>
-				{frozen ? <p className="login-notice">Snapshot dan roster terkunci sejak kampanye pertama dibuka. Metadata tetap dapat diedit melalui tab Pertanyaan.</p> : <SetupChecklist period={period} preview={preview} onGo={changeTab} />}
+				{frozen ? <p className="login-notice">Snapshot dan roster terkunci sejak kampanye pertama dibuka. Metadata tetap dapat diedit melalui tab Pertanyaan.</p> : <SetupChecklist period={period} preview={preview} onGo={changeTab} dirty={dirty} />}
 			</div>
 			<div className="card"><h2>Partisipasi per divisi</h2><div className="tbl-wrap"><table className="tbl"><thead><tr><th scope="col">Divisi</th><th scope="col">Final / Pengisi</th><th scope="col">Progres</th></tr></thead><tbody>{divisions.map((name) => { const rows = entries.filter((e) => (e.divisionSlug || e.division || "Pengurus Inti") === name); const count = rows.filter((e) => e.done).length; return <tr key={name}><td>{name}</td><td>{count} / {rows.length}</td><td>{Math.round(count / rows.length * 100)}%</td></tr>; })}{!entries.length && <tr><td colSpan={3}>Belum ada pengisi.</td></tr>}</tbody></table></div></div>
 		</>}
-		{tab === "questions" && <QprEditor key={`${period.updatedAt}-${editorReset}`} period={period} draftKey={draftKey} onDiscard={() => { if (window.confirm("Buang edit lokal dan gunakan form server?")) { editorDrafts.delete(draftKey); setDirty(false); setEditorReset((n) => n + 1); } }} toast={toast} onDirty={setDirty} onSaved={async (updated) => { setPeriod((current) => ({ ...current, ...updated })); setDirty(false); setPreview(null); setRecap(null); }} />}
+		{tab === "questions" && <QprEditor key={`${period.updatedAt}-${editorReset}`} period={period} draftKey={draftKey} onDiscard={() => { if (window.confirm("Buang edit lokal dan gunakan form server?")) { editorDrafts.delete(draftKey); setDirty(false); setEditorReset((n) => n + 1); } }} onReload={() => { setDirty(false); setEditorReset((n) => n + 1); load(); }} toast={toast} onDirty={setDirty} onSaved={async (updated) => { setPeriod((current) => ({ ...current, ...updated })); setDirty(false); setPreview(null); setRecap(null); }} />}
 		{tab === "entries" && <>
 			<div className="qpr-page-head"><div><h2>Daftar pengisi</h2><p className="muted">Draft tetap berstatus belum mengirim. Jawaban yang sudah dikirim bersifat anonim — tidak ada kolom yang menautkan nama ke isi jawaban.</p></div><button className="btn" disabled={frozen || busy} onClick={() => { setEdit(null); setShowAdd(true); }}>+ Tambah nama</button></div>
 			<div className="qpr-filter-row"><label>Cari pengisi<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} /></label><label>Divisi<select value={division} onChange={(e) => setDivision(e.target.value)}><option value="all">Semua divisi</option>{divisions.map((d) => <option key={d}>{d}</option>)}</select></label><label>Status<select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Semua</option><option value="done">Sudah mengisi</option><option value="pending">Belum mengisi</option></select></label></div>
@@ -416,27 +418,38 @@ function Workspace({ periodId, draftKey }) {
 		{tab === "responses" && (recap ? <div className="card"><h2>Respons kampanye</h2>{recap.sections ? <RecapV2 recap={recap} onExport={exportCsv} onExportDisabled={busy} /> : <><ParticipationMeter done={recap.done_entries} total={recap.total_entries} /><p className="muted small">Ekspor CSV hanya untuk periode rubrik (snapshot). Kampanye sederhana tidak dapat diekspor.</p><dl>{Object.entries(recap.category_averages).map(([key, mean]) => <div key={key}><dt>{key}</dt><dd>{mean}</dd></div>)}</dl>{recap.notes.map((note, index) => <blockquote key={index}>{note}</blockquote>)}</>}</div> : !error && <SkeletonCard />)}
 		<AddEntriesModal open={showAdd} periodId={periodId} version={version} entries={entries} editing={edit} onClose={() => { setShowAdd(false); setEdit(null); }} onAdded={async () => { setPreview(null); await load(); }} toast={toast} />
 		<Confirm open={Boolean(remove)} title={`Hapus nama "${remove?.name || ""}"?`} confirmLabel="Ya, hapus" danger onCancel={() => setRemove(null)} onConfirm={() => { const entry = remove; setRemove(null); act(async () => { await api(`/admin/qpr/periods/${periodId}/entries/${entry.id}`, { method: "DELETE" }); setPreview(null); }); }}>Nama hanya dapat dihapus sebelum kampanye pertama dibuka.</Confirm>
-		<Confirm open={Boolean(confirmStatus)} title={confirmStatus === "open" ? "Buka kampanye QPR?" : "Tutup pengisian QPR?"} confirmLabel={confirmStatus === "open" ? "Ya, buka" : "Ya, tutup"} onCancel={() => setConfirmStatus(null)} onConfirm={() => { const action = confirmStatus; setConfirmStatus(null); act(async () => { if (action === "open") { const check = await api(`/admin/qpr/periods/${periodId}/preview`); setPreview(check); if (check.blockers.length) { setParams({ tab: "preview" }); throw new Error("Konfigurasi belum lengkap. Periksa blocker."); } } await api(`/admin/qpr/periods/${periodId}/${action}`, { method: "POST" }); }); }}>{confirmStatus === "open" ? "Pertanyaan, target, dan roster terkunci permanen setelah pertama dibuka. Pastikan pratinjau sudah benar." : "Pengisi tidak dapat menyimpan atau mengirim saat kampanye ditutup. Kampanye dapat dibuka kembali tanpa mengubah snapshot."}</Confirm>
+		<Confirm open={Boolean(confirmStatus)} title={confirmStatus === "open" ? "Buka kampanye QPR?" : "Tutup pengisian QPR?"} confirmLabel={confirmStatus === "open" ? "Ya, buka" : "Ya, tutup"} onCancel={() => setConfirmStatus(null)} onConfirm={() => { const action = confirmStatus; setConfirmStatus(null); act(async () => { if (action === "open") { const check = await api(`/admin/qpr/periods/${periodId}/preview`); setPreview(check); if (check.blockers.length) { setParams({ tab: "preview" }); throw new Error("Konfigurasi belum lengkap. Periksa blocker."); } } await api(`/admin/qpr/periods/${periodId}/${action}`, { method: "POST" }); }); }}>{confirmStatus === "open" ? `Pertanyaan, target, dan roster terkunci permanen sejak kampanye pertama dibuka${(period.effective_status ?? period.status) === "scheduled" ? " — termasuk saat status masih Terjadwal: snapshot membeku begitu dibuka, meski pengisi baru bisa masuk pada jadwal buka" : ""}. ${period.opensAt || period.closesAt ? `Jadwal: ${period.opensAt ? `buka ${fmtTime(period.opensAt)}` : "buka manual"} · ${period.closesAt ? `tutup ${fmtTime(period.closesAt)}` : "tutup manual"}. ` : "Tanpa jadwal — tutup manual oleh BPH. "}Pastikan pratinjau sudah benar.` : "Pengisi tidak dapat menyimpan atau mengirim saat kampanye ditutup. Kampanye dapat dibuka kembali tanpa mengubah snapshot."}</Confirm>
 	</div>;
 }
 
+/** Tab tujuan perbaikan untuk satu blocker preview. Prefiks dari server, fallback ke Pratinjau. */
+// ponytail: heuristik prefiks atas teks server; kalau copy server berubah, tombol jatuh ke Pratinjau (aman, tak destruktif).
+function blockerTab(text) {
+	if (text.includes("melebihi batas")) return "questions";
+	if (text.includes("belum memilih divisi") || text.startsWith("Roster belum")) return "entries";
+	if (/^(Target wajib|Nama target belum diisi|Empat Controller wajib|Controller tidak dikenal|Divisi tidak dikenal|Kategori |Instrumen |Belum ada instrumen|Pasangan )/.test(text)) return "questions";
+	// Sisa blocker berprefiks "<nama>: …" berasal dari roster/routing per orang.
+	return /^.+: /.test(text) ? "entries" : "preview";
+}
+
 /** Checklist setup sebelum buka — sumber kebenaran = preview.blockers dari server, bukan heuristik lokal. */
-function SetupChecklist({ period, preview, onGo }) {
+function SetupChecklist({ period, preview, onGo, dirty }) {
 	const blockers = preview?.blockers;
 	const opened = (period.effective_status ?? period.status) === "open";
+	const LABEL = { entries: "Pengisi", questions: "Pertanyaan", preview: "Pratinjau" };
+	const notice = dirty ? <p className="login-notice" role="status" style={{ margin: "8px 0 0" }}>Ada edit form belum disimpan di tab Pertanyaan. <button type="button" className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={() => onGo("questions")}>Lanjutkan edit</button></p> : null;
 	let body;
 	if (!blockers) {
 		body = <p className="muted small" style={{ margin: "4px 0 0" }}>Memeriksa…</p>;
 	} else if (blockers.length) {
 		body = <>
 			<p className="small" style={{ margin: "4px 0 0" }}><strong>{blockers.length} hal memblokir kampanye:</strong></p>
-			<ul style={{ margin: "4px 0 0", paddingLeft: 18 }} className="small">{blockers.slice(0, 3).map((b, i) => <li key={i}>{b}</li>)}{blockers.length > 3 && <li>…{blockers.length - 3} lainnya</li>}</ul>
-			<button type="button" className="btn ghost sm" style={{ marginTop: 6, padding: "2px 8px" }} onClick={() => onGo("preview")}>Periksa Pratinjau</button>
+			<ul style={{ margin: "4px 0 0", paddingLeft: 18 }} className="small">{blockers.map((b, i) => { const tabKey = blockerTab(b); return <li key={i}>{b} <button type="button" className="btn ghost sm" style={{ padding: "0 6px" }} onClick={() => onGo(tabKey)} aria-label={`Perbaiki di tab ${LABEL[tabKey]}`}>{LABEL[tabKey]}</button></li>; })}</ul>
 		</>;
 	} else {
 		body = <p className="small" style={{ margin: "4px 0 0" }}>{opened ? "Kampanye sudah dibuka." : "Siap dibuka."} <button type="button" className="btn ghost sm" style={{ padding: "2px 8px" }} onClick={() => onGo("preview")}>Periksa Pratinjau</button></p>;
 	}
-	return <div className="qpr-setup-checklist"><h3 className="small" style={{ margin: "8px 0 4px" }}>Sebelum membuka:</h3>{body}</div>;
+	return <div className="qpr-setup-checklist"><h3 className="small" style={{ margin: "8px 0 4px" }}>Sebelum membuka:</h3>{notice}{body}</div>;
 }
 
 function QprPreview({ preview, title }) {

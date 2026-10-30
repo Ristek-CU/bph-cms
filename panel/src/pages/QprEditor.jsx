@@ -31,7 +31,7 @@ export const QPR_V4_ROLES = [
 	["anggota", "Anggota"],
 ];
 
-export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast, onDirty }) {
+export default function QprEditor({ period, draftKey, onDiscard, onSaved, onReload, toast, onDirty }) {
 	const [recovered] = useState(() => editorDrafts.get(draftKey));
 	const [baseline] = useState(recovered?.baseline ?? period);
 	const initial = recovered?.values;
@@ -51,6 +51,7 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 	const [sectionId, setSectionId] = useState(sections[0]?.id || "");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
+	const [conflict, setConflict] = useState(false);
 	const [remove, setRemove] = useState(null);
 	const value = JSON.stringify({ title, description, divisionSlug, opensAt, closesAt, sections, categories, instruments, legacy, config });
 	const [saved, setSaved] = useState(recovered?.saved ?? value);
@@ -85,13 +86,19 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 				// Kirim divisi hanya saat berubah — PUT metadata biasa tetap ramping.
 				...((divisionSlug || null) !== (baseline.divisionSlug || null) ? { division_slug: divisionSlug || null } : {}),
 				opens_at: opensAt ? toIsoWib(opensAt) : null, closes_at: closesAt ? toIsoWib(closesAt) : null,
+				// Revisi metadata: tab lain yang menyimpan lebih dulu tidak tertimpa diam-diam.
+				expected_updated_at: baseline.updatedAt,
 				...(structureChanged && version === 3 ? { sections, target_config: config, expected_snapshot: baseline.questions } : {}),
 				...(structureChanged && version === 4 ? { categories, expected_snapshot: baseline.questions } : {}),
 				...(structureChanged && version === 5 ? { instruments, expected_snapshot: baseline.questions } : {}),
 				...(!frozen && Array.isArray(period.questions) ? { questions: legacy } : {}),
 			} });
-			editorDrafts.delete(draftKey); setSaved(value); onDirty?.(false); toast("Form tersimpan."); await onSaved(result);
-		} catch (e) { setError(errText(e)); }
+			editorDrafts.delete(draftKey); setSaved(value); setConflict(false); onDirty?.(false); toast("Form tersimpan."); await onSaved(result);
+		} catch (e) {
+			// 409 yang bisa dipulihkan: server sudah lebih baru. Draft lokal tetap ada.
+			if (e.statusCode === 409 && e.errors?.state?.includes("period_conflict")) setConflict(true);
+			setError(errText(e));
+		}
 		finally { setBusy(false); }
 	};
 	return <form className="qpr-editor" onSubmit={save}>
@@ -139,7 +146,8 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 		</>}
 		{legacy.length > 0 && <div className="card"><h2>Pertanyaan penilaian sederhana</h2>{legacy.map((q, index) => <div className="qpr-legacy-editor" key={index}><label>Kategori {index + 1}<input required maxLength={100} disabled={frozen || busy} value={q.category} onChange={(e) => edit(setLegacy, legacy.map((item, i) => i === index ? { ...item, category: e.target.value } : item))} /></label><label>Pertanyaan {index + 1}<input required maxLength={300} disabled={frozen || busy} value={q.label} onChange={(e) => edit(setLegacy, legacy.map((item, i) => i === index ? { ...item, label: e.target.value } : item))} /></label><button className="btn ghost" type="button" disabled={frozen || busy || legacy.length === 1} onClick={() => edit(setLegacy, legacy.filter((_, i) => i !== index))}>Hapus</button></div>)}<button type="button" className="btn ghost" disabled={frozen || busy || legacy.length >= 50} onClick={() => edit(setLegacy, [...legacy, { category: "Umum", label: "Pertanyaan baru" }])}>+ Tambah pertanyaan</button></div>}
 		{error && <p role="alert" className="login-error">{error} Edit lokal tetap ada.</p>}
-		<div className="qpr-save-bar"><span role="status">{busy ? "Menyimpan…" : dirty ? "Ada perubahan belum disimpan" : "Semua perubahan tersimpan"}</span><button className="btn gold" disabled={busy || !dirty || stale}>{busy ? "Menyimpan…" : "Simpan form"}</button></div>
+		{conflict && <div className="login-notice" role="alert"><p>Periode sudah diubah di tab/perangkat lain, jadi simpan diblokir agar perubahan terbaru tidak tertimpa. Edit lokal tetap ada di tab ini; salin dulu bila masih dibutuhkan.</p><div className="row-actions"><button type="button" className="btn ghost" onClick={() => { editorDrafts.delete(draftKey); setConflict(false); setError(""); onDiscard?.(); }}>Buang edit lokal</button>{onReload && <button type="button" className="btn" onClick={() => { editorDrafts.delete(draftKey); setConflict(false); setError(""); onDirty?.(false); onReload(); }}>Muat ulang dari server</button>}</div></div>}
+		<div className="qpr-save-bar"><span role="status">{busy ? "Menyimpan…" : conflict ? "Konflik — belum tersimpan" : dirty ? "Ada perubahan belum disimpan" : "Semua perubahan tersimpan"}</span><button className="btn gold" disabled={busy || !dirty || stale || conflict}>{busy ? "Menyimpan…" : "Simpan form"}</button></div>
 		<Confirm open={Boolean(remove)} title="Hapus pertanyaan?" confirmLabel="Ya, hapus" danger onCancel={() => setRemove(null)} onConfirm={() => { replaceQuestions(section.questions.filter((q) => q.id !== remove.id)); setRemove(null); }}>{remove?.label}</Confirm>
 	</form>;
 }

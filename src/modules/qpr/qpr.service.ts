@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { uuidv7 } from "uuidv7";
 import { ApiError } from "../../shared/api-error";
+import { STATUS_CODES } from "../../shared/status-codes";
 import { divisions, qprAnswers, qprEntries, qprPeriods, qprResponses } from "../../db/schema";
 import { parseFieldOptions } from "../forms/form.service";
 import type { Db } from "../../db/connection";
@@ -441,9 +442,27 @@ export const qprService = {
 				...(input.closes_at !== undefined ? { closesAt: input.closes_at } : {}),
 				updatedAt: now,
 			})
-			.where(and(eq(qprPeriods.id, id), changingSnapshot ? sql`${qprPeriods.firstOpenedAt} IS NULL` : undefined, changingSnapshot ? eq(qprPeriods.questions, period.questions) : undefined))
+			.where(and(
+				eq(qprPeriods.id, id),
+				changingSnapshot ? sql`${qprPeriods.firstOpenedAt} IS NULL` : undefined,
+				changingSnapshot ? eq(qprPeriods.questions, period.questions) : undefined,
+				// Revisi metadata: tab kedua tidak menimpa judul/jadwal diam-diam.
+				input.expected_updated_at !== undefined ? eq(qprPeriods.updatedAt, input.expected_updated_at) : undefined,
+			))
 			.returning();
-		if (!updated) throw ApiError.conflict("Snapshot berubah atau periode pernah dibuka — muat ulang sebelum menyimpan");
+		if (!updated) {
+			if (input.expected_updated_at !== undefined) {
+				const [fresh] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
+				if (!fresh) throw ApiError.notFound("Periode QPR tidak ditemukan");
+				// Periode berubah di tab/perangkat lain — 409 yang bisa dipulihkan.
+				throw new ApiError(STATUS_CODES.CONFLICT, "Periode berubah sejak form dibuka — muat ulang sebelum menyimpan", {
+					code: "QPR_PERIOD_CONFLICT",
+					state: ["period_conflict"],
+					current_updated_at: fresh.updatedAt,
+				});
+			}
+			throw ApiError.conflict("Snapshot berubah atau periode pernah dibuka — muat ulang sebelum menyimpan");
+		}
 		return { ...withEffective(updated), questions: parseFieldOptions(updated.questions) };
 	},
 

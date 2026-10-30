@@ -763,6 +763,19 @@ try {
 eq("stored questions CAS rejects overlapping writes", concurrentError?.statusCode, 409);
 const afterRace = await qprService.getPeriod(realDb, editable.id);
 eq("winning snapshot not overwritten", (afterRace.questions as any).sections.find((s: any) => s.targetId === "ketum").questions[0].label, "Concurrent winner");
+// F7: dua admin mengedit metadata (judul/jadwal) — tab kedua tidak menimpa diam-diam.
+const staleMeta = editable.updatedAt;
+let metaConflict: any;
+try {
+ await qprService.updatePeriod(interceptUpdate(() => qprService.updatePeriod(realDb, editable.id, { title: "Tab lain menang" })), editable.id, { title: "Lost writer", expected_updated_at: staleMeta });
+} catch (error) { metaConflict = error; }
+eq("stale metadata edit rejected", metaConflict?.statusCode, 409);
+eq("metadata conflict is recoverable", (metaConflict?.errors as any)?.state, ["period_conflict"]);
+ok("metadata conflict returns current revision", typeof (metaConflict?.errors as any)?.current_updated_at === "string");
+const metaRecovered = await qprService.updatePeriod(realDb, editable.id, { title: "Setelah muat ulang", expected_updated_at: (metaConflict?.errors as any).current_updated_at });
+eq("fresh metadata revision accepted", metaRecovered.title, "Setelah muat ulang");
+eq("winning metadata title kept", (await qprService.getPeriod(realDb, editable.id)).title, "Setelah muat ulang");
+
 const optionalEntries = await qprService.addEntries(realDb, editable.id, [{ name: "Optional respondent", member_key: "optional-one", division_slug: "ristek", role: "anggota" }]);
 const optionalPreview = await qprService.preview(realDb, editable.id);
 eq("preview includes shared scale legend", optionalPreview.scale_legend, (await qprService.getDraft(realDb, v3id, findV3("same-2").id)).scale_legend);
