@@ -16,9 +16,9 @@ const snapshotKey = (value: unknown) => JSON.stringify(value, (_, v) =>
 
 // Status efektif = status dasar + jadwal (kontrak T0/T1): `opens_at <= now < closes_at`,
 // tutup manual mengalahkan jadwal. Satu sumber untuk admin, pengisi, dan partisipasi.
-export const effectiveStatus = (p: { status: string; opensAt: string | null; closesAt: string | null }) => {
+// `now` bisa diinjeksi supaya batas persis dapat diuji tanpa mengubah jam sistem.
+export const effectiveStatus = (p: { status: string; opensAt: string | null; closesAt: string | null }, now = Date.now()) => {
 	if (p.status !== "open") return p.status;
-	const now = Date.now();
 	if (p.opensAt && Date.parse(p.opensAt) > now) return "scheduled";
 	if (p.closesAt && Date.parse(p.closesAt) <= now) return "closed";
 	return "open";
@@ -26,15 +26,9 @@ export const effectiveStatus = (p: { status: string; opensAt: string | null; clo
 const withEffective = <T extends { status: string; opensAt: string | null; closesAt: string | null }>(p: T) =>
 	({ ...p, effective_status: effectiveStatus(p) });
 
-const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: string | null }) => {
-	if (p.status !== "open") return false;
-	// Bandingkan sebagai Date (pola formIsOpen) — perbandingan string ISO gagal saat
-	// offset campur (+07:00 vs Z) karena urutan leksikografis.
-	const now = new Date();
-	if (p.opensAt && new Date(p.opensAt) > now) return false;
-	if (p.closesAt && new Date(p.closesAt) < now) return false;
-	return true;
-};
+// Satu sumber kontrak jadwal: baca/save/submit tidak boleh punya aturan sendiri.
+const periodIsOpen = (p: { status: string; opensAt: string | null; closesAt: string | null }) =>
+	effectiveStatus(p) === "open";
 // Pesan 404 yang dapat dibedakan: belum mulai vs sudah tutup vs tidak ada.
 const closedOrNotFound = (p?: { status: string; opensAt: string | null; closesAt: string | null }) => {
 	if (!p) throw ApiError.notFound("Periode penilaian tidak ditemukan");
@@ -106,10 +100,10 @@ const finalConflict = (submittedAt?: string | null) => new ApiError(409, "Nama i
 const draftConflict = () => new ApiError(409, "Draft sudah diperbarui perangkat lain — muat ulang sebelum menyimpan.", { code: "QPR_DRAFT_CONFLICT", state: ["draft_conflict"] });
 const openSql = sql`EXISTS (SELECT 1 FROM qpr_periods p WHERE p.id = ${qprEntries.periodId} AND p.status = 'open'
  AND (p.opens_at IS NULL OR julianday(p.opens_at) <= julianday('now'))
- AND (p.closes_at IS NULL OR julianday(p.closes_at) >= julianday('now')))`;
+ AND (p.closes_at IS NULL OR julianday(p.closes_at) > julianday('now')))`;
 const validateSchedule = (opens?: string | null, closes?: string | null) => {
  if ([opens, closes].some((v) => v && !Number.isFinite(Date.parse(v)))) throw ApiError.validation("Tanggal tidak valid");
- if (opens && closes && Date.parse(opens) > Date.parse(closes)) throw ApiError.validation("Jadwal tutup harus setelah buka");
+ if (opens && closes && Date.parse(opens) >= Date.parse(closes)) throw ApiError.validation("Jadwal tutup harus setelah buka");
 };
 async function writeConflict(db: Db, periodId: string, entryId: string): Promise<never> {
  const [e] = await db.select({ done: qprEntries.done, submittedAt: qprEntries.submittedAt }).from(qprEntries).where(eq(qprEntries.id, entryId));
@@ -141,7 +135,7 @@ async function insertFinal(
    SELECT ?, e.id, ?, ? FROM qpr_entries e JOIN qpr_periods p ON p.id = e.period_id
    WHERE e.id = ? AND p.id = ? AND e.done = 0 AND (? IS NULL OR e.draft_version = ?)
    AND p.status = 'open' AND (p.opens_at IS NULL OR julianday(p.opens_at) <= julianday('now'))
-   AND (p.closes_at IS NULL OR julianday(p.closes_at) >= julianday('now'))
+   AND (p.closes_at IS NULL OR julianday(p.closes_at) > julianday('now'))
    ON CONFLICT(entry_id) DO NOTHING`).bind(answerId, markerAnswers, now, entry.id, periodId, version, version),
 	];
 	if (anonymous) {
@@ -584,7 +578,22 @@ export const qprService = {
 	async publicRoster(db: Db, periodId: string) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
-		if (!periodIsOpen(period)) closedOrNotFound(period);
+		// Periode terjadwal/tutup: bagikan jadwal saja — roster, pertanyaan, dan
+		// draft tetap tertutup (penolakan tulis ada di getDraft/saveDraft/submit).
+		if (!periodIsOpen(period)) {
+			return {
+				id: period.id,
+				title: period.title,
+				description: period.description,
+				status: period.status,
+				effective_status: effectiveStatus(period),
+				isOpen: false,
+				opens_at: period.opensAt,
+				closes_at: period.closesAt,
+				questions: null,
+				remaining: [],
+			};
+		}
 		const entries = await db
 			.select({ id: qprEntries.id, name: qprEntries.name, division: qprEntries.division, role: qprEntries.memberRole, division_slug: qprEntries.divisionSlug })
 			.from(qprEntries)

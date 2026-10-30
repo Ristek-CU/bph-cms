@@ -564,6 +564,25 @@ export function PublicFill({ periodId }) {
 	return <PublicFillDispatch periodId={periodId} />;
 }
 
+const wibTime = (iso) => new Date(iso).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short", hour12: false }) + " WIB";
+
+/** Info jadwal untuk periode terjadwal/tutup — tanpa roster, pertanyaan, atau draft. */
+function PublicScheduleNotice({ roster }) {
+	const eff = roster.effective_status ?? roster.status;
+	const body = eff === "scheduled"
+		? <>Penilaian belum dibuka. Form dapat diisi mulai <strong>{roster.opens_at ? wibTime(roster.opens_at) : "jadwal yang ditetapkan BPH"}</strong>.</>
+		: eff === "closed"
+			? <>Penilaian sudah ditutup{roster.closes_at ? <> sejak <strong>{wibTime(roster.closes_at)}</strong></> : ""}. Hubungi BPH bila kirimanmu belum terkirim.</>
+			: <>Penilaian ini belum dipublikasikan BPH.</>;
+	return <div className="qpr-form-canvas"><Card>
+		<p className="studio-kicker">PENILAIAN PENGURUS</p>
+		<h1 className="qpr-title">{roster.title}</h1>
+		{roster.description && <p className="muted small">{roster.description}</p>}
+		<p className="login-notice" role="status">{body}</p>
+		{eff === "scheduled" && roster.closes_at && <p className="muted small">Tutup: {wibTime(roster.closes_at)}</p>}
+	</Card></div>;
+}
+
 function PublicFillDispatch({ periodId }) {
 	const [roster, setRoster] = useState(null);
 	const [err, setErr] = useState("");
@@ -578,12 +597,13 @@ function PublicFillDispatch({ periodId }) {
 	}, [periodId, retry]);
 	if (err) return <ErrorState message={err} onRetry={() => { setErr(""); setRetry((n) => n + 1); }} />;
 	if (!roster) return <SkeletonCard lines={5} />;
-	return isSnapshot(roster.questions) ? <QprFill periodId={periodId} initialRoster={roster} /> : <PublicFillForm periodId={periodId} />;
+	if (roster.isOpen === false) return <PublicScheduleNotice roster={roster} />;
+	return isSnapshot(roster.questions) ? <QprFill periodId={periodId} initialRoster={roster} /> : <PublicFillForm periodId={periodId} initialRoster={roster} />;
 }
 
-function PublicFillForm({ periodId }) {
+function PublicFillForm({ periodId, initialRoster }) {
 	const toast = useToast();
-	const [roster, setRoster] = useState(null);
+	const [roster, setRoster] = useState(initialRoster ?? null);
 	const [err, setErr] = useState("");
 	const [name, setName] = useState("");
 	const [scores, setScores] = useState({});
@@ -620,6 +640,7 @@ function PublicFillForm({ periodId }) {
 	if (err) return <ErrorState message={err} onRetry={() => { setErr(""); api(`/qpr/${periodId}`).then(setRoster).catch((e) => setErr(errText(e))); }} />;
 	if (doneMsg) return <div className="card qpr-success" role="status"><span aria-hidden>✓</span><h2>Terima kasih!</h2><p>{doneMsg}</p><p className="muted">Jawabanmu sudah tersimpan. Halaman ini boleh ditutup.</p></div>;
 	if (!roster) return <SkeletonCard lines={5} />;
+	if (roster.isOpen === false) return <PublicScheduleNotice roster={roster} />;
 
 	const questions = roster.questions.filter((q) => !q.note_only);
 
@@ -627,6 +648,7 @@ function PublicFillForm({ periodId }) {
 		<div className="qpr-form-canvas"><Card>
 			<p className="studio-kicker">PENILAIAN PENGURUS</p><h1 className="qpr-title">{roster.title}</h1>
 			{roster.description && <div className="muted small" style={{ marginTop: 2 }}>{roster.description}</div>}
+			{roster.closes_at && <p className="muted small">Tutup: {wibTime(roster.closes_at)}</p>}
 			<p className="muted small">Pilih nama sendiri dan isi semua pertanyaan. Skala 1 paling rendah, 5 paling tinggi.</p>
 			{roster.remaining.length === 0 ? <p className="login-notice">Semua nama telah mengisi penilaian ini.</p> : <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
 				<div>

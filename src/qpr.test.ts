@@ -80,9 +80,9 @@ eq("buat periode → 201", created.status, 201);
 eq("status awal draft", created.body?.data?.status, "draft");
 const pid = created.body?.data?.id;
 
-// Draft → publik 404
+// Draft → publik informasi saja (jadwal), tanpa roster/pertanyaan
 const draftPublic = await h.req(`${PUB}/${pid}`);
-eq("draft → publik 404", draftPublic.status, 404);
+eq("draft → publik info tanpa roster", [draftPublic.status, draftPublic.body?.data?.isOpen, draftPublic.body?.data?.remaining, draftPublic.body?.data?.questions], [200, false, [], null]);
 
 const entries = await h.req(`${ADMIN}/periods/${pid}/entries`, {
 	token: "tok-bph",
@@ -144,7 +144,7 @@ section("Tutup periode");
 
 await h.req(`${ADMIN}/periods/${pid}/close`, { token: "tok-bph", method: "POST" });
 const closedRoster = await h.req(`${PUB}/${pid}`);
-eq("periode tutup → publik 404", closedRoster.status, 404);
+eq("periode tutup → publik info tanpa roster", [closedRoster.status, closedRoster.body?.data?.isOpen, closedRoster.body?.data?.remaining, closedRoster.body?.data?.questions], [200, false, [], null]);
 const closedSubmit = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Sinta Dewi", answers: [{ label: "x", category: "y", score: 3 }] } });
 eq("submit setelah tutup → 404", closedSubmit.status, 404);
 
@@ -540,7 +540,7 @@ eq("reopen frozen valid snapshot",(await h.req(`${ADMIN}/periods/${v3id}/open`,{
 
 section("Deterministic database write-time guards and rollback");
 const { getDb } = await import("./db/connection");
-const { qprService } = await import("./modules/qpr/qpr.service");
+const { qprService, effectiveStatus } = await import("./modules/qpr/qpr.service");
 const realDb=getDb(h.d1 as D1Database);
 const rollbackEntry=findV3("rollback");
 const rollbackDraft=await qprService.getDraft(realDb,v3id,rollbackEntry.id);
@@ -978,7 +978,8 @@ await qprService.setStatus(realDb, schedPeriod.id, "open");
 const schedList = (await h.req(`${ADMIN}/periods`, { token: "tok-bph" })).body?.data?.find((p: any) => p.id === schedPeriod.id);
 eq("open + opens_at future = scheduled", schedList?.effective_status, "scheduled");
 const schedRoster = await h.req(`${PUB}/${schedPeriod.id}`);
-eq("scheduled roster 404 with belum-dibuka message", [schedRoster.status, schedRoster.body?.message?.includes("belum dibuka")], [404, true]);
+eq("scheduled public info: status only", [schedRoster.status, schedRoster.body?.data?.isOpen, schedRoster.body?.data?.effective_status, schedRoster.body?.data?.remaining, schedRoster.body?.data?.questions], [200, false, "scheduled", [], null]);
+eq("scheduled public info keeps schedule", schedRoster.body?.data?.opens_at, schedPeriod.opensAt);
 await h.sql(`UPDATE qpr_periods SET opens_at=?, closes_at=? WHERE id=?`, new Date(now - 3_600_000).toISOString(), new Date(now + 3_600_000).toISOString(), schedPeriod.id);
 const openList = (await h.req(`${ADMIN}/periods`, { token: "tok-bph" })).body?.data?.find((p: any) => p.id === schedPeriod.id);
 eq("open inside window = open", openList?.effective_status, "open");
@@ -986,11 +987,29 @@ await h.sql(`UPDATE qpr_periods SET closes_at=? WHERE id=?`, new Date(now - 1_00
 const pastList = (await h.req(`${ADMIN}/periods`, { token: "tok-bph" })).body?.data?.find((p: any) => p.id === schedPeriod.id);
 eq("open past closes_at = closed", pastList?.effective_status, "closed");
 const pastRoster = await h.req(`${PUB}/${schedPeriod.id}`);
-eq("expired roster 404 with ditutup message", [pastRoster.status, pastRoster.body?.message?.includes("sudah ditutup")], [404, true]);
+eq("expired public info: closed, no roster", [pastRoster.status, pastRoster.body?.data?.isOpen, pastRoster.body?.data?.effective_status, pastRoster.body?.data?.remaining], [200, false, "closed", []]);
+eq("closed public info hides questions", pastRoster.body?.data?.questions, null);
 // Tutup manual mengalahkan jadwal: status closed tetap closed meski jendela aktif.
 await h.sql(`UPDATE qpr_periods SET status='closed', closes_at=? WHERE id=?`, new Date(now + 3_600_000).toISOString(), schedPeriod.id);
 const closedList = (await h.req(`${ADMIN}/periods`, { token: "tok-bph" })).body?.data?.find((p: any) => p.id === schedPeriod.id);
 eq("manual closed beats schedule", closedList?.effective_status, "closed");
+
+// Batas persis (kontrak opens_at <= now < closes_at), clock diinjeksi.
+section("Schedule boundary");
+const bound = (opens_at: string | null, closes_at: string | null, status = "open") => ({ status, opensAt: opens_at, closesAt: closes_at });
+const T = Date.parse("2026-10-20T10:00:00+07:00");
+eq("opens_at = now is open", effectiveStatus(bound("2026-10-20T10:00:00+07:00", null), T), "open");
+eq("1ms before opens_at is scheduled", effectiveStatus(bound("2026-10-20T10:00:00.001+07:00", null), T), "scheduled");
+eq("1ms before closes_at is open", effectiveStatus(bound(null, new Date(T + 1).toISOString()), T), "open");
+eq("closes_at = now is closed", effectiveStatus(bound(null, "2026-10-20T10:00:00+07:00"), T), "closed");
+eq("manual closed beats active window", effectiveStatus(bound(null, new Date(T + 86_400_000).toISOString(), "closed"), T), "closed");
+eq("draft status ignores schedule", effectiveStatus(bound(null, null, "draft"), T), "draft");
+eq("mixed offsets compare as instants", effectiveStatus(bound("2026-10-20T03:00:00Z", "2026-10-19T22:00:00-05:00"), T), "closed");
+// Jadwal tutup = buka ditolak saat create/update.
+const sameSchedule = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { title: "Jadwal sama", questions: [QUESTIONS[0]], opens_at: "2026-11-01T08:00:00+07:00", closes_at: "2026-11-01T08:00:00+07:00" } });
+eq("opens_at == closes_at rejected", [sameSchedule.status, String(sameSchedule.body?.message).includes("Jadwal tutup harus setelah buka")], [422, true]);
+const inverted = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { title: "Jadwal terbalik", questions: [QUESTIONS[0]], opens_at: "2026-11-01T09:00:00+07:00", closes_at: "2026-11-01T08:00:00+07:00" } });
+eq("closes_at before opens_at rejected", inverted.status, 422);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.

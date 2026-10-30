@@ -95,11 +95,11 @@ publicQprRouter.get(
 	"/:periodId",
 	describeRoute({
 		summary: "Roster publik periode QPR",
-		description: "Tanpa login. Hanya periode berstatus open. Mengembalikan pertanyaan + nama yang belum mengisi (untuk dropdown).",
+		description: "Tanpa login. Periode open: pertanyaan + nama yang belum mengisi (untuk dropdown). Periode terjadwal/tutup: hanya judul, status, dan jadwal (isOpen=false, questions=null, remaining=[]).",
 		tags: ["Public QPR"],
 		responses: {
 			200: { description: "Success", content: { "application/json": { schema: resolver(successWrapper(z.object({}))) } } },
-			404: { description: "Periode tidak ditemukan/tutup", content: { "application/json": { schema: resolver(errorWrapper) } } },
+			404: { description: "Periode tidak ditemukan", content: { "application/json": { schema: resolver(errorWrapper) } } },
 		},
 	}),
 	async (c) => {
