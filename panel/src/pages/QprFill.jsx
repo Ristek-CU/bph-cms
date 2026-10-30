@@ -6,6 +6,40 @@ import { QprSection, QprSectionNav, QprReview, QprProgress, complete, targetTitl
 const payload = (answers) => Object.entries(answers).map(([question_id, value]) => ({ question_id, value }));
 const isRubric360 = (roster) => roster?.questions?.version === 4 || roster?.questions?.version === 5;
 const timeID = (iso) => new Date(iso).toLocaleTimeString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit" }) + " WIB";
+const fullTime = (iso) => new Date(iso).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) + " WIB";
+// Model kejujuran: tanpa login, jadi bukti kirim disimpan di perangkat ini saja.
+// Periode tutup menyembunyikan roster, jadi tanpa anchor ini pemilik tidak bisa
+// membuktikan kirimannya sesudah reload.
+const proofKey = (periodId) => `qpr-proof-${periodId}`;
+const readProof = (periodId) => {
+	try {
+		const p = JSON.parse(localStorage.getItem(proofKey(periodId)) || "null");
+		return p && p.submitted_at && p.entry_id ? p : null;
+	} catch { return null; }
+};
+const saveProof = (periodId, p) => { try { localStorage.setItem(proofKey(periodId), JSON.stringify(p)); } catch { /* mode privat: bukti hanya di layar */ } };
+
+const refOf = (id) => String(id || "").replace(/-/g, "").slice(0, 8).toUpperCase() || "—";
+
+// Satu kartu untuk dua keadaan: baru selesai mengirim, atau membuka lagi
+// sesudah reload dengan bukti tersimpan di perangkat ini.
+function ProofCard({ proof, onCheck, onOther }) {
+	return <Card>
+		<h1>Terima kasih!</h1>
+		<p role="status">Penilaian terkirim. Jawabanmu sudah tersimpan. Halaman ini boleh ditutup.</p>
+		<dl className="qpr-proof">
+			<dt>Periode</dt><dd>{proof.title || "—"}</dd>
+			<dt>Nama</dt><dd>{proof.name || "—"}</dd>
+			<dt>Waktu kirim</dt><dd>{proof.submitted_at ? fullTime(proof.submitted_at) : "Tidak tercatat di perangkat ini"}</dd>
+			<dt>Referensi kirim</dt><dd><code title={proof.entry_id}>{refOf(proof.entry_id)}</code></dd>
+		</dl>
+		<p className="muted small">Simpan referensi ini bila perlu membuktikan kirimanmu ke BPH. Bukti hanya ada di perangkat ini — tidak dibagikan ke pengisi lain.</p>
+		<div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+			{onCheck && <button type="button" className="btn ghost" onClick={onCheck}>Periksa status kiriman</button>}
+			{onOther && <button type="button" className="btn ghost" onClick={onOther}>Bukan saya — isi atas nama lain</button>}
+		</div>
+	</Card>;
+}
 
 export default function QprFill({ periodId, initialRoster }) {
 	return <Fill key={periodId} periodId={periodId} initialRoster={initialRoster} />;
@@ -22,6 +56,10 @@ function Fill({ periodId, initialRoster }) {
 	const [busy, setBusy] = useState(false);
 	const [done, setDone] = useState(false);
 	const [proof, setProof] = useState(null);
+	const [proofOf, setProofOf] = useState(null);
+	const [stored, setStored] = useState(() => readProof(periodId));
+	const storedRef = useRef(stored);
+	storedRef.current = stored;
 	const [confirmed, setConfirmed] = useState(false);
 	const [savedAt, setSavedAt] = useState(null);
 	const current = useRef(null);
@@ -35,6 +73,22 @@ function Fill({ periodId, initialRoster }) {
 
 	const updateStatus = (s, state, message = "") => {
 		if (mounted.current && current.current === s) { setStatus(state); setError(message); }
+	};
+
+	// Bukti milik sendiri: periode + identitas + waktu + referensi. Tidak pernah
+	// dibaca dari server sesudah final (roster menutup daftar nama), jadi
+	// disimpan di perangkat pengisi sendiri.
+	const showProof = (p) => {
+		if (!mounted.current) return;
+		// Nama bisa hilang dari roster setelah final; bukti tersimpan menutup celah itu.
+		const kept = storedRef.current?.entry_id === p.entry_id ? storedRef.current : null;
+		const full = {
+			title: p.title || kept?.title || "", name: p.name || kept?.name || "",
+			entry_id: p.entry_id ?? kept?.entry_id ?? null, submitted_at: p.submitted_at ?? kept?.submitted_at ?? null,
+		};
+		if (!full.entry_id) { setProof(full.submitted_at); setDone(true); return; }
+		setProof(full.submitted_at); setProofOf(full); setDone(true); setStored(full);
+		saveProof(periodId, full);
 	};
 
 	// Satu tempat memutuskan jenis kegagalan tulis, supaya pesan tidak salah sebab.
@@ -87,7 +141,7 @@ function Fill({ periodId, initialRoster }) {
 			} catch (e) {
 				const kind = verdict(e);
 				if (kind === "final") {
-					if (mounted.current && current.current === s) { setProof(e.errors?.submitted_at ?? null); setDone(true); }
+					if (mounted.current && current.current === s) showProof({ title: roster?.title, name: s.entry?.name, entry_id: s.entry?.id, submitted_at: e.errors?.submitted_at });
 					return;
 				}
 				if (kind === "conflict") s.conflict = true;
@@ -151,7 +205,9 @@ function Fill({ periodId, initialRoster }) {
 			// Sesi sama dibuka lagi setelah final: server 409 already_final →
 			// tampilkan kartu konfirmasi, bukan form kosong.
 			if (e.statusCode === 409 && e.errors?.state?.includes("already_final")) {
-				setProof(e.errors?.submitted_at ?? null); setDone(true); return;
+				const mine = roster?.remaining?.find((r) => r.id === id);
+				showProof({ title: roster?.title, name: mine ? (mine.display_name || mine.name) : undefined, entry_id: id, submitted_at: e.errors?.submitted_at });
+				return;
 			}
 			setError(errText(e));
 		}
@@ -230,16 +286,12 @@ function Fill({ periodId, initialRoster }) {
 			}
 			if (mounted.current && current.current === s) {
 				setRoster((r) => ({ ...r, remaining: r.remaining.filter((entry) => entry.id !== s.entry.id) }));
-				setProof(result?.submitted_at ?? null);
-				setDone(true);
+				showProof({ title: roster?.title, name: result?.name ?? s.entry.name, entry_id: result?.entry_id ?? s.entry.id, submitted_at: result?.submitted_at });
 			}
 		} catch (e) {
 			if (e.statusCode === 409 && e.errors?.state?.includes("already_final")) {
 				// Timeout setelah commit terpulihkan di sini: server sudah terima kiriman.
-				if (mounted.current && current.current === s) {
-					setProof(e.errors?.submitted_at ?? null);
-					setDone(true);
-				}
+				if (mounted.current && current.current === s) showProof({ title: roster?.title, name: s.entry.name, entry_id: s.entry.id, submitted_at: e.errors?.submitted_at });
 				return;
 			}
 			const kind = verdict(e);
@@ -250,7 +302,10 @@ function Fill({ periodId, initialRoster }) {
 		} finally { s.submitting = false; if (mounted.current) setBusy(false); }
 	};
 
-	if (done) return <Card><h1>Terima kasih!</h1><p role="status">Penilaian terkirim. Jawabanmu sudah tersimpan. Halaman ini boleh ditutup.</p>{proof && <p className="muted small">Bukti kirim: {new Date(proof).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB</p>}</Card>;
+	if (done) return <ProofCard
+		proof={proofOf ?? { title: roster?.title, submitted_at: proof, entry_id: null, name: null }}
+		onCheck={proofOf?.entry_id ? () => pick(proofOf.entry_id) : null}
+		onOther={() => { setDone(false); setSession(null); setError(""); }} />;
 	if (!roster && !error) return <SkeletonCard lines={5} />;
 	if (!roster) return <Card><p role="alert">{error}</p><button className="btn" onClick={() => window.location.reload()}>Coba lagi</button></Card>;
 	const divisions = [...new Set(roster.remaining.map((r) => r.division || "Pengurus Inti"))];
@@ -291,6 +346,8 @@ function Fill({ periodId, initialRoster }) {
 				</select>
 			</>}
 			{busy && <p role="status">Memuat draft…</p>}
+			{/* Sengaja tanpa nama: perangkat bisa dipakai bersama. */}
+			{stored && <button type="button" className="btn ghost" onClick={() => showProof(stored)}>Lihat bukti kirim dari perangkat ini</button>}
 		</Card> : <>
 			<Card>
 			<p>Mengisi sebagai <strong>{session.entry.name}</strong> · {session.entry.division} · Jabatan: <strong>{QPR_ROLE_LABEL[session.entry.role] || session.entry.role || "Tidak tercantum"}</strong></p>

@@ -1198,6 +1198,12 @@ main.page:has(.qpr-workspace), main.page:has(.builder-fields) { padding-bottom: 
 .qpr-save-label { display: inline-flex; align-items: center; gap: 6px; color: #1a7f4b; font-weight: 600; }
 .qpr-save-label::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .qpr-save-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Bukti kirim milik pengisi sendiri: label/nilai bertumpuk di layar sempit. */
+.qpr-proof { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 16px 0 0; padding: 14px 16px; border: 1px solid var(--border); border-left: 3px solid var(--teal); border-radius: 10px; background: var(--bg-2); }
+.qpr-proof dt { color: var(--muted); font-size: 13px; }
+.qpr-proof dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .qpr-proof { grid-template-columns: 1fr; gap: 2px; } .qpr-proof dd { margin-bottom: 8px; } }
 .field-help[role="status"] { min-height: 18px; }
 .qpr-char-count { margin: 6px 0 0; text-align: right; font-variant-numeric: tabular-nums; }
 .qpr-char-limit { color: #a3641a; font-weight: 600; }

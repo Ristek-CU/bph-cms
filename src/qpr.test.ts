@@ -565,6 +565,10 @@ const again3=await h.req(`${PUB}/${v3id}/submit-v2`,{method:"POST",json:{entry_i
 eq("final accepted retry distinct state",again3.body.errors?.state,["already_final"]);
 // T10: retry setelah timeout harus membawa bukti kirim (waktu submit) di 409.
 ok("already_final 409 carries submitted_at proof",typeof again3.body.errors?.submitted_at === "string" && !Number.isNaN(Date.parse(again3.body.errors.submitted_at)),again3.body.errors);
+// Bukti milik sendiri: 200 bawa referensi kirim yang sama dengan bukti 409,
+// dan tetap sama setelah periode ditutup (filler tidak punya login).
+const proof200=final3.body.data;
+ok("final 200 carries own proof reference",proof200?.entry_id===findV3("ka").id&&proof200?.name==="Kadiv A"&&proof200?.submitted_at===again3.body.errors?.submitted_at,proof200);
 const statusAfter=await h.req(`/api/v1/qpr-participation/${v3id}`,{token:"tok-a-admin"});
 eq("own final changes status",statusAfter.body.data.done_entries,1);
 const ownB=await h.req(`/api/v1/qpr-participation/${v3id}`,{token:"tok-b-admin"});
