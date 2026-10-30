@@ -46,7 +46,8 @@ async function setup(page, draft = [], version = 0) {
 				questions: [...SCALE_QUESTIONS, ...TEXT_QUESTIONS],
 				draft,
 				draft_version: version,
-				progress: { required: 21, filled: draft.length, next_question_id: 'ketum-s01' },
+				// Server contract: next_question_id = null saat semua wajib terisi.
+				progress: { required: 21, filled: draft.length, next_question_id: draft.length >= 21 ? null : 'ketum-s01' },
 				scale_legend: { 1: 'Sangat Kurang', 2: 'Kurang', 3: 'Cukup', 4: 'Baik', 5: 'Sangat Baik' },
 			});
 		if (path === '/qpr/period-v2/entries/entry-1/draft' && method === 'PUT') {

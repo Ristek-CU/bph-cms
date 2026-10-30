@@ -136,7 +136,7 @@ test('conflict preserves local text and forbids automatic overwrite or final', a
 test('offline failure keeps answers and explicit retry uses unchanged version', async ({ page }) => {
 	const state = await setup(page, { offline: true });
 	await page.getByLabel('Saran Ketua', { exact: true }).fill('Jawaban offline');
-	await expect(page.getByText('Gagal tersimpan — edit lokal tetap ada.')).toBeVisible();
+	await expect(page.getByText('Belum tersimpan — akan dicoba lagi.')).toBeVisible();
 	state.offline = false;
 	await page.getByRole('button', { name: 'Coba simpan lagi' }).click();
 	await expect(page.getByText('Tersimpan', { exact: true })).toBeVisible();

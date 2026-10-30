@@ -5,6 +5,7 @@ import { QprSection, QprSectionNav, QprReview, QprProgress, complete, targetTitl
 
 const payload = (answers) => Object.entries(answers).map(([question_id, value]) => ({ question_id, value }));
 const isRubric360 = (roster) => roster?.questions?.version === 4 || roster?.questions?.version === 5;
+const timeID = (iso) => new Date(iso).toLocaleTimeString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit" }) + " WIB";
 
 export default function QprFill({ periodId, initialRoster }) {
 	return <Fill key={periodId} periodId={periodId} initialRoster={initialRoster} />;
@@ -22,6 +23,7 @@ function Fill({ periodId, initialRoster }) {
 	const [done, setDone] = useState(false);
 	const [proof, setProof] = useState(null);
 	const [confirmed, setConfirmed] = useState(false);
+	const [savedAt, setSavedAt] = useState(null);
 	const current = useRef(null);
 	const loading = useRef(null);
 	const form = useRef(null);
@@ -53,6 +55,7 @@ function Fill({ periodId, initialRoster }) {
 						json: { expected_version: s.version, answers },
 					});
 					s.version = result.draft_version;
+					if (mounted.current && current.current === s) setSavedAt(result.saved_at);
 					s.saved = revision;
 				}
 				updateStatus(s, "saved");
@@ -101,9 +104,27 @@ function Fill({ periodId, initialRoster }) {
 			const answers = Object.fromEntries(data.draft.map((a) => [a.question_id, a.value]));
 			const s = { ...data, answers, version: data.draft_version, revision: 0, saved: 0, pending: null, conflict: false, controller: new AbortController() };
 			current.current = s; setSession(s); setStatus("saved"); setConfirmed(false);
-			const next = data.sections.findIndex((section) => section.questions.some((q) => q.required && !complete(q, answers)));
-			setStep(next < 0 ? data.sections.length : next);
-		} catch (e) { if (!controller.signal.aborted) setError(errText(e)); }
+			setSavedAt(data.draft_updated_at ?? null);
+			// Rekonsiliasi: progress server jadi acuan saat load; kalau tidak cocok,
+			// pakai pertanyaan wajib lokal (jawaban tipe/wajib sama dengan server).
+			if (data.progress && data.progress.filled !== undefined) {
+				const local = data.sections.flatMap((sec) => sec.questions).filter((q) => q.required && complete(q, answers)).length;
+				if (local !== data.progress.filled) console.warn(`[qpr] progress mismatch server=${data.progress.filled} local=${local}`);
+			}
+			// next_question_id dari server menentukan langkah awal; null = semua wajib terisi.
+			const nextIdx = data.progress?.next_question_id
+				? data.sections.findIndex((sec) => sec.questions.some((q) => q.id === data.progress.next_question_id))
+				: data.sections.findIndex((sec) => sec.questions.some((q) => q.required && !complete(q, answers)));
+			setStep(nextIdx < 0 ? data.sections.length : nextIdx);
+		} catch (e) {
+			if (controller.signal.aborted) return;
+			// Sesi sama dibuka lagi setelah final: server 409 already_final →
+			// tampilkan kartu konfirmasi, bukan form kosong.
+			if (e.statusCode === 409 && e.errors?.state?.includes("already_final")) {
+				setProof(e.errors?.submitted_at ?? null); setDone(true); return;
+			}
+			setError(errText(e));
+		}
 		finally { if (mounted.current && loading.current === controller) setBusy(false); }
 	};
 
@@ -128,10 +149,10 @@ function Fill({ periodId, initialRoster }) {
 				return;
 			}
 		}
-		setBusy(true);
-		try { await flush(); setStep(target); setConfirmed(false); }
-		catch { /* Save error already displayed; stay here with local answers. */ }
-		finally { if (mounted.current) setBusy(false); }
+		// Navigasi tidak diblok simpan: flush gagal → pesan error non-blocking,
+		// perpindahan tetap jalan (edit lokal aman, autosave mencoba lagi).
+		flush().catch(() => {});
+		setStep(target); setConfirmed(false);
 	};
 
 	const switchName = async () => {
@@ -150,9 +171,10 @@ function Fill({ periodId, initialRoster }) {
 
 	const reload = async () => {
 		if (!window.confirm("Muat draft terbaru akan mengganti semua edit lokal dengan draft server. Lanjutkan?")) return;
-		const id = current.current.entry.id;
-		clearTimeout(current.current.timer); current.current = null; setSession(null);
-		await pick(id);
+		// Jangan kosongkan state aktif sebelum data baru siap — layar tidak blank.
+		const s = current.current;
+		clearTimeout(s.timer); s.conflict = true; // blok flush lama; pick() mengganti sesi.
+		await pick(s.entry.id);
 	};
 
 	const submit = async (e) => {
@@ -203,9 +225,13 @@ function Fill({ periodId, initialRoster }) {
 			<p className="studio-kicker">PENILAIAN PENGURUS</p>
 			<h1 className="qpr-title">{roster.title}</h1>
 			{roster.description && <p>{roster.description}</p>}
-		<p className="muted small">{roster.opensAt ? `Buka: ${new Date(roster.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : ""}{roster.opensAt && roster.closesAt ? " · " : ""}{roster.closesAt ? `Tutup: ${new Date(roster.closesAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : ""}{!roster.opensAt && !roster.closesAt ? "Tanpa jadwal — tutup manual oleh BPH." : ""}</p>
-		{eff === "scheduled" && <p className="login-notice" role="status">Penilaian belum dibuka. Form dapat diisi mulai {roster.opensAt ? new Date(roster.opensAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : ""} WIB.</p>}
-			<p className="login-notice">Form tanpa login memakai model kejujuran: pilih namamu sendiri. Setelah kamu kirim, jawabanmu dipisahkan dari namamu — BPH melihat hasil secara agregat dan anonim, tetapi tetap bisa melihat nama yang belum mengisi. Jangan bagikan tautan di luar anggota SGA.</p>
+		<p className="muted small">{roster.opens_at ? `Buka: ${new Date(roster.opens_at).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : ""}{roster.opens_at && roster.closes_at ? " · " : ""}{roster.closes_at ? `Tutup: ${new Date(roster.closes_at).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB` : ""}{!roster.opens_at && !roster.closes_at ? "Tanpa jadwal — tutup manual oleh BPH." : ""}</p>
+		{eff === "scheduled" && <p className="login-notice" role="status">Penilaian belum dibuka. Form dapat diisi mulai {roster.opens_at ? new Date(roster.opens_at).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) : ""} WIB.</p>}
+			<ul className="muted small">
+				<li>Pilih namamu sendiri dari daftar, lalu buka draft-nya.</li>
+				<li>Nilai setiap orang lain di daftar sesuai pengalamanmu.</li>
+				<li>Jawaban anonim — tidak ada yang tahu siapa menilai siapa.</li>
+			</ul>
 		</header>
 		{!session ? <Card>
 			{!roster.remaining.length ? <p>Semua nama telah mengisi penilaian ini.</p> : <>
@@ -228,7 +254,8 @@ function Fill({ periodId, initialRoster }) {
 			<p>Mengisi sebagai <strong>{session.entry.name}</strong> · {session.entry.division} · Jabatan: <strong>{QPR_ROLE_LABEL[session.entry.role] || session.entry.role || "Tidak tercantum"}</strong></p>
 			<button type="button" className="btn ghost" disabled={busy} onClick={switchName}>Ganti nama</button>
 			{isRubric360(roster) && <p className="muted small">Kamu akan menilai {sections.length} orang. Pertanyaan mengikuti pasangan penilai → target; jawaban tidak ditautkan ke namamu.</p>}
-			<p className="field-help" role="status" aria-live="polite">{status === "saving" ? "Menyimpan…" : status === "saved" ? "Tersimpan" : status === "conflict" ? "Konflik — edit lokal belum tersimpan. Tidak akan menimpa draft server." : status === "error" ? "Gagal tersimpan — edit lokal tetap ada." : ""}</p>
+			<p className="field-help" role="status" aria-live="polite">{status === "saving" ? "Menyimpan…" : status === "saved" ? <span className="qpr-save-label">Tersimpan</span> : status === "conflict" ? "Konflik — edit lokal belum tersimpan. Tidak akan menimpa draft server." : status === "error" ? "Belum tersimpan — akan dicoba lagi." : ""}
+			{status === "saved" && savedAt && <span className="muted small qpr-save-time"> {timeID(savedAt)}</span>}</p>
 			<QprProgress filled={filled} total={required.length} />
 			<p className="muted small">Jangan tutup tab sebelum status Tersimpan.</p>
 			{status === "error" && <button className="btn" disabled={busy} onClick={() => flush().catch(() => {})}>Coba simpan lagi</button>}

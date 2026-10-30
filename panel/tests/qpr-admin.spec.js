@@ -186,7 +186,7 @@ test('clicking active questions tab preserves dirty edits and later discard conf
   page.removeAllListeners('dialog');
   page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
   await tab(page, 'Ringkasan').click();
-  expect(dialogs).toEqual(['Perubahan form belum disimpan. Pindah tab akan membuang edit lokal. Lanjutkan?']);
+  expect(dialogs).toEqual(['Perubahan form belum disimpan. Pindah tab sekarang akan MENGHAPUS draft lokal editor (isi yang belum disimpan hilang permanen). Hapus draft dan pindah tab?']);
   await expect(tab(page, 'Pertanyaan')).toHaveAttribute('aria-current', 'page');
   await expect(page.getByLabel('Pertanyaan 1', { exact: true })).toHaveValue('Edit belum disimpan');
   await expect(page.getByRole('button', { name: 'Simpan form' })).toBeEnabled();
@@ -324,7 +324,7 @@ test('preview answers and review stay local, switching respondent clears answers
   await page.getByRole('button', { name: 'Tinjau jawaban', exact: true }).click();
   await expect(page.getByRole('definition').filter({ hasText: 'Pertahankan komunikasi rutin.' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Kirim|Simpan draft/ })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Ubah Ketua Umum', exact: true }).click();
+  await page.getByRole('button', { name: 'Ubah Ketua Umum: Ketua Contoh', exact: true }).click();
   await expect(page.getByRole('radio', { name: '4 — Baik', exact: true })).toBeChecked();
   await page.getByLabel('Pratinjau sebagai pengisi').selectOption('e2');
   await expect(page.getByLabel('Saran untuk Ketua', { exact: true })).toHaveValue('');

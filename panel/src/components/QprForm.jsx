@@ -59,12 +59,15 @@ export function QprQuestion({ question, value, onChange, disabled = false, legen
 			</label>)}
 		</div>
 	</fieldset>;
+	const text = typeof value === "string" ? value : "";
+	const nearLimit = text.length >= 4500;
 	return <fieldset className="qpr-question" disabled={disabled}>
 		<legend><label htmlFor={id}>{question.label}</label>{question.required && <span aria-hidden="true"> *</span>}</legend>
-		<textarea id={id} rows={3} required={question.required} maxLength={5000} disabled={disabled} value={typeof value === "string" ? value : ""} onChange={(e) => {
+		<textarea id={id} rows={3} required={question.required} maxLength={5000} disabled={disabled} value={text} onChange={(e) => {
 			e.target.setCustomValidity(question.required && !e.target.value.trim() ? "Isi jawaban, bukan hanya spasi." : "");
 			onChange(question.id, e.target.value);
 		}} />
+		{text && <p className={`muted small qpr-char-count${nearLimit ? " qpr-char-limit" : ""}`}>{text.length} / 5000</p>}
 	</fieldset>;
 }
 
@@ -93,7 +96,7 @@ export function QprReview({ sections, answers, onEdit, disabled }) {
 				{group.name && <h4 className="qpr-topic-title">{group.name}</h4>}
 				<dl>{group.questions.map((question) => <div key={question.id} className="qpr-question"><dt>{question.label}</dt><dd style={{ whiteSpace: "pre-wrap", marginLeft: 0 }}>{complete(question, answers) ? String(answers[question.id]) : "Belum diisi"}</dd></div>)}</dl>
 			</div>)}
-			{onEdit && <button type="button" className="btn ghost" disabled={disabled} onClick={() => onEdit(index)}>Ubah {section.title}</button>}
+			{onEdit && <button type="button" className="btn ghost" disabled={disabled} onClick={() => onEdit(index)}>Ubah {targetTitle(section)}</button>}
 		</section>)}
 	</div>;
 }
