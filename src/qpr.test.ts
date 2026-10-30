@@ -471,8 +471,17 @@ const badRole = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph"
 eq("ketum not invented respondent",badRole.status,422);
 const badDivision = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:[{name:"Other",role:"anggota",division_slug:"Ristek",member_key:"bad"}]}});
 eq("display name not canonical division",badDivision.status,422);
-const badKey = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:[{name:"Missing",role:"anggota",division_slug:"ristek"}]}});
-eq("v3 stable member key required",badKey.status,422);
+// ID stabil tanpa member_key ditulis admin: impor ulang nama sama = entry sama.
+const keyless1 = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:[{name:"Tanpa Kunci",role:"anggota",division_slug:"ristek"}]}});
+eq("v3 keyless import accepted",keyless1.status,201);
+const keylessRole = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:[{name:"Tanpa Kunci",role:"kadiv",division_slug:"ristek"}]}});
+eq("v3 keyless role change keeps id",[keylessRole.status,keylessRole.body.data[0]?.id],[201,keyless1.body.data[0].id]);
+eq("v3 keyless role change applied",keylessRole.body.data[0]?.memberRole,"kadiv");
+const badRoleMissing = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:[{name:"Tanpa Jabatan",division_slug:"ristek"}]}});
+eq("v3 role still required",badRoleMissing.status,422);
+// Baris uji di atas sementara — kembalikan roster ke bentuk awal supaya hitungan
+// partisipasi periode ini tidak bergeser.
+eq("v3 keyless row cleaned up",(await h.req(`${ADMIN}/periods/${v3id}/entries/${keyless1.body.data[0].id}`,{token:"tok-bph",method:"DELETE"})).status,200);
 const preview = await h.req(`${ADMIN}/periods/${v3id}/preview`,{token:"tok-bph"});
 eq("preview zero blockers",preview.body.data.blockers,[]);
 // Keputusan BPH: kadiv/wakadiv = 4 controller + ketum + waketum = 6 section × 22 = 132.

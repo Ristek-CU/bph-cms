@@ -513,12 +513,28 @@ export const qprService = {
         const canonical = await db.select({ slug: divisions.slug, name: divisions.name }).from(divisions).where(inArray(divisions.slug, [...QPR_DIVISIONS]));
         const keys = new Set<string>();
         const names = new Set(existing.map((e) => e.name.toLowerCase()));
+        const byName = new Map<string, typeof existing>();
+        for (const e of existing) {
+            const n = e.name.toLowerCase();
+            byName.set(n, [...(byName.get(n) ?? []), e]);
+        }
         const now = new Date().toISOString();
+        // ID stabil bila admin tidak menulis member_key: turunan NAMA saja (tanpa
+        // jabatan/divisi), supaya ganti jabatan memperbarui orang yang sama, bukan
+        // membuat entri baru. Bila sudah ada tepat satu entry bernama sama, dipakai
+        // memberKey lamanya — ID historis tidak berubah. Nama kembar wajib member_key.
+        const derivedKey = (name: string) => `auto-${name.toLowerCase().replace(/\s+/g, "-")}`.slice(0, 100);
+        const matchByName = (name: string, key: string | null) => {
+            if (key) return existing.find((e) => e.memberKey === key);
+            const same = byName.get(name.toLowerCase()) ?? [];
+            if (same.length > 1) throw ApiError.conflict(`Nama "${name}" ada ${same.length} di daftar — tulis member_key untuk memilih yang mana`);
+            return same[0];
+        };
         const rows = items.map((a) => {
             const name = a.name.trim();
             if (!name) throw ApiError.validation("Nama wajib diisi");
-            const key = a.member_key;
-            if (key != null && !key.trim()) throw ApiError.validation("member_key tidak boleh kosong");
+            if (a.member_key != null && !a.member_key.trim()) throw ApiError.validation("member_key tidak boleh kosong");
+            const key = a.member_key?.trim() || null;
             // v4 (360°): divisi diwajibkan untuk semua jabatan kecuali presiden/VP,
             // member_key dibuat sistem bila kosong, dan controller membawa daftar
             // divisi yang diurus.
@@ -532,14 +548,19 @@ export const qprService = {
             if (v4 && a.role === "controller" && !manages.length) throw ApiError.validation("Controller wajib memilih divisi yang diurus");
             if (v4 && a.role !== "controller" && manages.length) throw ApiError.validation("Hanya controller yang punya divisi urus");
             if (v4 && (!a.role || (a.role !== "president" && a.role !== "vice_president" && !division))) throw ApiError.validation("role dan division_slug wajib untuk roster 360°");
-            if (snapshot?.version === 3 && (!key || !division || !a.role)) throw ApiError.validation("member_key, division_slug, dan role wajib untuk roster v3");
-            if (key && keys.has(key)) throw ApiError.validation("member_key berulang dalam impor");
-            if (key) keys.add(key);
-            if ((!snapshot || !key || v4) && names.has(name.toLowerCase())) throw ApiError.conflict(`Nama "${name}" sudah ada di daftar periode ini`);
+            if (snapshot?.version === 3 && (!division || !a.role)) throw ApiError.validation("division_slug dan role wajib untuk roster v3");
+            const old = snapshot ? matchByName(name, key) : undefined;
+            // Baris yang menunjuk entry lama = perbarui orang itu, jadi nama yang sama
+            // bukan tabrakan (trigger DB juga mengecualikan baris itu).
+            if (!old && (!snapshot || !key || v4) && names.has(name.toLowerCase())) throw ApiError.conflict(`Nama "${name}" sudah ada di daftar periode ini`);
             names.add(name.toLowerCase());
-            const old = key ? existing.find((e) => e.memberKey === key) : undefined;
+            const memberKey = key ?? old?.memberKey ?? (snapshot ? derivedKey(name) : uuidv7());
+            if (keys.has(memberKey)) throw ApiError.validation(`member_key "${memberKey}" berulang dalam impor — nama kembar wajib menulis member_key berbeda`);
+            // Jangan menimpa entry lain yang kebetulan memakai key turunan ini.
+            if (!old && existing.some((e) => e.memberKey === memberKey)) throw ApiError.conflict(`member_key "${memberKey}" sudah dipakai nama lain di daftar ini`);
+            keys.add(memberKey);
             return { id: old?.id ?? uuidv7(), periodId, name, division: division?.name ?? a.division ?? null,
-                memberRole: a.role ?? null, divisionSlug: division?.slug ?? null, memberKey: key ?? uuidv7(),
+                memberRole: a.role ?? null, divisionSlug: division?.slug ?? null, memberKey,
                 managedDivisions: v4 ? JSON.stringify(manages) : null, done: false, createdAt: old?.createdAt ?? now };
         });
         try {

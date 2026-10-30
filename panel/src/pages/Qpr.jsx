@@ -23,20 +23,38 @@ const scheduleNote = (p) => {
 	return when ? `${state} · ${when}` : state;
 };
 
-// Cocokkan baris impor roster terhadap entri periode yang sudah ada.
-// member_key bila keduanya punya; jika tidak nama + jabatan + divisi.
-const entryMatchesItem = (entry, item) => {
-	if (item.member_key && entry.memberKey) return item.member_key === entry.memberKey;
-	const div = entry.divisionSlug ?? entry.division ?? null;
-	const itemDiv = item.division_slug ?? item.division ?? null;
-	return (entry.name ?? "").toLowerCase() === item.name.toLowerCase()
-		&& (entry.memberRole ?? entry.role ?? null) === (item.role ?? null)
-		&& (div ?? "") === (itemDiv ?? "");
+// Server memilih baris lama lewat member_key bila ada, kalau tidak lewat nama
+// tunggal (qpr.service matchByName). Panel memberi verdict yang sama supaya
+// admin tahu baris mana menambah, memperbarui, atau konflik.
+const rowVerdict = (item, entries, version) => {
+	const same = (entries ?? []).filter((e) => e.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+	if (item.member_key && (entries ?? []).some((e) => e.memberKey === item.member_key)) return "update";
+	// Key tak dikenal + nama sudah dipakai: server menolak (names.has) pada v4/v5
+	// dan legacy; v2/v3 dengan key eksplisit boleh (matchByName hanya lewat key).
+	if (item.member_key) return (!version || version >= 4) && same.length ? "conflict" : "add";
+	if (!version) return same.length ? "conflict" : "add"; // legacy: nama = identitas
+	return same.length === 1 ? "update" : same.length > 1 ? "conflict" : "add";
 };
-// Pengecekan cepat penjaga duplikat — assert gagal terlihat di console bila matcher rusak.
-console.assert(entryMatchesItem({ name: "Budi", memberKey: "k1" }, { name: "Budi", member_key: "k1" }));
-console.assert(entryMatchesItem({ name: "Budi", memberRole: "anggota", divisionSlug: "ristek" }, { name: "budi", role: "anggota", division_slug: "ristek" }));
-console.assert(!entryMatchesItem({ name: "Budi", memberRole: "anggota", divisionSlug: "ukm" }, { name: "Budi", role: "anggota", division_slug: "ristek" }));
+// Assert gagal terlihat di console bila matcher rusak.
+console.assert(rowVerdict({ name: "Budi" }, [{ name: "Budi", memberKey: "auto-budi" }], 4) === "update");
+console.assert(rowVerdict({ name: "Budi" }, [{ name: "Budi", memberKey: "a" }, { name: "Budi", memberKey: "b" }], 4) === "conflict");
+console.assert(rowVerdict({ name: "Budi" }, [], 4) === "add");
+console.assert(rowVerdict({ name: "Budi", member_key: "k9" }, [{ name: "Budi", memberKey: "k9" }], 4) === "update");
+console.assert(rowVerdict({ name: "Budi" }, [{ name: "Budi" }], undefined) === "conflict");
+// Key tak dikenal: legacy & v4/v5 tolak nama kembar; v3 boleh (key memisahkan).
+console.assert(rowVerdict({ name: "Budi", member_key: "k9" }, [{ name: "Budi", memberKey: "auto-budi" }], 4) === "conflict");
+console.assert(rowVerdict({ name: "Budi", member_key: "k9" }, [{ name: "Budi", memberKey: "auto-budi" }], undefined) === "conflict");
+console.assert(rowVerdict({ name: "Budi", member_key: "k9" }, [{ name: "Budi", memberKey: "auto-budi" }], 3) === "add");
+console.assert(rowVerdict({ name: "Budi", member_key: "k9" }, [], 4) === "add");
+const VERDICT_LABEL = { add: ["open", "tambah"], update: ["draft", "perbarui"], conflict: ["closed", "konflik"] };
+// Isi textarea saat mengubah satu pengisi. member_key ikut disalin supaya
+// server memperbarui baris yang sama meski namanya diganti; admin tidak perlu
+// mengetik ID sendiri dan panel tidak pernah mengarang ID baru.
+const seedRow = (entry, version) => version >= 4
+	? [entry.name, entry.divisionSlug ?? "", entry.memberRole ?? "", (entry.managedDivisions ?? []).join(","), entry.memberKey ?? ""].join(" | ")
+	: version
+		? [entry.name, entry.divisionSlug || entry.division || "", entry.memberRole ?? "", entry.memberKey ?? ""].join(" | ")
+		: [entry.name, entry.division ?? "", entry.memberRole ?? ""].join(" | ");
 // Kunci identitas baris dalam satu impor (untuk deteksi kembar antar-baris).
 const batchKey = (item) => item.member_key || `${item.name.toLowerCase()}|${item.role ?? ""}|${item.division_slug ?? item.division ?? ""}`;
 
@@ -326,6 +344,7 @@ function Workspace({ periodId, draftKey }) {
 	const [preview, setPreview] = useState(null);
 	const [recap, setRecap] = useState(null);
 	const [showAdd, setShowAdd] = useState(false);
+	const [edit, setEdit] = useState(null);
 	const [remove, setRemove] = useState(null);
 	const [confirmStatus, setConfirmStatus] = useState(null);
 	const [dirty, setDirty] = useState(false);
@@ -371,6 +390,7 @@ function Workspace({ periodId, draftKey }) {
 	if (!period) return error ? <ErrorState message={error} onRetry={load} /> : <SkeletonCard lines={5} />;
 	const frozen = isFrozen(period);
 	const entries = period.entries;
+	const version = period.questions?.version;
 	const done = entries.filter((e) => e.done).length;
 	const divisions = [...new Set(entries.map((e) => e.divisionSlug || e.division || "Pengurus Inti"))];
 	const visible = entries.filter((e) => (filter === "all" || e.done === (filter === "done")) && (division === "all" || (e.divisionSlug || e.division || "Pengurus Inti") === division) && `${e.name} ${e.memberKey || ""}`.toLocaleLowerCase("id-ID").includes(search.toLocaleLowerCase("id-ID")));
@@ -388,13 +408,13 @@ function Workspace({ periodId, draftKey }) {
 		</>}
 		{tab === "questions" && <QprEditor key={`${period.updatedAt}-${editorReset}`} period={period} draftKey={draftKey} onDiscard={() => { if (window.confirm("Buang edit lokal dan gunakan form server?")) { editorDrafts.delete(draftKey); setDirty(false); setEditorReset((n) => n + 1); } }} toast={toast} onDirty={setDirty} onSaved={async (updated) => { setPeriod((current) => ({ ...current, ...updated })); setDirty(false); setPreview(null); setRecap(null); }} />}
 		{tab === "entries" && <>
-			<div className="qpr-page-head"><div><h2>Daftar pengisi</h2><p className="muted">Draft tetap berstatus belum mengirim. Jawaban yang sudah dikirim bersifat anonim — tidak ada kolom yang menautkan nama ke isi jawaban.</p></div><button className="btn" disabled={frozen || busy} onClick={() => setShowAdd(true)}>+ Tambah nama</button></div>
+			<div className="qpr-page-head"><div><h2>Daftar pengisi</h2><p className="muted">Draft tetap berstatus belum mengirim. Jawaban yang sudah dikirim bersifat anonim — tidak ada kolom yang menautkan nama ke isi jawaban.</p></div><button className="btn" disabled={frozen || busy} onClick={() => { setEdit(null); setShowAdd(true); }}>+ Tambah nama</button></div>
 			<div className="qpr-filter-row"><label>Cari pengisi<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} /></label><label>Divisi<select value={division} onChange={(e) => setDivision(e.target.value)}><option value="all">Semua divisi</option>{divisions.map((d) => <option key={d}>{d}</option>)}</select></label><label>Status<select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="all">Semua</option><option value="done">Sudah mengisi</option><option value="pending">Belum mengisi</option></select></label></div>
-			<div className="card tbl-wrap"><table className="tbl"><thead><tr><th scope="col">Nama / Identitas</th><th scope="col">Divisi</th><th scope="col">Jabatan</th>{isTopicRubric(period.questions) && <th scope="col">Divisi diurus</th>}<th scope="col">Status</th><th scope="col">Aksi</th></tr></thead><tbody>{visible.map((e) => <tr key={e.id}><td>{e.name}<small className="qpr-entry-key">{e.memberKey}</small></td><td>{e.division || e.divisionSlug || "—"}</td><td>{(isTopicRubric(period.questions) ? ROLE_V4_LABEL : ROLE_LABEL)[e.memberRole] || e.memberRole || "—"}</td>{isTopicRubric(period.questions) && <td>{(e.managedDivisions ?? []).map((slug) => DIVISION_LABEL[slug] || slug).join(", ") || "—"}</td>}<td><span className={`badge ${e.done ? "open" : "draft"}`}>{e.done ? "Sudah mengisi" : "Belum mengisi"}</span></td><td><button className="btn ghost" disabled={frozen || busy || e.done} onClick={() => setRemove(e)}>Hapus</button></td></tr>)}{!visible.length && <tr><td colSpan={isTopicRubric(period.questions) ? 6 : 5}>Tidak ada pengisi yang cocok.</td></tr>}</tbody></table></div>
+			<div className="card tbl-wrap"><table className="tbl"><thead><tr><th scope="col">Nama / Identitas</th><th scope="col">Divisi</th><th scope="col">Jabatan</th>{isTopicRubric(period.questions) && <th scope="col">Divisi diurus</th>}<th scope="col">Status</th><th scope="col">Aksi</th></tr></thead><tbody>{visible.map((e) => <tr key={e.id}><td>{e.name}<small className="qpr-entry-key">{e.memberKey}</small></td><td>{e.division || e.divisionSlug || "—"}</td><td>{(isTopicRubric(period.questions) ? ROLE_V4_LABEL : ROLE_LABEL)[e.memberRole] || e.memberRole || "—"}</td>{isTopicRubric(period.questions) && <td>{(e.managedDivisions ?? []).map((slug) => DIVISION_LABEL[slug] || slug).join(", ") || "—"}</td>}<td><span className={`badge ${e.done ? "open" : "draft"}`}>{e.done ? "Sudah mengisi" : "Belum mengisi"}</span></td><td className="row-actions">{version && <button className="btn ghost" disabled={frozen || busy} onClick={() => { setEdit(e); setShowAdd(true); }} aria-label={`Ubah ${e.name}`}>Ubah</button>}<button className="btn ghost" disabled={frozen || busy || e.done} onClick={() => setRemove(e)}>Hapus</button></td></tr>)}{!visible.length && <tr><td colSpan={isTopicRubric(period.questions) ? 6 : 5}>Tidak ada pengisi yang cocok.</td></tr>}</tbody></table></div>
 		</>}
 		{tab === "preview" && (preview ? <><div className="card"><h2>Kesiapan kampanye</h2>{preview.blockers.length ? <ul>{preview.blockers.map((b, i) => <li key={i}>{b}</li>)}</ul> : <p>Tidak ada blocker.</p>}</div><QprPreview key={JSON.stringify(preview)} preview={preview} title={period.title} /></> : !error && <SkeletonCard />)}
 		{tab === "responses" && (recap ? <div className="card"><h2>Respons kampanye</h2>{recap.sections ? <RecapV2 recap={recap} onExport={exportCsv} onExportDisabled={busy} /> : <><ParticipationMeter done={recap.done_entries} total={recap.total_entries} /><p className="muted small">Ekspor CSV hanya untuk periode rubrik (snapshot). Kampanye sederhana tidak dapat diekspor.</p><dl>{Object.entries(recap.category_averages).map(([key, mean]) => <div key={key}><dt>{key}</dt><dd>{mean}</dd></div>)}</dl>{recap.notes.map((note, index) => <blockquote key={index}>{note}</blockquote>)}</>}</div> : !error && <SkeletonCard />)}
-		<AddEntriesModal open={showAdd} periodId={periodId} version={period.questions?.version} entries={entries} onClose={() => setShowAdd(false)} onAdded={async () => { setPreview(null); await load(); }} toast={toast} />
+		<AddEntriesModal open={showAdd} periodId={periodId} version={version} entries={entries} editing={edit} onClose={() => { setShowAdd(false); setEdit(null); }} onAdded={async () => { setPreview(null); await load(); }} toast={toast} />
 		<Confirm open={Boolean(remove)} title={`Hapus nama "${remove?.name || ""}"?`} confirmLabel="Ya, hapus" danger onCancel={() => setRemove(null)} onConfirm={() => { const entry = remove; setRemove(null); act(async () => { await api(`/admin/qpr/periods/${periodId}/entries/${entry.id}`, { method: "DELETE" }); setPreview(null); }); }}>Nama hanya dapat dihapus sebelum kampanye pertama dibuka.</Confirm>
 		<Confirm open={Boolean(confirmStatus)} title={confirmStatus === "open" ? "Buka kampanye QPR?" : "Tutup pengisian QPR?"} confirmLabel={confirmStatus === "open" ? "Ya, buka" : "Ya, tutup"} onCancel={() => setConfirmStatus(null)} onConfirm={() => { const action = confirmStatus; setConfirmStatus(null); act(async () => { if (action === "open") { const check = await api(`/admin/qpr/periods/${periodId}/preview`); setPreview(check); if (check.blockers.length) { setParams({ tab: "preview" }); throw new Error("Konfigurasi belum lengkap. Periksa blocker."); } } await api(`/admin/qpr/periods/${periodId}/${action}`, { method: "POST" }); }); }}>{confirmStatus === "open" ? "Pertanyaan, target, dan roster terkunci permanen setelah pertama dibuka. Pastikan pratinjau sudah benar." : "Pengisi tidak dapat menyimpan atau mengirim saat kampanye ditutup. Kampanye dapat dibuka kembali tanpa mengubah snapshot."}</Confirm>
 	</div>;
@@ -440,8 +460,8 @@ const ROLES = Object.keys(ROLE_LABEL);
 const ROLE_V4_LABEL = QPR_ROLE_LABEL;
 const ROLES_V4 = Object.keys(ROLE_V4_LABEL);
 
-function AddEntriesModal({ open, periodId, version, entries, onClose, onAdded, toast }) {
-	const [raw, setRaw] = useState("");
+function AddEntriesModal({ open, periodId, version, entries, editing, onClose, onAdded, toast }) {
+	const [raw, setRaw] = useState(() => (editing ? seedRow(editing, version) : ""));
 	const [itemsPreview, setItemsPreview] = useState(null);
 	const [busy, setBusy] = useState(false);
 	const modalRef = useFocusTrap(open);
@@ -450,9 +470,12 @@ function AddEntriesModal({ open, periodId, version, entries, onClose, onAdded, t
 
 	// v4 (kategori) dan v5 (matriks) sama-sama memakai impor roster berjabatan.
 	const topic = version === 4 || version === 5;
+	// Jumlah kolom yang boleh ada. Kolom berlebih ditolak, bukan dibuang diam-diam.
+	const maxCols = topic ? 5 : version === 3 ? 4 : 3;
 
-	// Parse "Nama | Divisi | Jabatan | Divisi diurus (controller) | member_key (opsional)"
-	// per baris. Error dikumpulkan per nomor baris — impor tidak jalan bila ada baris salah.
+	// Parse "Nama | Divisi | Jabatan | [Divisi diurus] | [member_key]" per baris.
+	// Error dikumpulkan per nomor baris — impor tidak jalan bila ada baris salah.
+	// member_key tidak pernah dikarang panel; server yang membuat ID bila kosong.
 	const parseRows = () => {
 		const items = [];
 		const errors = [];
@@ -460,6 +483,7 @@ function AddEntriesModal({ open, periodId, version, entries, onClose, onAdded, t
 			if (!line.trim()) return;
 			const parts = line.split("|").map((s) => s.trim());
 			const n = i + 1;
+			if (parts.length > maxCols) { errors.push(`Baris ${n}: ${parts.length} kolom, maksimal ${maxCols} (Nama | Divisi | Jabatan${topic ? " | Divisi diurus" : ""}${version ? " | member_key" : ""}). Gabungkan dengan koma atau hapus kolom lebih.`); return; }
 			if (topic) {
 				const [name, division, role, manages, member_key] = parts;
 				if (!name) { errors.push(`Baris ${n}: nama kosong.`); return; }
@@ -482,7 +506,7 @@ function AddEntriesModal({ open, periodId, version, entries, onClose, onAdded, t
 				const roleLower = (role || "").toLowerCase();
 				if (!DIVISIONS.includes(slug)) { errors.push(`Baris ${n}: divisi "${division || "—"}" tidak dikenal (gunakan: ${Object.keys(DIVISION_LABEL).join(", ")}).`); return; }
 				if (!ROLES.includes(roleLower)) { errors.push(`Baris ${n}: jabatan "${role || "—"}" tidak dikenal (gunakan: ${ROLES.join(", ")}).`); return; }
-				items.push({ name, division_slug: slug, role: roleLower, member_key: member_key || `auto-${slug}-${roleLower}-${name.toLowerCase().replace(/\s+/g, "-")}` });
+				items.push({ name, division_slug: slug, role: roleLower, ...(member_key ? { member_key } : {}) });
 			} else {
 				items.push({ name, division: division || null, role: role || null });
 			}
@@ -490,21 +514,22 @@ function AddEntriesModal({ open, periodId, version, entries, onClose, onAdded, t
 		return { items, errors };
 	};
 
+	const previewVerdicts = (itemsPreview ?? []).map((item) => rowVerdict(item, entries, version));
+	const blocked = previewVerdicts.includes("conflict");
+
 	const submit = async (e) => {
 		e.preventDefault();
-		// Fase Impor pakai itemsPreview (bisa sudah difilter dari duplikat), bukan re-parse raw.
+		// Fase Impor pakai itemsPreview (bisa sudah difilter), bukan re-parse raw.
 		if (itemsPreview) {
 			if (!itemsPreview.length) { toast("Daftar impor kosong — semua baris sudah dihapus.", "err"); return; }
-			const remaining = itemsPreview.some((item) => (entries ?? []).some((entry) => entryMatchesItem(entry, item)));
-			if (remaining) { toast("Masih ada baris duplikat — hapus baris berlabel duplikat dari daftar.", "err"); return; }
+			if (blocked) { toast("Ada baris konflik — perbaiki atau hapus baris itu dulu.", "err"); return; }
 			await doImport(itemsPreview);
 			return;
 		}
 		const { items, errors } = parseRows();
 		if (errors.length) { setItemsPreview(null); toast(errors.join("\n"), "err"); return; }
 		if (!items.length) { toast("Tidak ada baris yang terbaca. Format: Nama | Divisi | Jabatan", "err"); return; }
-		// Penjaga kembar antar-baris impor (semua versi): batchKey = member_key bila ada,
-		// kalau tidak nama|jabatan|divisi. v3 lama membuat key sintetis auto-… di parseRows.
+		// Penjaga kembar antar-baris impor: batchKey = member_key bila ada, kalau tidak nama|jabatan|divisi.
 		const seen = new Map();
 		for (const item of items) {
 			const key = batchKey(item);
@@ -522,10 +547,12 @@ function AddEntriesModal({ open, periodId, version, entries, onClose, onAdded, t
 		setBusy(true);
 		try {
 			await api(`/admin/qpr/periods/${periodId}/entries`, { method: "POST", json: { entries: items } });
-			toast(`${items.length} nama ditambahkan.`);
+			const updated = previewVerdicts.filter((v) => v === "update").length;
+			const added = items.length - updated;
+			toast("Tersimpan: " + [added ? `${added} baru` : "", updated ? `${updated} diperbarui` : ""].filter(Boolean).join(", ") + ".");
 			setRaw(""); setItemsPreview(null);
 			onClose();
-			await onAdded();
+			await onAdded(rows);
 		} catch (e2) {
 			toast(errText(e2), "err");
 		} finally {
@@ -534,25 +561,26 @@ function AddEntriesModal({ open, periodId, version, entries, onClose, onAdded, t
 	};
 
 	const help = topic
-		? `Format: Nama | Divisi | Jabatan | Divisi diurus (khusus Controller, pisah koma). Jabatan: ${Object.entries(ROLE_V4_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}.`
-		: `Divisi: ${Object.entries(DIVISION_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}. Jabatan: ${Object.entries(ROLE_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}. Nama kembar: tulis member_key berbeda di kolom keempat.`;
+		? `Format: Nama | Divisi | Jabatan | Divisi diurus (khusus Controller, pisah koma) | member_key (opsional). Jabatan: ${Object.entries(ROLE_V4_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}.`
+		: `Divisi: ${Object.entries(DIVISION_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}. Jabatan: ${Object.entries(ROLE_LABEL).map(([k, v]) => `${v} (${k})`).join(", ")}.${version ? " Nama kembar: tulis member_key berbeda di kolom terakhir." : ""}`;
 
 	return (
 		<div className="modal-backdrop" onClick={() => !busy && onClose()}>
-			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label="Tambah nama pengisi">
-				<h3>Tambah nama pengisi</h3>
+			<form ref={modalRef} tabIndex={-1} className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit} role="dialog" aria-modal="true" aria-label={editing ? "Ubah data pengisi" : "Tambah nama pengisi"}>
+				<h3>{editing ? `Ubah ${editing.name}` : "Tambah nama pengisi"}</h3>
+				<p className="muted small">{editing ? "Simpan memperbarui baris ini — ID dan riwayat pengisiannya tetap." : "Baris dengan nama yang sudah ada akan memperbarui pengisi itu, bukan menggandakan."}</p>
 				<div style={{ marginTop: 10 }}>
-					<label className="field-label" htmlFor="qp-entries">{topic ? "Nama | Divisi | Jabatan | Divisi diurus — satu orang per baris" : version === 3 ? "Nama | Divisi | Jabatan — satu orang per baris" : "Nama | Divisi | Jabatan (opsional) — satu orang per baris"}</label>
+					<label className="field-label" htmlFor="qp-entries">{topic ? "Nama | Divisi | Jabatan | Divisi diurus | member_key — satu orang per baris" : version === 3 ? "Nama | Divisi | Jabatan | member_key — satu orang per baris" : "Nama | Divisi | Jabatan (opsional) — satu orang per baris"}</label>
 					<textarea id="qp-entries" rows={5} value={raw} onChange={(e) => { setRaw(e.target.value); setItemsPreview(null); }} placeholder={topic ? "Presiden Contoh | | president\nKadiv Ristek | ristek | kadiv\nController Satu | bph | controller | ristek,ukm\nAnggota Ristek | ristek | anggota" : "Anggota Contoh | ristek | anggota\nAnggota Lain | ukm | kadiv"} required />
 					<p className="muted small">{help}</p>
 				</div>
 				<div>{itemsPreview && <><h4>Preview impor ({itemsPreview.length})</h4><ul>{itemsPreview.map((item, i) => {
-					const dup = (entries ?? []).some((entry) => entryMatchesItem(entry, item));
-					return <li key={i}>{dup && <span className="badge closed" style={{ marginRight: 6 }}>duplikat</span>}{item.name} · {DIVISION_LABEL[item.division_slug] || item.division || "—"} · {(topic ? ROLE_V4_LABEL : ROLE_LABEL)[item.role] || item.role || "—"}{item.manages?.length ? ` · mengurus: ${item.manages.map((m) => DIVISION_LABEL[m] || m).join(", ")}` : ""}{item.member_key ? ` · ${item.member_key}` : ""} <button type="button" className="btn ghost sm" style={{ padding: "2px 8px" }} aria-label={`Hapus ${item.name} dari daftar impor`} onClick={() => setItemsPreview(itemsPreview.filter((_, j) => j !== i))}>Hapus</button></li>;
-				})}</ul>{itemsPreview.some((item) => (entries ?? []).some((entry) => entryMatchesItem(entry, item))) && <p className="login-error" role="alert">Baris berlabel "duplikat" sudah ada di daftar pengisi. Hapus baris itu dari daftar sebelum impor.</p>}</>}</div>
+					const [badge, label] = VERDICT_LABEL[previewVerdicts[i]];
+					return <li key={i}><span className={`badge ${badge}`} style={{ marginRight: 6 }}>{label}</span>{item.name} · {DIVISION_LABEL[item.division_slug] || item.division || "—"} · {(topic ? ROLE_V4_LABEL : ROLE_LABEL)[item.role] || item.role || "—"}{item.manages?.length ? ` · mengurus: ${item.manages.map((m) => DIVISION_LABEL[m] || m).join(", ")}` : ""}{item.member_key ? ` · ${item.member_key}` : ""} <button type="button" className="btn ghost sm" style={{ padding: "2px 8px" }} aria-label={`Hapus ${item.name} dari daftar impor`} onClick={() => setItemsPreview(itemsPreview.filter((_, j) => j !== i))}>Hapus</button></li>;
+				})}</ul>{blocked && <p className="login-error" role="alert">Ada baris konflik: nama itu dipakai lebih dari satu pengisi, jadi server menolak menebak yang mana. Hapus baris tersebut, atau tulis member_key pengisi yang dimaksud di kolom terakhir.</p>}</>}</div>
 				<div className="row-actions" style={{ marginTop: 14 }}>
 					<button type="button" className="btn ghost" disabled={busy} onClick={onClose}>Batal</button>
-					<button className="btn" type="submit" disabled={busy || !raw.trim() || itemsPreview?.some((item) => (entries ?? []).some((entry) => entryMatchesItem(entry, item)))}>{busy ? "Menyimpan…" : itemsPreview ? "Impor" : "Preview impor"}</button>
+					<button className="btn" type="submit" disabled={busy || !raw.trim() || blocked}>{busy ? "Menyimpan…" : itemsPreview ? (editing ? "Simpan" : "Impor") : "Preview impor"}</button>
 				</div>
 			</form>
 		</div>
