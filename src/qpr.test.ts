@@ -440,6 +440,36 @@ const injCsv = await h.req(`${ADMIN}/periods/${rPid}/export`, { token: "tok-bph"
 const injText = typeof injCsv.body === "string" ? injCsv.body : "";
 ok("formula injection dineutralkan (prefix ')", injText.includes("'=cmd"), injText.split("\r\n").find((l: string) => l.includes("cmd")));
 
+// ── Pemantauan: status belum mulai/draft/final + segarkan + ekspor legacy ───
+section("Pemantauan partisipasi");
+
+// getPeriod sudah mengirim kolom yang cukup untuk tiga status; isi jawaban
+// draft tidak perlu dibaca panel.
+const monitor = await h.req(`${ADMIN}/periods/${rPid}`, { token: "tok-bph" });
+const monEntries = monitor.body?.data?.entries ?? [];
+const monFinal = monEntries.find((e: any) => e.name === "R1");
+const monDraft = monEntries.find((e: any) => e.name === "R4 Draft");
+ok("entry final: done + submittedAt", monFinal?.done === true && Boolean(monFinal?.submittedAt), monFinal && { done: monFinal.done, submittedAt: monFinal.submittedAt });
+ok("entry draft: belum done + draftUpdatedAt", monDraft?.done === false && Boolean(monDraft?.draftUpdatedAt), monDraft && { done: monDraft.done, draftUpdatedAt: monDraft.draftUpdatedAt });
+// Draft tidak pernah dihitung final, sekalipun baru disimpan.
+const monRecap = await h.req(`${ADMIN}/periods/${rPid}/recap-v2`, { token: "tok-bph" });
+eq("draft tidak dihitung final di rekap", monRecap.body?.data?.done_entries, 4);
+ok("draft tetap di daftar pending", (monRecap.body?.data?.pending ?? []).some((p: any) => p.name === "R4 Draft"));
+
+// Respons baru terlihat pada permintaan berikutnya (panel: tombol Segarkan /
+// penyegaran berkala saat tab aktif).
+const monSubmit = await h.req(`${PUB}/${rPid}/submit-v2`, { method: "POST", json: { entry_id: rIds[3], answers: rFull(2) } });
+eq("kirim draft tersimpan jadi final", monSubmit.status, 200);
+const monRecap2 = await h.req(`${ADMIN}/periods/${rPid}/recap-v2`, { token: "tok-bph" });
+eq("respons baru terlihat setelah muat ulang", monRecap2.body?.data?.done_entries, 5);
+ok("pending kosong setelah semua final", (monRecap2.body?.data?.pending ?? []).length === 0);
+
+// Ekspor legacy ditolak dengan penjelasan, jadi tidak ada tombol aktif yang
+// menghasilkan file salah format.
+const legacyExport = await h.req(`${ADMIN}/periods/legacy-periode-1/export`, { token: "tok-bph" });
+eq("ekspor periode legacy → 422", legacyExport.status, 422);
+ok("pesan ekspor legacy menyebut belum didukung", String(legacyExport.body?.message ?? legacyExport.body?.error ?? "").includes("belum didukung"), legacyExport.body);
+
 
 section("Snapshot v3, canonical roster, freeze, privacy");
 const { defaultTargetConfig } = await import("./modules/qpr/qpr.templates");
