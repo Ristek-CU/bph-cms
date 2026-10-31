@@ -27,6 +27,8 @@ async function fillSection(page) {
 test('BPH membuat, tamu melanjutkan lintas browser, divisi hanya melihat status', async ({ page, browser, baseURL }) => {
 	await login(page, 'bph@cakrawala.com', 'fixture-password');
 	await page.getByRole('button', { name: '+ Periode baru' }).click();
+	// Modal membuka 360° sebagai pilihan bawaan; template BPH yang dipakai uji ini.
+	await page.getByRole('radio', { name: 'QPR Penilaian BPH (template lama)' }).check();
 	await page.getByLabel('Judul periode', { exact: true }).fill('QPR browser nyata');
 	const created = page.waitForResponse((r) => r.url().endsWith('/admin/qpr/periods') && r.request().method() === 'POST');
 	await page.getByRole('button', { name: 'Buat periode', exact: true }).click();
@@ -44,7 +46,7 @@ test('BPH membuat, tamu melanjutkan lintas browser, divisi hanya melihat status'
 	await expect(page.getByText('Semua perubahan tersimpan')).toBeVisible();
 	await page.getByRole('button', { name: 'Pengisi', exact: true }).click();
 	await page.getByRole('button', { name: '+ Tambah nama' }).click();
-	await page.getByLabel('Nama | Divisi | Jabatan — satu orang per baris').fill('Pengisi Ristek | ristek | anggota | test-ristek\nPengisi UKM | ukm | anggota | test-ukm');
+	await page.getByLabel(/^Nama \| Divisi \| Jabatan .*satu orang per baris$/).fill('Pengisi Ristek | ristek | anggota | test-ristek\nPengisi UKM | ukm | anggota | test-ukm');
 	await page.getByRole('button', { name: 'Preview impor', exact: true }).click();
 	await page.getByRole('button', { name: 'Impor', exact: true }).click();
 	await expect(page.getByRole('dialog')).toHaveCount(0);
