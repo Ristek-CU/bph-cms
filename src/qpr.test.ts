@@ -80,9 +80,10 @@ eq("buat periode → 201", created.status, 201);
 eq("status awal draft", created.body?.data?.status, "draft");
 const pid = created.body?.data?.id;
 
-// Draft → publik informasi saja (jadwal), tanpa roster/pertanyaan
+// Draft → 404. Amplop "tertutup" akan menyesatkan pengisi yang belum pernah
+// menerima tautan; periode yang belum terbit tidak boleh mengaku ada.
 const draftPublic = await h.req(`${PUB}/${pid}`);
-eq("draft → publik info tanpa roster", [draftPublic.status, draftPublic.body?.data?.isOpen, draftPublic.body?.data?.remaining, draftPublic.body?.data?.questions], [200, false, [], null]);
+eq("draft → publik 404", [draftPublic.status, draftPublic.body?.success], [404, false]);
 
 const entries = await h.req(`${ADMIN}/periods/${pid}/entries`, {
 	token: "tok-bph",
@@ -147,6 +148,8 @@ const closedRoster = await h.req(`${PUB}/${pid}`);
 eq("periode tutup → publik info tanpa roster", [closedRoster.status, closedRoster.body?.data?.isOpen, closedRoster.body?.data?.remaining, closedRoster.body?.data?.questions], [200, false, [], null]);
 const closedSubmit = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Sinta Dewi", answers: [{ label: "x", category: "y", score: 3 }] } });
 eq("submit setelah tutup → 404", closedSubmit.status, 404);
+const closedDone = await h.req(`${PUB}/${pid}/submit`, { method: "POST", json: { name: "Raka Pratama", answers: QUESTIONS.map((q) => ({ label: q.label, category: q.category, score: 3 })) } });
+eq("nama yang sudah final setelah tutup → 404, bukan 409", [closedDone.status, closedDone.body?.errors?.code], [404, undefined]);
 
 // ── Rekap ───────────────────────────────────────────────────────────────────
 section("Rekap");
@@ -496,6 +499,15 @@ const v3Items = [
 const v3rows = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:v3Items}});
 eq("duplicate names allowed stable keys",v3rows.status,201);
 const v3repeat = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:v3Items}});
+// Ekspor roster lalu impor ulang tanpa kolom member_key: nama kembar harus
+// memetakan ke entri yang sudah ada, bukan ditolak.
+const keylessDup = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:[{name:"Nama Kembar",role:"anggota",division_slug:"ristek"},{name:"Nama Kembar",role:"anggota",division_slug:"ristek"}]}});
+eq("namesakes reimported without keys reuse existing member keys",[keylessDup.status,keylessDup.body?.data?.map((e:any)=>e.memberKey).sort()],[201,["same-1","same-2"]]);
+// Key turunan dipotong, jadi awalan nama panjang yang sama tidak boleh bertabrakan.
+const longBase = "N".repeat(120);
+const longKeys = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:[{name:`${longBase}a`,role:"anggota",division_slug:"ristek"},{name:`${longBase}b`,role:"anggota",division_slug:"ristek"}]}});
+eq("long names derive distinct keys",[longKeys.status,new Set(longKeys.body?.data?.map((e:any)=>e.memberKey)).size],[201,2]);
+for (const row of longKeys.body?.data ?? []) await h.req(`${ADMIN}/periods/${v3id}/entries/${row.id}`,{token:"tok-bph",method:"DELETE"});
 eq("reimport stable keys same IDs",v3repeat.body.data.map((e:any)=>e.id),v3rows.body.data.map((e:any)=>e.id));
 const badRole = await h.req(`${ADMIN}/periods/${v3id}/entries`, {token:"tok-bph",method:"POST",json:{entries:[{name:"Ketum",role:"ketum",division_slug:"bph",member_key:"bad"}]}});
 eq("ketum not invented respondent",badRole.status,422);

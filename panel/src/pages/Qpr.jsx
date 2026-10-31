@@ -113,7 +113,7 @@ const legacyQuestionKey = (question) => JSON.stringify([question.label, question
 
 // Status pengisi 3 keadaan dari kolom yang sudah dikirim getPeriod. Isi draft
 // tidak pernah ditampilkan — hanya ada/tidaknya draft plus waktunya.
-const entryState = (entry) => (entry.done ? "final" : entry.draftUpdatedAt || entry.draftAnswers ? "draft" : "idle");
+const entryState = (entry) => (entry.done ? "final" : entry.draftUpdatedAt ? "draft" : "idle");
 const ENTRY_STATE = { final: { label: "Final", badge: "published" }, draft: { label: "Draft", badge: "draft" }, idle: { label: "Belum mulai", badge: "past" } };
 const entryWhen = (entry) => entry.done ? entry.submittedAt : entry.draftUpdatedAt;
 
@@ -362,6 +362,10 @@ function Workspace({ periodId, draftKey }) {
 	// Error penyegaran dipisah dari error muat awal: data lama tetap tampil.
 	const [refreshError, setRefreshError] = useState("");
 	const [tick, setTick] = useState(0);
+	// Sinyal "recap sudah pernah termuat" untuk memilih tampilan galat pada
+	// penyegaran: data lama tetap tampil, galat muat awal tampil penuh.
+	// Ref, bukan state: dibaca di dalam catch tanpa menambah dependensi efek.
+	const hasRecap = useRef(false);
 	const load = useCallback(async () => {
 		try { setPeriod(await api(`/admin/qpr/periods/${periodId}`)); setError(""); }
 		catch (e) { setError(errText(e)); }
@@ -394,16 +398,20 @@ function Workspace({ periodId, draftKey }) {
 		if (next === tab) return;
 		setParams({ tab: next }, { replace: true }); setError("");
 	};
+	// Dependensi sengaja nilai stabil (bukan objek period): muat ulang periode
+	// yang isinya sama tidak boleh memicu permintaan pratinjau/rekap tambahan.
+	const periodVersion = period ? `${period.updatedAt ?? ""}|${period.status}|${period.entries?.length ?? 0}` : "";
 	useEffect(() => {
 		let active = true;
 		if ((tab === "preview" || tab === "overview") && period) {
 			api(`/admin/qpr/periods/${periodId}/preview`).then((data) => { if (active) setPreview(data); }).catch((e) => { if (active && tab === "preview") setError(errText(e)); }); // overview: gagal preview tetap tampilkan "Memeriksa…", error penuh di tab Pratinjau
 		}
 		if (tab === "responses" && period) {
-			api(`/admin/qpr/periods/${periodId}/${isSnapshot(period.questions) ? "recap-v2" : "recap"}`).then((data) => { if (active) { setRecap(data); setRefreshError(""); } }).catch((e) => { if (active) { if (recap) setRefreshError(errText(e)); else setError(errText(e)); } });
+			api(`/admin/qpr/periods/${periodId}/${isSnapshot(period.questions) ? "recap-v2" : "recap"}`).then((data) => { if (active) { setRecap(data); hasRecap.current = true; setRefreshError(""); } }).catch((e) => { if (active) { if (hasRecap.current) setRefreshError(errText(e)); else setError(errText(e)); } });
 		}
 		return () => { active = false; };
-	}, [tab, periodId, period, tick]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [tab, periodId, periodVersion, tick]);
 	const exportCsv = async () => {
 		try {
 			const response = await apiRaw(`/admin/qpr/periods/${periodId}/export`);
@@ -447,7 +455,7 @@ function Workspace({ periodId, draftKey }) {
 		</>}
 		{tab === "preview" && (preview ? <><div className="card"><h2>Kesiapan kampanye</h2>{preview.blockers.length ? <ul>{preview.blockers.map((b, i) => <li key={i}>{b}</li>)}</ul> : <p>Tidak ada blocker.</p>}</div><QprPreview key={JSON.stringify(preview)} preview={preview} title={period.title} /></> : !error && <SkeletonCard />)}
 		{tab === "responses" && (recap ? <div className="card"><h2>Respons kampanye</h2>{recap.sections ? <RecapV2 recap={recap} onExport={exportCsv} onExportDisabled={busy} /> : <><ParticipationMeter done={recap.done_entries} total={recap.total_entries} /><p className="muted small">Ekspor CSV hanya untuk periode rubrik (snapshot). Kampanye sederhana tidak dapat diekspor.</p><dl>{Object.entries(recap.category_averages).map(([key, mean]) => <div key={key}><dt>{key}</dt><dd>{mean}</dd></div>)}</dl>{recap.notes.map((note, index) => <blockquote key={index}>{note}</blockquote>)}</>}</div> : !error && <SkeletonCard />)}
-		<AddEntriesModal open={showAdd} periodId={periodId} version={version} entries={entries} editing={edit} onClose={() => { setShowAdd(false); setEdit(null); }} onAdded={async () => { setPreview(null); await load(); }} toast={toast} />
+		<AddEntriesModal key={edit?.id ?? "new"} open={showAdd} periodId={periodId} version={version} entries={entries} editing={edit} onClose={() => { setShowAdd(false); setEdit(null); }} onAdded={async () => { setPreview(null); await load(); }} toast={toast} />
 		<Confirm open={Boolean(remove)} title={`Hapus nama "${remove?.name || ""}"?`} confirmLabel="Ya, hapus" danger onCancel={() => setRemove(null)} onConfirm={() => { const entry = remove; setRemove(null); act(async () => { await api(`/admin/qpr/periods/${periodId}/entries/${entry.id}`, { method: "DELETE" }); setPreview(null); }); }}>Nama hanya dapat dihapus sebelum kampanye pertama dibuka.</Confirm>
 		<Confirm open={Boolean(confirmStatus)} title={confirmStatus === "open" ? "Buka kampanye QPR?" : "Tutup pengisian QPR?"} confirmLabel={confirmStatus === "open" ? "Ya, buka" : "Ya, tutup"} onCancel={() => setConfirmStatus(null)} onConfirm={() => { const action = confirmStatus; setConfirmStatus(null); act(async () => { if (action === "open") { const check = await api(`/admin/qpr/periods/${periodId}/preview`); setPreview(check); if (check.blockers.length) { setParams({ tab: "preview" }); throw new Error("Konfigurasi belum lengkap. Periksa blocker."); } } await api(`/admin/qpr/periods/${periodId}/${action}`, { method: "POST" }); }); }}>{confirmStatus === "open" ? `Pertanyaan, target, dan roster terkunci permanen sejak kampanye pertama dibuka${(period.effective_status ?? period.status) === "scheduled" ? " — termasuk saat status masih Terjadwal: snapshot membeku begitu dibuka, meski pengisi baru bisa masuk pada jadwal buka" : ""}. ${period.opensAt || period.closesAt ? `Jadwal: ${period.opensAt ? `buka ${fmtTime(period.opensAt)}` : "buka manual"} · ${period.closesAt ? `tutup ${fmtTime(period.closesAt)}` : "tutup manual"}. ` : "Tanpa jadwal — tutup manual oleh BPH. "}Pastikan pratinjau sudah benar.` : "Pengisi tidak dapat menyimpan atau mengirim saat kampanye ditutup. Kampanye dapat dibuka kembali tanpa mengubah snapshot."}</Confirm>
 	</div>;
@@ -596,7 +604,7 @@ function AddEntriesModal({ open, periodId, version, entries, editing, onClose, o
 			toast("Tersimpan: " + [added ? `${added} baru` : "", updated ? `${updated} diperbarui` : ""].filter(Boolean).join(", ") + ".");
 			setRaw(""); setItemsPreview(null);
 			onClose();
-			await onAdded(rows);
+			await onAdded();
 		} catch (e2) {
 			toast(errText(e2), "err");
 		} finally {

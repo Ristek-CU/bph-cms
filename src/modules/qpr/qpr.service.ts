@@ -107,11 +107,13 @@ const validateSchedule = (opens?: string | null, closes?: string | null) => {
  if (opens && closes && Date.parse(opens) >= Date.parse(closes)) throw ApiError.validation("Jadwal tutup harus setelah buka");
 };
 async function writeConflict(db: Db, periodId: string, entryId: string): Promise<never> {
- const [e] = await db.select({ done: qprEntries.done, submittedAt: qprEntries.submittedAt }).from(qprEntries).where(eq(qprEntries.id, entryId));
- if (e?.done) throw finalConflict(e.submittedAt);
  const [p] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId));
  if (!p) throw ApiError.notFound("Periode penilaian tidak ditemukan");
+ // Tutup menang atas bukti kirim: periode tertutup menjawab 404 untuk semua
+ // nama, supaya status final tidak bisa dipakai menebak roster.
  if (!periodIsOpen(p)) closedOrNotFound(p);
+ const [e] = await db.select({ done: qprEntries.done, submittedAt: qprEntries.submittedAt }).from(qprEntries).where(eq(qprEntries.id, entryId));
+ if (e?.done) throw finalConflict(e.submittedAt);
  throw draftConflict();
 }
 async function insertFinal(
@@ -284,7 +286,9 @@ export const qprService = {
 		return {
 			...withEffective(period),
 			questions: parseFieldOptions(period.questions),
-			entries: entries.map((e) => ({
+			// draftAnswers tidak ikut: panel admin hanya butuh sinyal progres
+			// (draftUpdatedAt), bukan isi jawaban yang sedang ditulis pengisi.
+			entries: entries.map(({ draftAnswers: _omit, ...e }) => ({
 				...e,
 				// v4: daftar divisi yang diurus controller (JSON → array untuk panel).
 				managedDivisions: e.managedDivisions ? (JSON.parse(e.managedDivisions) as string[]) : [],
@@ -454,6 +458,10 @@ export const qprService = {
 			if (input.expected_updated_at !== undefined) {
 				const [fresh] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
 				if (!fresh) throw ApiError.notFound("Periode QPR tidak ditemukan");
+				// Sebab meleset dibedakan supaya panel menyuruh hal yang benar: kunci
+				// snapshot tidak bisa dipulihkan dengan "muat ulang".
+				if (changingSnapshot && fresh.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — snapshot terkunci");
+				if (changingSnapshot && fresh.questions !== period.questions) throw ApiError.conflict("Snapshot berubah — muat ulang sebelum menyimpan");
 				// Periode berubah di tab/perangkat lain — 409 yang bisa dipulihkan.
 				throw new ApiError(STATUS_CODES.CONFLICT, "Periode berubah sejak form dibuka — muat ulang sebelum menyimpan", {
 					code: "QPR_PERIOD_CONFLICT",
@@ -550,11 +558,22 @@ export const qprService = {
         // jabatan/divisi), supaya ganti jabatan memperbarui orang yang sama, bukan
         // membuat entri baru. Bila sudah ada tepat satu entry bernama sama, dipakai
         // memberKey lamanya — ID historis tidak berubah. Nama kembar wajib member_key.
-        const derivedKey = (name: string) => `auto-${name.toLowerCase().replace(/\s+/g, "-")}`.slice(0, 100);
+        // Potong 100 karakter saja menabrakkan nama panjang yang awalnya sama,
+        // jadi potongan diberi akhiran hash nama penuh (mulai "auto-" seperti dulu).
+        const derivedKey = (name: string) => {
+            const slug = name.toLowerCase().replace(/\s+/g, "-");
+            let h = 0;
+            for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) | 0;
+            return `auto-${slug.slice(0, 85)}-${(h >>> 0).toString(36)}`;
+        };
+        // Nama kembar tanpa member_key: ambil entri kembar yang belum dipakai baris
+        // lain di impor ini. Hasil ekspor lalu impor ulang tetap jalan; ID dan
+        // memberKey lama dipertahankan, bukan jadi galat.
+        const claimed = new Set<string>();
         const matchByName = (name: string, key: string | null) => {
             if (key) return existing.find((e) => e.memberKey === key);
             const same = byName.get(name.toLowerCase()) ?? [];
-            if (same.length > 1) throw ApiError.conflict(`Nama "${name}" ada ${same.length} di daftar — tulis member_key untuk memilih yang mana`);
+            if (same.length > 1) return same.find((e) => !claimed.has(e.id));
             return same[0];
         };
         const rows = items.map((a) => {
@@ -577,6 +596,7 @@ export const qprService = {
             if (v4 && (!a.role || (a.role !== "president" && a.role !== "vice_president" && !division))) throw ApiError.validation("role dan division_slug wajib untuk roster 360°");
             if (snapshot?.version === 3 && (!division || !a.role)) throw ApiError.validation("division_slug dan role wajib untuk roster v3");
             const old = snapshot ? matchByName(name, key) : undefined;
+            if (old) claimed.add(old.id);
             // Baris yang menunjuk entry lama = perbarui orang itu, jadi nama yang sama
             // bukan tabrakan (trigger DB juga mengecualikan baris itu).
             if (!old && (!snapshot || !key || v4) && names.has(name.toLowerCase())) throw ApiError.conflict(`Nama "${name}" sudah ada di daftar periode ini`);
@@ -626,6 +646,9 @@ export const qprService = {
 	async publicRoster(db: Db, periodId: string) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
+		// Periode draft belum terbit: tidak ada yang boleh dibagikan. Amplop
+		// "tertutup" akan menyesatkan pengisi yang belum pernah diberi tautan.
+		if (period.status === "draft") throw ApiError.notFound("Periode penilaian tidak ditemukan");
 		// Periode terjadwal/tutup: bagikan jadwal saja — roster, pertanyaan, dan
 		// draft tetap tertutup (penolakan tulis ada di getDraft/saveDraft/submit).
 		if (!periodIsOpen(period)) {
@@ -667,10 +690,11 @@ export const qprService = {
 		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
 		const entries = await db.select().from(qprEntries).where(eq(qprEntries.periodId, periodId));
 		const entry = entries.find((e) => e.name.toLowerCase() === input.name.trim().toLowerCase());
-		// Bukti kirim menang atas tutup; nama lain tetap 404 supaya roster tidak
-		// bocor lewat periode tertutup (dulu "nama tidak terdaftar" membocorkan).
-		if (entry?.done) throw finalConflict(entry.submittedAt);
+		// Tutup menang atas bukti kirim: periode tertutup menjawab 404 untuk semua
+		// nama, jadi status final tidak bisa dipakai menebak roster. Bukti
+		// already_final hanya ada selama periode masih buka.
 		if (!periodIsOpen(period)) closedOrNotFound(period);
+		if (entry?.done) throw finalConflict(entry.submittedAt);
 		if (!entry) throw ApiError.validation("Nama tidak terdaftar", { name: ["Pilih nama dari daftar."] });
 		// Jawaban harus cocok dengan pertanyaan periode — klien liar tidak bisa
 		// menyuntik kategori/skor palsu ke rekap.
@@ -783,10 +807,11 @@ export const qprService = {
 		if (!period) throw ApiError.notFound("Periode penilaian tidak ditemukan");
 		const [entry] = await db.select().from(qprEntries).where(and(eq(qprEntries.id, input.entry_id), eq(qprEntries.periodId, periodId))).limit(1);
 		if (!entry) throw ApiError.notFound("Nama tidak ditemukan di periode ini");
-		// Bukti kirim menang atas tutup — respons final yang hilang tidak boleh
-		// jadi "tidak pernah mengirim". Entry belum final tetap 404 setelah tutup.
-		if (entry.done) throw finalConflict(entry.submittedAt);
+		// Tutup menang atas bukti kirim: periode tertutup menjawab 404 untuk semua
+		// nama, jadi status final tidak bisa dipakai menebak roster. Bukti
+		// already_final hanya ada selama periode masih buka.
 		if (!periodIsOpen(period)) closedOrNotFound(period);
+		if (entry.done) throw finalConflict(entry.submittedAt);
 		const v2 = parseV2(period);
 		if (!v2) throw ApiError.validation("Periode ini memakai format lama — gunakan submit lama");
         if (v2.version === 3 && input.expected_version == null) throw ApiError.validation("expected_version wajib untuk snapshot v3");
