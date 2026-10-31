@@ -16,8 +16,8 @@ const entries = [
 const full = sections.flatMap((s, index) => s.questions.map((q) => ({ question_id: q.id, value: q.type === 'scale' ? 4 : `Jawaban ${index}` })));
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 
-async function setup(page, { draft = [], conflict = false, hold = false, offline = false, alreadyFinal = false } = {}) {
-	const state = { puts: [], submits: [], gets: [], versions: { a: 3, b: 0, c: 0 }, drafts: { a: draft, b: [], c: [] }, release: deferred(), offline };
+async function setup(page, { draft = [], conflict = false, hold = false, offline = false, alreadyFinal = false, closed = false } = {}) {
+	const state = { puts: [], submits: [], gets: [], versions: { a: 3, b: 0, c: 0 }, drafts: { a: draft, b: [], c: [] }, release: deferred(), offline, closed };
 	await page.route('**/qpr-test', (route) => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div><script type="module">
 		import RefreshRuntime from '/@react-refresh';
 		RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => (type) => type; window.__vite_plugin_react_preamble_installed__ = true;
@@ -41,6 +41,8 @@ async function setup(page, { draft = [], conflict = false, hold = false, offline
 			const id = match[1]; const body = request.postDataJSON(); state.puts.push({ id, ...body });
 			if (hold && state.puts.length === 1) await state.release.promise;
 			if (state.offline) return route.abort('internetdisconnected');
+			// Periode ditutup: server menjawab 404 dan UI memetakan ke status closed.
+			if (state.closed) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Periode tidak ditemukan' }) });
 			// Kontrak server asli selalu membawa state (src/modules/qpr/qpr.service.ts draftConflict).
 			if (conflict || body.expected_version !== state.versions[id]) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Draft sudah diperbarui perangkat lain — muat ulang sebelum menyimpan.', errors: { code: 'QPR_DRAFT_CONFLICT', state: ['draft_conflict'] } }) });
 			state.drafts[id] = body.answers; state.versions[id]++;
@@ -118,6 +120,15 @@ test('resume missing section, enforce required fields, review, back, final with 
 	expect(state.submits[0]).toMatchObject({ entry_id: 'a', expected_version: 4 });
 	expect(state.submits[0].answers).toHaveLength(6);
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('closed period keeps local answers and marks them unsendable', async ({ page }) => {
+	await setup(page, { closed: true });
+	await page.getByLabel('Saran Ketua', { exact: true }).fill('Lokal saat tutup');
+	await expect(page.getByText('Periode sudah ditutup — jawaban lokal tidak bisa dikirim lagi.')).toBeVisible();
+	await expect(page.getByLabel('Saran Ketua', { exact: true })).toHaveValue('Lokal saat tutup');
+	// Nama lain tetap bisa dipilih; jawaban yang tak terkirim tidak boleh menahan halaman.
+	await expect(page.getByRole('button', { name: 'Ganti nama' })).toBeEnabled();
 });
 
 test('conflict preserves local text and forbids automatic overwrite or final', async ({ page }) => {
