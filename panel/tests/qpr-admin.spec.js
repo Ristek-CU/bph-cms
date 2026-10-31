@@ -2,7 +2,8 @@ import { test, expect } from '@playwright/test';
 
 import { periodPath, workspace, snapshot, snapshotV5, setup } from './fixtures/qpr-admin.js';
 
-const tab = (page, name) => page.getByRole('navigation', { name: 'Bagian kampanye' }).getByRole('button', { name, exact: true });
+// Tab Pertanyaan yang kotor menampilkan penanda " •", jadi cocokkan sebagai awalan.
+const tab = (page, name) => page.getByRole('navigation', { name: 'Bagian kampanye' }).getByRole('button', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) });
 
 test('campaign links open routed workspace and all five tabs', async ({ page }) => {
   const calls = await setup(page);
@@ -68,6 +69,8 @@ test('editor adds, reorders, changes type and required flag, then persists exact
   expect(added.id).toMatch(/^custom-[0-9a-f-]{36}$/);
   expect(puts[0].body).toEqual({
     title: 'Periode Contoh', description: 'Evaluasi Oktober', opens_at: expect.any(String), closes_at: expect.any(String),
+    // Revisi metadata optimistis: editor mengirim baseline updatedAt server.
+    expected_updated_at: '2026-10-01T00:00:00Z',
     expected_snapshot: snapshot,
     target_config: { targets: [{ id: 'ketum', label: 'Ketua Baru', template: 'ketum' }], controller_by_division: {} },
     sections: [{ ...snapshot.sections[0], questions: [
@@ -170,23 +173,19 @@ test('360° matrix recap groups questions by instrument for each target', async 
 });
 
 
-test('clicking active questions tab preserves dirty edits and later discard confirmation', async ({ page }) => {
+test('clicking active questions tab and switching tabs both keep dirty edits without prompting', async ({ page }) => {
   await setup(page, { path: `${workspace}?tab=questions` });
   const dialogs = [];
-  page.on('dialog', async dialog => {
-    dialogs.push(dialog.message());
-    // Accepting an erroneous same-tab prompt catches the old dirty-state reset.
-    if (dialogs.length === 1) await dialog.accept();
-    else await dialog.dismiss();
-  });
+  // Menerima dialog yang salah jelas lebih berbahaya: draft lokal ikut terhapus.
+  page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
   await page.getByLabel('Pertanyaan 1', { exact: true }).fill('Edit belum disimpan');
   await tab(page, 'Pertanyaan').click();
   expect(dialogs).toEqual([]);
   await expect(page.getByText('Ada perubahan belum disimpan', { exact: true })).toBeVisible();
-  page.removeAllListeners('dialog');
-  page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
   await tab(page, 'Ringkasan').click();
-  expect(dialogs).toEqual(['Perubahan form belum disimpan. Pindah tab sekarang akan MENGHAPUS draft lokal editor (isi yang belum disimpan hilang permanen). Hapus draft dan pindah tab?']);
+  expect(dialogs).toEqual([]);
+  await expect(page.getByRole('heading', { name: 'Progres pengisian' })).toBeVisible();
+  await tab(page, 'Pertanyaan').click();
   await expect(tab(page, 'Pertanyaan')).toHaveAttribute('aria-current', 'page');
   await expect(page.getByLabel('Pertanyaan 1', { exact: true })).toHaveValue('Edit belum disimpan');
   await expect(page.getByRole('button', { name: 'Simpan form' })).toBeEnabled();
@@ -283,7 +282,7 @@ test('first opening permanently freezes questions and roster but metadata still 
   await page.getByRole('button', { name: 'Simpan form' }).click();
   await expect(page.getByRole('heading', { name: 'Metadata baru', exact: true })).toBeVisible();
   const put = calls.find(c => c.method === 'PUT');
-  expect(Object.keys(put.body).sort()).toEqual(['closes_at', 'description', 'opens_at', 'title']);
+  expect(Object.keys(put.body).sort()).toEqual(['closes_at', 'description', 'expected_updated_at', 'opens_at', 'title']);
   expect(put.body.title).toBe('Metadata baru');
   await tab(page, 'Pengisi').click();
   await expect(page.getByRole('button', { name: '+ Tambah nama' })).toBeDisabled();

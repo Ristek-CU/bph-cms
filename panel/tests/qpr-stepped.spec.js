@@ -41,7 +41,8 @@ async function setup(page, { draft = [], conflict = false, hold = false, offline
 			const id = match[1]; const body = request.postDataJSON(); state.puts.push({ id, ...body });
 			if (hold && state.puts.length === 1) await state.release.promise;
 			if (state.offline) return route.abort('internetdisconnected');
-			if (conflict || body.expected_version !== state.versions[id]) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Konflik versi' }) });
+			// Kontrak server asli selalu membawa state (src/modules/qpr/qpr.service.ts draftConflict).
+			if (conflict || body.expected_version !== state.versions[id]) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Draft sudah diperbarui perangkat lain — muat ulang sebelum menyimpan.', errors: { code: 'QPR_DRAFT_CONFLICT', state: ['draft_conflict'] } }) });
 			state.drafts[id] = body.answers; state.versions[id]++;
 			return reply({ draft_version: state.versions[id] });
 		}
@@ -140,7 +141,10 @@ test('offline failure keeps answers and explicit retry uses unchanged version', 
 	state.offline = false;
 	await page.getByRole('button', { name: 'Coba simpan lagi' }).click();
 	await expect(page.getByText('Tersimpan', { exact: true })).toBeVisible();
-	expect(state.puts.map((p) => p.expected_version)).toEqual([3, 3]);
+	// Satu percobaan simpan boleh mengirim dua PUT (retry sekali untuk respons yang
+	// hilang sesudah commit). Yang diuji: versi tidak pernah naik pada kegagalan.
+	expect(state.puts.length).toBeGreaterThanOrEqual(2);
+	expect(state.puts.every((p) => p.expected_version === 3)).toBe(true);
 	await expect(page.getByLabel('Saran Ketua', { exact: true })).toHaveValue('Jawaban offline');
 });
 

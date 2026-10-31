@@ -52,7 +52,8 @@ async function setup(page, draft = [], version = 0) {
 			});
 		if (path === '/qpr/period-v2/entries/entry-1/draft' && method === 'PUT') {
 			const body = route.request().postDataJSON();
-			if (body.expected_version !== version) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Konflik versi' }) });
+			// Kontrak server asli selalu membawa state (src/modules/qpr/qpr.service.ts draftConflict).
+			if (body.expected_version !== version) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Draft sudah diperbarui perangkat lain — muat ulang sebelum menyimpan.', errors: { code: 'QPR_DRAFT_CONFLICT', state: ['draft_conflict'] } }) });
 			return reply({ draft_version: version + 1, saved_at: '2026-10-05T00:00:00Z' });
 		}
 		if (path === '/qpr/period-v2/submit-v2') return reply({ entry_id: 'entry-1', name: 'Nadia' });
@@ -78,7 +79,7 @@ test('konflik CAS tidak menimpa draft server', async ({ page }) => {
 	await setup(page, [], 0);
 	await page.route('**/api/v1/qpr/period-v2/entries/entry-1/draft', (route) => {
 		if (route.request().method() === 'PUT')
-			return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Konflik versi' }) });
+			return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Draft sudah diperbarui perangkat lain — muat ulang sebelum menyimpan.', errors: { code: 'QPR_DRAFT_CONFLICT', state: ['draft_conflict'] } }) });
 		return route.fallback();
 	});
 	await page.goto('/#/qpr/period-v2');
