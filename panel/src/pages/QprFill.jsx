@@ -88,7 +88,9 @@ function Fill({ periodId, initialRoster }) {
 		};
 		if (!full.entry_id) { setProof(full.submitted_at); setDone(true); return; }
 		setProof(full.submitted_at); setProofOf(full); setDone(true); setStored(full);
-		saveProof(periodId, full);
+		// ponytail: nama tidak ikut disimpan — perangkat bisa dipakai bersama, jadi
+		// bukti yang tersimpan tidak boleh membocorkan nama pengisi sebelumnya.
+		saveProof(periodId, { ...full, name: "" });
 	};
 
 	// Satu tempat memutuskan jenis kegagalan tulis, supaya pesan tidak salah sebab.

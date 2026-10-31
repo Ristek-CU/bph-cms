@@ -117,7 +117,8 @@ test('resume missing section, enforce required fields, review, back, final with 
 	await page.getByRole('button', { name: 'Kirim penilaian' }).click();
 	await expect(page.getByRole('heading', { name: 'Terima kasih!' })).toBeVisible();
 	expect(state.submits).toHaveLength(1);
-	expect(state.submits[0]).toMatchObject({ entry_id: 'a', expected_version: 4 });
+	// Perangkat bisa dipakai bersama: bukti tersimpan tidak memuat nama pengisi.
+	expect(await page.evaluate(() => JSON.parse(localStorage.getItem('qpr-proof-test') || '{}'))).toMatchObject({ name: '', entry_id: 'a' });
 	expect(state.submits[0].answers).toHaveLength(6);
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
