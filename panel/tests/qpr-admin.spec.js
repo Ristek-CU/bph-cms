@@ -269,9 +269,9 @@ test('recovered edit cannot overwrite changed server baseline and discard restor
   expect(calls.filter(c => c.method !== 'GET')).toEqual([]);
 });
 
-test('first opening permanently freezes questions and roster but metadata still saves', async ({ page }) => {
-  const calls = await setup(page, { frozen: true, path: `${workspace}?tab=questions` });
-  await expect(page.getByText(/Pernah dibuka — pertanyaan, target, dan roster terkunci permanen/)).toBeVisible();
+test('open campaign locks questions and roster but metadata still saves', async ({ page }) => {
+  const calls = await setup(page, { open: true, path: `${workspace}?tab=questions` });
+  await expect(page.getByText(/Kampanye sedang berlangsung — pertanyaan, target, dan roster terkunci sementara/)).toBeVisible();
   await expect(page.getByLabel('Nama target penilaian')).toBeDisabled();
   for (const n of [1, 2]) {
     await expect(page.getByLabel(`Pertanyaan ${n}`, { exact: true })).toBeDisabled();
@@ -290,6 +290,37 @@ test('first opening permanently freezes questions and roster but metadata still 
   for (const button of await page.getByRole('button', { name: 'Hapus', exact: true }).all()) await expect(button).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Hapus', exact: true })).toHaveCount(2);
   expect(calls.filter(c => c.method !== 'GET')).toEqual([put]);
+});
+
+test('closed campaign stays editable after its first opening', async ({ page }) => {
+  const calls = await setup(page, { previouslyOpened: true, path: `${workspace}?tab=questions` });
+  await expect(page.getByText(/Kampanye pernah dibuka dan sekarang ditutup. Pertanyaan, target, dan roster bisa diedit/)).toBeVisible();
+  await expect(page.getByLabel('Nama target penilaian')).toBeEnabled();
+  await expect(page.getByLabel('Pertanyaan 1', { exact: true })).toBeEnabled();
+  await page.getByLabel('Pertanyaan 1', { exact: true }).fill('Pertanyaan revisi setelah tutup');
+  await page.getByRole('button', { name: 'Simpan form' }).click();
+  await expect(page.getByText('Semua perubahan tersimpan', { exact: true })).toBeVisible();
+  const put = calls.find(c => c.method === 'PUT');
+  expect(put.body.sections[0].questions[0].label).toBe('Pertanyaan revisi setelah tutup');
+  expect(put.body.expected_snapshot.sections[0].questions[0].label).toBe('Arahan Ketua jelas?');
+  await tab(page, 'Pengisi').click();
+  await expect(page.getByRole('button', { name: '+ Tambah nama' })).toBeEnabled();
+  const removeButtons = await page.getByRole('button', { name: 'Hapus', exact: true }).all();
+  await expect(removeButtons[0]).toBeEnabled();
+  await expect(removeButtons[1]).toBeDisabled();
+});
+
+test('closing a running campaign unlocks edits and reopening locks them again', async ({ page }) => {
+  const calls = await setup(page, { open: true, path: workspace });
+  await expect(page.getByText(/Kampanye sedang berlangsung/)).toBeVisible();
+  await page.getByRole('button', { name: 'Tutup pengisian', exact: true }).click();
+  await page.getByRole('button', { name: 'Ya, tutup', exact: true }).click();
+  await expect(page.getByText(/Kampanye pernah dibuka dan sekarang ditutup/)).toBeVisible();
+  await page.getByRole('button', { name: 'Buka kembali', exact: true }).click();
+  await page.getByRole('button', { name: 'Ya, buka', exact: true }).click();
+  await expect(page.getByText(/Kampanye sedang berlangsung/)).toBeVisible();
+  expect(calls.some(c => c.path === `${periodPath}/close` && c.method === 'POST')).toBe(true);
+  expect(calls.filter(c => c.path === `${periodPath}/open` && c.method === 'POST')).toHaveLength(1);
 });
 
 for (const [name, slug, permission, path] of [

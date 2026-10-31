@@ -221,9 +221,9 @@ adminQprRouter.post(
 	"/periods/:id/upgrade-matrix",
 	describe(
 		"Upgrade rubrik ke matriks",
-		"Ubah snapshot v4 (kategori) menjadi v5 (instrumen penilai × target) tanpa mengubah pertanyaan. Ditolak bila periode pernah dibuka.",
+		"Ubah snapshot v4 (kategori) menjadi v5 (instrumen penilai × target) tanpa mengubah pertanyaan. Ditolak saat kampanye sedang berlangsung — tutup pengisian dulu.",
 		successWrapper(z.object({})),
-		{ 404: { description: "Not found" }, 409: { description: "Snapshot terkunci / pernah dibuka" } },
+		{ 404: { description: "Not found" }, 409: { description: "Kampanye sedang berlangsung / snapshot berubah" } },
 	),
 	async (c) => {
 		const { id } = parseParams(c, idParamSchema);

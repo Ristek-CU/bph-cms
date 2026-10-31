@@ -36,7 +36,8 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 	const [baseline] = useState(recovered?.baseline ?? period);
 	const initial = recovered?.values;
 	const stale = baseline.updatedAt !== period.updatedAt;
-	const frozen = Boolean(period.firstOpenedAt);
+	// Kunci edit = kampanye sedang berlangsung; periode yang ditutup boleh diedit.
+	const frozen = period.status === "open";
 	const version = period.questions?.version;
 	const [title, setTitle] = useState(initial?.title ?? baseline.title);
 	const [description, setDescription] = useState(initial?.description ?? baseline.description ?? "");
@@ -115,7 +116,8 @@ export default function QprEditor({ period, draftKey, onDiscard, onSaved, toast,
 				<div><label className="field-label" htmlFor="qpr-edit-closes">Jadwal tutup WIB (opsional)</label><input id="qpr-edit-closes" type="datetime-local" value={closesAt} disabled={busy} onChange={(e) => edit(setClosesAt, e.target.value)} /></div>
 			</div>
 		</div>
-		{frozen && <p className="login-notice">Pernah dibuka — pertanyaan, target, dan roster terkunci permanen. Judul, deskripsi, divisi, dan jadwal masih dapat diedit.</p>}
+		{frozen && <p className="login-notice">Kampanye sedang berlangsung — pertanyaan, target, dan roster terkunci sementara. Tutup pengisian dulu untuk mengedit.</p>}
+		{!frozen && period.firstOpenedAt && version !== 2 && <p className="login-notice">Kampanye pernah dibuka dan sekarang ditutup. Pertanyaan, target, dan roster bisa diedit; respons lama tetap tersimpan dan tampil lagi saat dibuka kembali.</p>}
 		{version === 2 && <p className="login-notice">Snapshot historis v2 hanya baca. Buat kampanye baru untuk mengubah struktur.</p>}
 		{version === 4 && <TopicCategoryEditor categories={categories} setCategories={setCategories} frozen={frozen} busy={busy} />}
 		{version === 5 && <MatrixInstrumentEditor instruments={instruments} setInstruments={setInstruments} entries={period.entries ?? []} frozen={frozen} busy={busy} />}

@@ -358,7 +358,10 @@ export const qprService = {
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
         const changingSnapshot = input.questions !== undefined || input.target_config !== undefined || input.question_labels !== undefined || input.sections !== undefined || input.categories !== undefined || input.instruments !== undefined || (input.form_kind != null && input.form_kind !== period.formKind);
         if (input.questions !== undefined && !input.questions?.length) throw ApiError.validation("Pertanyaan wajib diisi");
-        if (changingSnapshot && period.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — snapshot terkunci");
+        // Hanya pengisian yang sedang berjalan yang mengunci snapshot. Periode
+        // yang sudah pernah dibuka boleh ditutup sementara lalu diedit lagi —
+        // ID pertanyaan dipertahankan agar respons lama tetap terhubung.
+        if (changingSnapshot && period.status === "open") throw ApiError.conflict("Kampanye sedang berlangsung — tutup pengisian dulu sebelum mengedit pertanyaan");
         if (input.form_kind != null && input.form_kind !== period.formKind) throw ApiError.validation("Jenis periode tidak bisa diubah");
         if (period.formKind === "bph" && input.questions !== undefined) throw ApiError.validation("Pertanyaan BPH berasal dari template");
         let questionsJson: string | undefined;
@@ -439,9 +442,9 @@ export const qprService = {
 				...(input.closes_at !== undefined ? { closesAt: input.closes_at } : {}),
 				updatedAt: now,
 			})
-			.where(and(eq(qprPeriods.id, id), changingSnapshot ? sql`${qprPeriods.firstOpenedAt} IS NULL` : undefined, changingSnapshot ? eq(qprPeriods.questions, period.questions) : undefined))
+			.where(and(eq(qprPeriods.id, id), changingSnapshot ? sql`${qprPeriods.status} <> 'open'` : undefined, changingSnapshot ? eq(qprPeriods.questions, period.questions) : undefined))
 			.returning();
-		if (!updated) throw ApiError.conflict("Snapshot berubah atau periode pernah dibuka — muat ulang sebelum menyimpan");
+		if (!updated) throw ApiError.conflict("Snapshot berubah atau kampanye sedang berlangsung — muat ulang sebelum menyimpan");
 		return { ...withEffective(updated), questions: parseFieldOptions(updated.questions) };
 	},
 
@@ -454,7 +457,7 @@ export const qprService = {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, id)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
 		if (period.formKind !== "division") throw ApiError.validation("Upgrade hanya untuk periode rubrik 360°");
-		if (period.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — snapshot terkunci");
+		if (period.status === "open") throw ApiError.conflict("Kampanye sedang berlangsung — tutup pengisian dulu sebelum mengedit pertanyaan");
 		const current = parseV2(period);
 		if (!current || !isTopicSnapshot(current)) throw ApiError.validation("Periode ini bukan rubrik 360°");
 		if (isMatrixSnapshot(current)) return { ...withEffective(period), questions: parseFieldOptions(period.questions) };
@@ -465,9 +468,9 @@ export const qprService = {
 		const [updated] = await db
 			.update(qprPeriods)
 			.set({ questions: JSON.stringify(snapshot), updatedAt: new Date().toISOString() })
-			.where(and(eq(qprPeriods.id, id), eq(qprPeriods.questions, period.questions), sql`${qprPeriods.firstOpenedAt} IS NULL`))
+			.where(and(eq(qprPeriods.id, id), eq(qprPeriods.questions, period.questions), sql`${qprPeriods.status} <> 'open'`))
 			.returning();
-		if (!updated) throw ApiError.conflict("Snapshot berubah atau periode pernah dibuka — muat ulang sebelum menyimpan");
+		if (!updated) throw ApiError.conflict("Snapshot berubah atau kampanye sedang berlangsung — muat ulang sebelum menyimpan");
 		return { ...withEffective(updated), questions: parseFieldOptions(updated.questions) };
 	},
 
@@ -511,7 +514,7 @@ export const qprService = {
 	async addEntries(db: Db, periodId: string, items: Array<{ name: string; division?: string | null; role?: string | null; division_slug?: string | null; member_key?: string | null; manages?: string[] }>) {
         const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
         if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
-        if (period.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — roster terkunci");
+        if (period.status === "open") throw ApiError.conflict("Kampanye sedang berlangsung — tutup pengisian dulu sebelum mengubah pengisi");
         const snapshot = parseV2(period);
         // v4 & v5 memakai roster berjabatan yang sama (routing dihitung, bukan disimpan).
         const v4 = snapshot?.version === 4 || snapshot?.version === 5;
@@ -557,7 +560,7 @@ export const qprService = {
             })) as unknown as Parameters<Db["batch"]>[0]);
         } catch (error) {
             if (String(error).includes("QPR legacy name duplicate")) throw ApiError.conflict("Nama sudah ada di daftar periode ini");
-            if (String(error).includes("QPR roster frozen")) throw ApiError.conflict("Periode pernah dibuka — roster terkunci");
+            if (String(error).includes("QPR roster frozen")) throw ApiError.conflict("Kampanye sedang berlangsung — tutup pengisian dulu sebelum mengubah pengisi");
             throw error;
         }
         return rows;
@@ -565,7 +568,7 @@ export const qprService = {
 
 	async deleteEntry(db: Db, periodId: string, entryId: string) {
         const [p] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId));
-        if (p?.firstOpenedAt) throw ApiError.conflict("Periode pernah dibuka — roster terkunci");
+        if (p?.status === "open") throw ApiError.conflict("Kampanye sedang berlangsung — tutup pengisian dulu sebelum mengubah pengisi");
 		const [row] = await db
 			.select()
 			.from(qprEntries)
@@ -575,8 +578,8 @@ export const qprService = {
 		// Entry final menyimpan jawaban penilaian — cascade hapus jawaban lewat
 		// penghapusan nama tidak boleh lewat jalur biasa.
 		if (row.done) throw ApiError.conflict("Nama ini sudah mengisi penilaian — jawaban tidak boleh dihapus lewat sini");
-		const removed = await db.delete(qprEntries).where(and(eq(qprEntries.id, entryId), sql`EXISTS (SELECT 1 FROM qpr_periods WHERE id = ${periodId} AND first_opened_at IS NULL)`)).returning();
-        if (!removed.length) throw ApiError.conflict("Periode pernah dibuka — roster terkunci");
+		const removed = await db.delete(qprEntries).where(and(eq(qprEntries.id, entryId), sql`EXISTS (SELECT 1 FROM qpr_periods WHERE id = ${periodId} AND status <> 'open')`)).returning();
+        if (!removed.length) throw ApiError.conflict("Kampanye sedang berlangsung — tutup pengisian dulu sebelum mengubah pengisi");
 		return row;
 	},
 

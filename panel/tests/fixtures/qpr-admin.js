@@ -91,26 +91,30 @@ function v5RecapSection(period, target) {
 }
 
 export async function setup(page, {
-  slug = 'bph', permission = true, frozen = false, path = '/qpr', blockers = [], version = 3,
+  slug = 'bph', permission = true, open = false, previouslyOpened = false, path = '/qpr', blockers = [], version = 3,
 } = {}) {
   const calls = [];
+  // `previouslyOpened` mensimulasikan periode yang sudah pernah dibuka lalu
+  // ditutup (boleh diedit); `open` mensimulasikan kampanye yang sedang berjalan
+  // (terkunci untuk edit).
+  const started = open || previouslyOpened;
   const rubric = version === 4 || version === 5;
   const v4Roster = [
     { id: 'e1', name: 'Anggota Contoh', divisionSlug: 'ristek', division: 'Ristek', memberRole: 'anggota', memberKey: 'member-1', managedDivisions: [], done: false, sectionTitle: 'Anggota — Ristek' },
-    { id: 'e2', name: 'Pengisi Kedua', divisionSlug: 'media', division: 'Media', memberRole: 'kadiv', memberKey: 'member-2', managedDivisions: [], done: frozen, sectionTitle: 'Kepala Divisi — Media' },
+    { id: 'e2', name: 'Pengisi Kedua', divisionSlug: 'media', division: 'Media', memberRole: 'kadiv', memberKey: 'member-2', managedDivisions: [], done: started, sectionTitle: 'Kepala Divisi — Media' },
   ];
   const v5Roster = [
     { id: 'e1', name: 'Anggota Contoh', divisionSlug: 'ristek', division: 'Ristek', memberRole: 'anggota', memberKey: 'member-1', managedDivisions: [], done: false, sectionTitle: 'Anggota — Ristek' },
-    { id: 'e2', name: 'Kepala Contoh', divisionSlug: 'ristek', division: 'Ristek', memberRole: 'kadiv', memberKey: 'member-2', managedDivisions: [], done: frozen, sectionTitle: 'Kepala Divisi — Ristek' },
+    { id: 'e2', name: 'Kepala Contoh', divisionSlug: 'ristek', division: 'Ristek', memberRole: 'kadiv', memberKey: 'member-2', managedDivisions: [], done: started, sectionTitle: 'Kepala Divisi — Ristek' },
   ];
   const roster = version === 5 ? v5Roster : rubric ? v4Roster : [
     { id: 'e1', name: 'Anggota Contoh', divisionSlug: 'ristek', memberRole: 'anggota', memberKey: 'member-1', done: false },
-    { id: 'e2', name: 'Pengisi Kedua', divisionSlug: 'media', memberRole: 'anggota', memberKey: 'member-2', done: frozen },
+    { id: 'e2', name: 'Pengisi Kedua', divisionSlug: 'media', memberRole: 'anggota', memberKey: 'member-2', done: started },
   ];
   const period = {
-    id: 'period-admin', title: 'Periode Contoh', description: 'Evaluasi Oktober', status: frozen ? 'closed' : 'draft',
-    total_entries: 2, done_entries: frozen ? 1 : 0, pending_entries: frozen ? 1 : 2,
-    firstOpenedAt: frozen ? '2026-10-01T00:00:00Z' : null, updatedAt: '2026-10-01T00:00:00Z',
+    id: 'period-admin', title: 'Periode Contoh', description: 'Evaluasi Oktober', status: open ? 'open' : started ? 'closed' : 'draft',
+    total_entries: 2, done_entries: started ? 1 : 0, pending_entries: started ? 1 : 2,
+    firstOpenedAt: started ? '2026-10-01T00:00:00Z' : null, updatedAt: '2026-10-01T00:00:00Z',
     opensAt: '2026-10-01T08:00:00Z', closesAt: '2026-10-31T08:00:00Z',
     questions: structuredClone(version === 5 ? snapshotV5 : rubric ? snapshotV4 : snapshot),
     entries: roster,
@@ -167,6 +171,11 @@ export async function setup(page, {
       return reply(period);
     }
     if (path === periodPath && method === 'GET') return reply(period);
+    if ((path === `${periodPath}/open` || path === `${periodPath}/close`) && method === 'POST') {
+      period.status = path.endsWith('/open') ? 'open' : 'closed';
+      if (period.status === 'open' && !period.firstOpenedAt) period.firstOpenedAt = '2026-10-01T00:00:00Z';
+      return reply(period);
+    }
     if (path === `${periodPath}/preview` && method === 'GET') return reply({ blockers,
       scale_legend: { 1: 'Sangat Kurang', 2: 'Kurang', 3: 'Cukup', 4: 'Baik', 5: 'Sangat Baik' },
       entries: roster.map(e => ({

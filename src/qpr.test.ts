@@ -34,9 +34,11 @@ const PUB = "/api/v1/qpr";
 section("Akses");
 
 // Periode legacy (form_kind default dari migrasi 0015) tetap terbaca penuh.
+// Roster disemai saat status belum `open` — trigger roster hanya mengunci
+// kampanye yang sedang berjalan.
 await h.sql(
 	`INSERT INTO qpr_periods (id, title, questions, status, created_by_user_id, created_at, updated_at)
-	 VALUES ('legacy-periode-1', 'Legacy Sep 2026', '[{"label":"Menyelesaikan tugas tepat waktu","category":"Kinerja"}]', 'open', 'u-bph', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`,
+	 VALUES ('legacy-periode-1', 'Legacy Sep 2026', '[{"label":"Menyelesaikan tugas tepat waktu","category":"Kinerja"}]', 'closed', 'u-bph', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`,
 );
 await h.sql(
 	`INSERT INTO qpr_entries (id, period_id, name, division, done, created_at)
@@ -46,6 +48,7 @@ await h.sql(
 	`INSERT INTO qpr_answers (id, entry_id, answers, submitted_at)
 	 VALUES ('legacy-answer-1', 'legacy-entry-1', '[{"label":"Menyelesaikan tugas tepat waktu","category":"Kinerja","score":4}]', '2026-09-01T00:00:00Z')`,
 );
+await h.sql(`UPDATE qpr_periods SET status='open' WHERE id='legacy-periode-1'`);
 const legacyList = await h.req(`${ADMIN}/periods`, { token: "tok-bph" });
 const legacyPeriod = legacyList.body?.data?.find((p: any) => p.id === "legacy-periode-1");
 ok("periode legacy terbaca di list", Boolean(legacyPeriod));
@@ -184,7 +187,7 @@ const delWithAnswers = await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph"
 eq("hapus periode bersubmission → 409", delWithAnswers.status, 409);
 const budi = (await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph" })).body?.data?.entries?.find((e: any) => e.name === "Budi Santoso");
 const delEntry = await h.req(`${ADMIN}/periods/${pid}/entries/${budi?.id}`, { token: "tok-bph", method: "DELETE" });
-eq("roster pernah dibuka terkunci → 409", delEntry.status, 409);
+eq("roster kampanye berjalan terkunci → 409", delEntry.status, 409);
 const delNow = await h.req(`${ADMIN}/periods/${pid}`, { token: "tok-bph", method: "DELETE" });
 eq("hapus periode masih ada submission → tetap 409", delNow.status, 409);
 
@@ -536,7 +539,17 @@ eq("qpr_answers periode snapshot hanya baris penanda",JSON.parse(answer3[0].answ
 const csv3NoName=!["Kadiv A","Kadiv B","Bendiv","Sekdiv"].some((n)=>csv3.body.includes(n));
 ok("CSV v3 tanpa nama pengisi",csv3NoName,csv3.body.slice(0,300));
 await h.req(`${ADMIN}/periods/${v3id}/close`,{token:"tok-bph",method:"POST"});
+// Tutup sementara membuka kembali edit snapshot untuk perbaikan, tanpa
+// menghapus respons yang sudah tersimpan (dipetakan lewat question_id).
+const v3Closed = (await h.req(`${ADMIN}/periods/${v3id}`,{token:"tok-bph"})).body.data;
+const v3FirstQuestion = v3Closed.questions.sections[0].questions[0].id;
+const v3Relabel = await h.req(`${ADMIN}/periods/${v3id}`,{token:"tok-bph",method:"PUT",json:{question_labels:{[v3FirstQuestion]:"Arahan ketua (revisi)"}}});
+eq("closed v3 snapshot editable after first open",v3Relabel.status,200);
+eq("closed v3 relabel persists",v3Relabel.body.data.questions.sections[0].questions[0].label,"Arahan ketua (revisi)");
+eq("closed v3 roster editable after first open",(await h.req(`${ADMIN}/periods/${v3id}/entries`,{token:"tok-bph",method:"POST",json:{entries:[{name:"Tambahan Setelah Tutup",role:"anggota",division_slug:"ristek",member_key:"after-close"}]}})).status,201);
+eq("closed v3 response preserved",(await h.sql(`SELECT count(*) AS n FROM qpr_responses WHERE period_id=?`,v3id))[0].n,1);
 eq("reopen frozen valid snapshot",(await h.req(`${ADMIN}/periods/${v3id}/open`,{token:"tok-bph",method:"POST"})).status,200);
+eq("reopen keeps relabeled question",(await h.req(`${ADMIN}/periods/${v3id}`,{token:"tok-bph"})).body.data.questions.sections[0].questions[0].label,"Arahan ketua (revisi)");
 
 section("Deterministic database write-time guards and rollback");
 const { getDb } = await import("./db/connection");
@@ -750,8 +763,8 @@ await qprService.setStatus(realDb, editable.id, "open");
 eq("optional-only empty final accepted", (await h.req(`${PUB}/${editable.id}/submit-v2`, { method: "POST", json: { entry_id: optionalEntries[0].id, expected_version: 0, answers: [] } })).status, 200);
 eq("required path empty final still rejected", (await h.req(`${PUB}/${v3id}/submit-v2`, { method: "POST", json: { entry_id: findV3("same-2").id, expected_version: 0, answers: [] } })).status, 422);
 await qprService.setStatus(realDb, editable.id, "draft");
-eq("first-open lock survives draft status", (await edit({ sections: (afterRace.questions as any).sections, expected_snapshot: afterRace.questions })).status, 409);
-eq("historical v2 structure mutation rejected", (await h.req(`${ADMIN}/periods/${bphPid}`, { token: "tok-bph", method: "PUT", json: { sections, expected_snapshot: baseline } })).status, 409);
+eq("draft after first open allows snapshot edit", (await edit({ sections: (afterRace.questions as any).sections, expected_snapshot: afterRace.questions })).status, 200);
+eq("historical v2 structure mutation stays read-only", (await h.req(`${ADMIN}/periods/${bphPid}`, { token: "tok-bph", method: "PUT", json: { sections, expected_snapshot: baseline } })).status, 422);
 
 const historical = await qprService.createPeriod(realDb, { form_kind: "bph", title: "Historical v3 routing", target_config: config, userId: "u-bph" });
 const historicalSnapshot = structuredClone(historical.questions) as any;
@@ -967,6 +980,35 @@ ok("upgrade maps scope all to every feasible pair", upgraded.body.data.questions
 ok("upgrade maps scope positions to non-member targets", upgraded.body.data.questions.instruments[2].applies.every((p: any) => p.target !== "anggota") && upgraded.body.data.questions.instruments[2].applies.length > 0);
 eq("upgraded period still has no blockers", (await h.req(`${ADMIN}/periods/${upgradeBase.body.data.id}/preview`, { token: "tok-bph" })).body.data.blockers, []);
 eq("v4 → v5 upgrade is idempotent", (await h.req(`${ADMIN}/periods/${upgradeBase.body.data.id}/upgrade-matrix`, { token: "tok-bph", method: "POST" })).body.data.questions.version, 5);
+
+
+// ── Tutup sementara → edit instrumen/roster → buka kembali ─────────────────
+section("Edit setelah ditutup tanpa kehilangan respons");
+eq("v5 tutup sementara", (await h.req(`${ADMIN}/periods/${v5id}/close`, { token: "tok-bph", method: "POST" })).status, 200);
+eq("closed: tambah pengisi diizinkan", (await h.req(`${ADMIN}/periods/${v5id}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "Anggota Baru", role: "anggota", division_slug: "ristek" }] } })).status, 201);
+const v5Closed = (await h.req(`${ADMIN}/periods/${v5id}`, { token: "tok-bph" })).body.data;
+const v5Edited = await h.req(`${ADMIN}/periods/${v5id}`, { token: "tok-bph", method: "PUT", json: {
+  instruments: [...v5Closed.questions.instruments, { id: "inst-3", title: "Tambahan setelah tutup", applies: [{ assessor: "anggota", target: "kadiv" }], questions: [{ id: "inst-3-q1", type: "text", label: "Saran tambahan?", required: false }] }],
+  expected_snapshot: v5Closed.questions,
+} });
+eq("closed: instrumen boleh diedit", v5Edited.status, 200);
+eq("closed: instrumen baru tersimpan", v5Edited.body.data.questions.instruments.map((i: any) => i.id), ["inst-1", "inst-2", "inst-3"]);
+eq("closed: respons lama tetap ada setelah edit snapshot", (await h.sql(`SELECT count(*) AS n FROM qpr_responses WHERE period_id=?`, v5id))[0].n, 1);
+// Trigger DB juga hanya mengunci saat open.
+let closedRosterEdit = true;
+try { await h.sql(`UPDATE qpr_entries SET name='Anggota Baru Revisi' WHERE period_id=? AND name='Anggota Baru'`, v5id); } catch { closedRosterEdit = false; }
+ok("closed: trigger roster mengizinkan edit", closedRosterEdit);
+eq("closed: hapus pengisi belum mengisi", (await h.req(`${ADMIN}/periods/${v5id}/entries/${v5entry("Anggota UKM").id}`, { token: "tok-bph", method: "DELETE" })).status, 200);
+eq("closed: pengisi sudah mengisi tetap tidak bisa dihapus", (await h.req(`${ADMIN}/periods/${v5id}/entries/${v5entry("Anggota Ristek").id}`, { token: "tok-bph", method: "DELETE" })).status, 409);
+eq("closed: preview tetap tanpa blocker", (await h.req(`${ADMIN}/periods/${v5id}/preview`, { token: "tok-bph" })).body.data.blockers, []);
+eq("buka kembali setelah edit", (await h.req(`${ADMIN}/periods/${v5id}/open`, { token: "tok-bph", method: "POST" })).status, 200);
+eq("open lagi: edit instrumen ditolak", (await h.req(`${ADMIN}/periods/${v5id}`, { token: "tok-bph", method: "PUT", json: { instruments: v5Closed.questions.instruments, expected_snapshot: v5Edited.body.data.questions } })).status, 409);
+eq("open lagi: tambah pengisi ditolak", (await h.req(`${ADMIN}/periods/${v5id}/entries`, { token: "tok-bph", method: "POST", json: { entries: [{ name: "Ditolak", role: "anggota", division_slug: "ristek" }] } })).status, 409);
+let openRosterEdit = false;
+try { await h.sql(`UPDATE qpr_entries SET name='Dipaksa' WHERE period_id=? AND name='Anggota Baru Revisi'`, v5id); } catch { openRosterEdit = true; }
+ok("open: trigger roster menolak edit", openRosterEdit);
+const v5recapAfter = await h.req(`${ADMIN}/periods/${v5id}/recap-v2`, { token: "tok-bph" });
+eq("respons lama tetap terhitung setelah edit + reopen", v5recapAfter.body.data.sections.find((s: any) => s.target_label === "Kadiv Ristek").questions.find((q: any) => q.type === "scale").responses, 1);
 
 
 // ── Status efektif (T1): jadwal menentukan Terjadwal/Berlangsung/Ditutup ────
