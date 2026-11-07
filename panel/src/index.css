@@ -1509,3 +1509,16 @@ main.page:has(> .event-editor) { overflow: hidden; padding: 0; }
 .share-disclosure[open] > summary { margin-bottom: 20px; }
 .share-disclosure:not([open]) .share-card-deco { display: none; }
 .attachment-card .btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+
+/* ── QPR Analitik ── */
+.qpr-analytics > * + * { margin-top: 12px; }
+.qpr-viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; align-items: center; }
+.qpr-donut-legend { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.qpr-donut-legend > span { display: inline-flex; align-items: center; gap: 8px; }
+.qpr-scale-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.qpr-scale-chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; }
+.qpr-scale-chip[data-value="1"] { background: #ef4444; }
+.qpr-scale-chip[data-value="2"] { background: #f97316; }
+.qpr-scale-chip[data-value="3"] { background: #eab308; }
+.qpr-scale-chip[data-value="4"] { background: #84cc16; }
+.qpr-scale-chip[data-value="5"] { background: #22c55e; }

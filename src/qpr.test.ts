@@ -1034,6 +1034,42 @@ await h.sql(`UPDATE qpr_periods SET status='closed', closes_at=? WHERE id=?`, ne
 const closedList = (await h.req(`${ADMIN}/periods`, { token: "tok-bph" })).body?.data?.find((p: any) => p.id === schedPeriod.id);
 eq("manual closed beats schedule", closedList?.effective_status, "closed");
 
+// ── Analitik: rollup per divisi + tren lintas periode ───────────────────────
+section("Analitik");
+
+// Seed anonim langsung ke qpr_responses (skala valid 1–5, path pendek).
+await h.sql(
+	`INSERT INTO qpr_responses (id, period_id, role, division_slug, answers, score_total, submitted_at) VALUES
+	 ('an-r1', ?, 'anggota', 'ristek', '[{"question_id":"q1","value":4}]', 40, '2026-10-01T00:00:00Z'),
+	 ('an-r2', ?, 'anggota', 'ristek', '[{"question_id":"q1","value":5}]', 44, '2026-10-01T00:00:00Z'),
+	 ('an-r3', ?, 'kadiv',   'ristek', '[{"question_id":"q1","value":3}]', 38, '2026-10-01T00:00:00Z'),
+	 ('an-r4', ?, 'anggota', 'ukm',    '[{"question_id":"q1","value":2}]', 30, '2026-10-01T00:00:00Z')`,
+	v3id, v3id, v3id, v3id,
+);
+const detail = await h.req(`${ADMIN}/periods/${v3id}/analytics`, { token: "tok-bph" });
+eq("analytics detail → 200", detail.status, 200);
+eq("respondents = 4", detail.body?.data?.respondents, 4);
+const rows = detail.body?.data?.by_division ?? [];
+const ristekRow = rows.find((r: any) => r.division_slug === "ristek");
+eq("ristek n=3 mean 40.67", [ristekRow?.respondents, ristekRow?.mean], [3, 40.67]);
+const mergedRow = rows.find((r: any) => r.division_slug === null);
+ok("ukm (n=1) disembunyikan ke baris gabungan", mergedRow?.respondents === 1 && mergedRow?.mean === null, rows);
+ok("tidak ada baris ukm terekspos", !rows.some((r: any) => r.division_slug === "ukm"), rows);
+
+const overview = await h.req(`${ADMIN}/analytics`, { token: "tok-bph" });
+eq("analytics overview → 200", overview.status, 200);
+const ov = overview.body?.data ?? [];
+ok("overview berisi v3", ov.some((p: any) => p.period_id === v3id), ov.map((p: any) => p.period_id));
+ok("overview tanpa periode legacy", !ov.some((p: any) => p.period_id === "legacy-periode-1"), ov.map((p: any) => p.period_id));
+const v3ov = ov.find((p: any) => p.period_id === v3id);
+ok("avg_question_mean v3 (mean 1-5 dari q1)", v3ov?.avg_question_mean === 3.5, v3ov);
+ok("respondents v3 = 4", v3ov?.respondents === 4, v3ov);
+
+const legacyAnalytics = await h.req(`${ADMIN}/periods/legacy-periode-1/analytics`, { token: "tok-bph" });
+eq("analytics periode legacy → 422", legacyAnalytics.status, 422);
+const nonBphAnalytics = await h.req(`${ADMIN}/periods/${v3id}/analytics`, { token: "tok-a-admin" });
+eq("analytics non-BPH → 403", nonBphAnalytics.status, 403);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 // Miniflare/workerd menahan event loop setelah dispose() — exit eksplisit.
 process.exit(failed ? 1 : 0);

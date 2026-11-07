@@ -293,6 +293,24 @@ adminQprRouter.delete(
 );
 
 adminQprRouter.get(
+	"/analytics",
+	describe("Tren QPR lintas periode", "Partisipasi + rata-rata skor pertanyaan (1–5) per periode snapshot. Legacy tidak disertakan; score_total tidak dibanding antar periode.", successWrapper(z.array(z.object({})))),
+	async (c) => ApiResponse.ok(c, "OK", await qprService.analyticsOverview(getDb(c.env.DB))),
+);
+
+adminQprRouter.get(
+	"/periods/:id/analytics",
+	describe("Analitik per divisi", "Agregat score_total per divisi. Kelompok < 3 responden digabung tanpa rata-rata (anonimitas). Hanya periode snapshot.", successWrapper(z.object({})), {
+		404: { description: "Not found" },
+		422: { description: "Periode legacy" },
+	}),
+	async (c) => {
+		const { id } = parseParams(c, idParamSchema);
+		return ApiResponse.ok(c, "OK", await qprService.analyticsDetail(getDb(c.env.DB), id));
+	},
+);
+
+adminQprRouter.get(
 	"/periods/:id/recap",
 	describe("Rekap periode", "Partisipasi (sudah/belum isi, nama pending), rata-rata per kategori, catatan.", successWrapper(z.object({})), {
 		404: { description: "Not found" },

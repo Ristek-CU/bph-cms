@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import QprFill from "./QprFill.jsx";
 import QprEditor, { editorDrafts } from "./QprEditor.jsx";
+import QprAnalytics from "../components/QprAnalytics.jsx";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { QprSection, QprReview, QprProgress, complete, QPR_ROLE_LABEL, groupByCategory, targetTitle, useStepScroll } from "../components/QprForm.jsx";
 import { api, apiRaw, errText } from "../api.js";
@@ -320,7 +321,7 @@ export function QprWorkspace({ user }) {
 function Workspace({ periodId, draftKey }) {
 	const toast = useToast();
 	const [params, setParams] = useSearchParams();
-	const tabs = { overview: "Ringkasan", questions: "Pertanyaan", entries: "Pengisi", preview: "Pratinjau", responses: "Respons" };
+	const tabs = { overview: "Ringkasan", questions: "Pertanyaan", entries: "Pengisi", preview: "Pratinjau", responses: "Respons", analytics: "Analitik" };
 	const tab = Object.hasOwn(tabs, params.get("tab")) ? params.get("tab") : "overview";
 	const [period, setPeriod] = useState(null);
 	const [error, setError] = useState("");
@@ -399,6 +400,7 @@ function Workspace({ periodId, draftKey }) {
 		</>}
 		{tab === "preview" && (preview ? <><div className="card"><h2>Kesiapan kampanye</h2>{preview.blockers.length ? <ul>{preview.blockers.map((b, i) => <li key={i}>{b}</li>)}</ul> : <p>Tidak ada blocker.</p>}</div><QprPreview key={JSON.stringify(preview)} preview={preview} title={period.title} /></> : !error && <SkeletonCard />)}
 		{tab === "responses" && (recap ? <div className="card"><h2>Respons kampanye</h2>{recap.sections ? <RecapV2 recap={recap} onExport={exportCsv} onExportDisabled={busy} /> : <><ParticipationMeter done={recap.done_entries} total={recap.total_entries} /><p className="muted small">Ekspor CSV hanya untuk periode rubrik (snapshot). Kampanye sederhana tidak dapat diekspor.</p><dl>{Object.entries(recap.category_averages).map(([key, mean]) => <div key={key}><dt>{key}</dt><dd>{mean}</dd></div>)}</dl>{recap.notes.map((note, index) => <blockquote key={index}>{note}</blockquote>)}</>}</div> : !error && <SkeletonCard />)}
+		{tab === "analytics" && <QprAnalytics periodId={periodId} period={period} />}
 		<AddEntriesModal open={showAdd} periodId={periodId} version={period.questions?.version} entries={entries} onClose={() => setShowAdd(false)} onAdded={async () => { setPreview(null); await load(); }} toast={toast} />
 		<Confirm open={Boolean(remove)} title={`Hapus nama "${remove?.name || ""}"?`} confirmLabel="Ya, hapus" danger onCancel={() => setRemove(null)} onConfirm={() => { const entry = remove; setRemove(null); act(async () => { await api(`/admin/qpr/periods/${periodId}/entries/${entry.id}`, { method: "DELETE" }); setPreview(null); }); }}>Nama hanya dapat dihapus saat kampanye belum dibuka atau sedang ditutup. Pengisi yang sudah mengirim tidak bisa dihapus.</Confirm>
 		<Confirm open={Boolean(confirmStatus)} title={confirmStatus === "open" ? "Buka kampanye QPR?" : "Tutup pengisian QPR?"} confirmLabel={confirmStatus === "open" ? "Ya, buka" : "Ya, tutup"} onCancel={() => setConfirmStatus(null)} onConfirm={() => { const action = confirmStatus; setConfirmStatus(null); act(async () => { if (action === "open") { const check = await api(`/admin/qpr/periods/${periodId}/preview`); setPreview(check); if (check.blockers.length) { setParams({ tab: "preview" }); throw new Error("Konfigurasi belum lengkap. Periksa blocker."); } } await api(`/admin/qpr/periods/${periodId}/${action}`, { method: "POST" }); }); }}>{confirmStatus === "open" ? "Pertanyaan, target, dan roster terkunci selama kampanye berlangsung. Kampanye bisa ditutup sementara lalu diedit lagi tanpa kehilangan respons; pastikan pratinjau sudah benar." : "Pengisi tidak dapat menyimpan atau mengirim saat kampanye ditutup. Setelah ditutup, pertanyaan, target, dan roster bisa diedit lalu dibuka kembali."}</Confirm>

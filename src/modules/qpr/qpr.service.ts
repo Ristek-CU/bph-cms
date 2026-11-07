@@ -102,6 +102,8 @@ const pathFor = (
 };
 const displayName = (e: { name: string; division?: string | null; memberRole?: string | null; id?: string }) =>
  `${e.name} — ${e.division ?? "Perlu pemetaan"} / ${e.memberRole ?? "anggota"}${e.id ? ` (${e.id.slice(-8)})` : ""}`;
+const MIN_GROUP = 3;
+
 const finalConflict = (submittedAt?: string | null) => new ApiError(409, "Nama ini sudah mengirim penilaian final.", { code: "QPR_ALREADY_FINAL", state: ["already_final"], submitted_at: submittedAt ?? null });
 const draftConflict = () => new ApiError(409, "Draft sudah diperbarui perangkat lain — muat ulang sebelum menyimpan.", { code: "QPR_DRAFT_CONFLICT", state: ["draft_conflict"] });
 const openSql = sql`EXISTS (SELECT 1 FROM qpr_periods p WHERE p.id = ${qprEntries.periodId} AND p.status = 'open'
@@ -822,9 +824,100 @@ export const qprService = {
 		};
 	},
 
-	/** Ekspor CSV lebar: satu baris per submit final, kolom per pertanyaan jalur itu. */
-	async exportCsv(db: Db, periodId: string) {
+	// ── Analitik — rollup per divisi & tren lintas periode (snapshot saja) ──────
+	// Kelompok responden < MIN_GROUP digabung tanpa skor: mean kelompok kecil
+	// menjebol anonimitas (n=1 = menyalin kartu skor individu).
+
+	/** Rollup satu periode: agregat score_total per divisi pengisi. */
+	async analyticsDetail(db: Db, periodId: string) {
 		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
+		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
+		if (!parseV2(period)) throw ApiError.validation("Analitik hanya untuk periode rubrik (snapshot)");
+		const rows = await db
+			.select({
+				division_slug: qprResponses.divisionSlug,
+				respondents: sql<number>`count(*)`,
+				mean: sql<number>`avg(${qprResponses.scoreTotal})`,
+				max: sql<number>`max(${qprResponses.scoreTotal})`,
+				min: sql<number>`min(${qprResponses.scoreTotal})`,
+			})
+			.from(qprResponses)
+			.where(eq(qprResponses.periodId, periodId))
+			.groupBy(qprResponses.divisionSlug);
+		const round = (v: number | null) => (typeof v === "number" ? Math.round(v * 100) / 100 : null);
+		const shown: Array<Record<string, unknown>> = [];
+		let smallCount = 0;
+		for (const r of rows) {
+			if (r.respondents >= MIN_GROUP) {
+				shown.push({ division_slug: r.division_slug, respondents: r.respondents, mean: round(r.mean), max: r.max, min: r.min });
+			} else {
+				smallCount += r.respondents;
+			}
+		}
+		if (smallCount) shown.push({ division_slug: null, respondents: smallCount, mean: null, max: null, min: null });
+		const respondents = rows.reduce((sum, r) => sum + r.respondents, 0);
+		return {
+			period: { id: period.id, title: period.title, status: period.status, form_kind: period.formKind },
+			respondents,
+			by_division: shown,
+		};
+	},
+
+	/** Tren antar periode snapshot: partisipasi + rata-rata skala per pertanyaan. */
+	async analyticsOverview(db: Db) {
+		const periods = await db
+			.select()
+			.from(qprPeriods)
+			.where(sql`${qprPeriods.formKind} <> 'legacy'`)
+			.orderBy(asc(qprPeriods.createdAt));
+		if (!periods.length) return [];
+		const idList = JSON.stringify(periods.map((p) => p.id));
+		const entryRows = await db
+			.select({ periodId: qprEntries.periodId, total: sql<number>`count(*)`, done: sql<number>`sum(${qprEntries.done})` })
+			.from(qprEntries)
+			.where(sql`${qprEntries.periodId} IN (SELECT value FROM json_each(${idList}))`)
+			.groupBy(qprEntries.periodId);
+		const responseRows = await db
+			.select({ periodId: qprResponses.periodId, answers: qprResponses.answers })
+			.from(qprResponses)
+			.where(sql`${qprResponses.periodId} IN (SELECT value FROM json_each(${idList}))`);
+		// Mean skala per pertanyaan, lalu rata-rata antar pertanyaan (comparable
+		// lintas periode; score_total tidak — panjang jalur beda-beda).
+		const questionScores = new Map<string, Map<string, number[]>>();
+		const respondents = new Map<string, number>();
+		for (const row of responseRows) {
+			respondents.set(row.periodId, (respondents.get(row.periodId) ?? 0) + 1);
+			let parsed: Array<{ question_id: string; value: unknown }>;
+			try { parsed = JSON.parse(row.answers); } catch { continue; }
+			const byQ = questionScores.get(row.periodId) ?? new Map<string, number[]>();
+			for (const a of parsed ?? []) {
+				if (typeof a.value !== "number" || !Number.isInteger(a.value) || a.value < 1 || a.value > 5) continue;
+				const list = byQ.get(a.question_id) ?? [];
+				list.push(a.value);
+				byQ.set(a.question_id, list);
+			}
+			questionScores.set(row.periodId, byQ);
+		}
+		return periods.map((p) => {
+			const counts = entryRows.find((e) => e.periodId === p.id);
+			const total = counts?.total ?? 0;
+			const done = counts?.done ?? 0;
+			const byQ = questionScores.get(p.id) ?? new Map<string, number[]>();
+			const means = [...byQ.values()].filter((l) => l.length).map((l) => l.reduce((a, b) => a + b, 0) / l.length);
+			const avg = means.length ? Math.round((means.reduce((a, b) => a + b, 0) / means.length) * 100) / 100 : null;
+			return {
+				period_id: p.id, title: p.title, status: p.status, form_kind: p.formKind,
+				opens_at: p.opensAt, closes_at: p.closesAt, created_at: p.createdAt,
+				total_entries: total, done_entries: done,
+				respondents: respondents.get(p.id) ?? 0,
+				participation_pct: total ? Math.round((done / total) * 100) : 0,
+				avg_question_mean: avg,
+			};
+		});
+	},
+
+	/** Ekspor CSV lebar: satu baris per submit final, kolom per pertanyaan jalur itu. */
+	async exportCsv(db: Db, periodId: string) {		const [period] = await db.select().from(qprPeriods).where(eq(qprPeriods.id, periodId)).limit(1);
 		if (!period) throw ApiError.notFound("Periode QPR tidak ditemukan");
 		const v2 = parseV2(period);
 		if (!v2) throw ApiError.validation("Periode ini memakai format lama — ekspor belum didukung");
