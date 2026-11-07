@@ -1039,8 +1039,16 @@ section("Analitik");
 
 // Periode snapshot fresh — v3id sudah dipakai test submit sebelumnya dan punya
 // respons asli sendiri; analytics harus dihitung terhadap data yang terkontrol.
-const anPeriod = await qprService.createPeriod(realDb, { title: "Analitik terkontrol", questions: [QUESTIONS[0]], userId: "u-bph" });
-const anId = anPeriod.id;
+// createPeriod hanya menerima form legacy/division, jadi snapshot v2 disuntik
+// via SQL (pola yang sama dipakai fixture "QPR BPH Oktober 2026" di atas).
+const anBph = await h.req(`${ADMIN}/periods`, { token: "tok-bph", method: "POST", json: { form_kind: "bph", title: "Analitik terkontrol" } });
+eq("periode analitik dibuat", anBph.status, 201);
+const anId = anBph.body?.data?.id;
+await h.sql(
+	`UPDATE qpr_periods SET questions=? WHERE id=?`,
+	JSON.stringify({ version: 2, sections: [{ id: "s1", title: "Ketua Umum", targetId: "ketum", targetLabel: null, questions: [{ id: "q1", type: "scale", label: "Menyelesaikan tugas tepat waktu", required: true }, { id: "q2", type: "scale", label: "Berkolaborasi dengan baik", required: true }] }] }),
+	anId,
+);
 // Seed anonim langsung ke qpr_responses (skala valid 1–5, path pendek).
 await h.sql(
 	`INSERT INTO qpr_responses (id, period_id, role, division_slug, answers, score_total, submitted_at) VALUES
