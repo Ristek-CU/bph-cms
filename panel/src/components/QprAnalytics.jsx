@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, errText } from "../api.js";
 import { ErrorState, SkeletonCard } from "./ui.jsx";
 
@@ -111,7 +111,8 @@ function ScaleLegend() {
 
 function DistributionDonut({ sections }) {
 	const [target, setTarget] = useState(sections[0]?.id || "");
-	const section = sections.find((s) => s.id === target);
+	// Refresh bisa menambahkan section baru; pilihan lama yang hilang fallback ke yang pertama.
+	const section = sections.find((s) => s.id === target) ?? sections[0];
 	if (!section) return null;
 	const counts = sectionDistribution(section);
 	const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -198,23 +199,37 @@ export default function QprAnalytics({ periodId, period }) {
 	const [overview, setOverview] = useState(null);
 	const [error, setError] = useState("");
 	const [loading, setLoading] = useState(true);
+	const [refreshing, setRefreshing] = useState(false);
+	const [updatedAt, setUpdatedAt] = useState(null);
 	const snapshot = !Array.isArray(period?.questions) && Boolean(period?.questions && typeof period.questions === "object");
+	const open = period?.status === "open";
+
+	const load = useCallback(async (initial) => {
+		if (initial) { setLoading(true); setError(""); }
+		else setRefreshing(true);
+		try {
+			const [rc, dt, ov] = await Promise.all([
+				api(`/admin/qpr/periods/${periodId}/recap-v2`),
+				api(`/admin/qpr/periods/${periodId}/analytics`),
+				api(`/admin/qpr/analytics`).catch(() => null),
+			]);
+			setRecap(rc); setDetail(dt); setOverview(Array.isArray(ov) ? ov : null);
+			setUpdatedAt(new Date());
+		} catch (e) {
+			if (initial) setError(errText(e));
+		} finally {
+			if (initial) setLoading(false); else setRefreshing(false);
+		}
+	}, [periodId]);
 
 	useEffect(() => {
 		if (!snapshot) return;
 		let active = true;
-		setLoading(true); setError("");
-		Promise.all([
-			api(`/admin/qpr/periods/${periodId}/recap-v2`),
-			api(`/admin/qpr/periods/${periodId}/analytics`),
-			api(`/admin/qpr/analytics`).catch(() => null),
-		]).then(([rc, dt, ov]) => {
-			if (!active) return;
-			setRecap(rc); setDetail(dt); setOverview(Array.isArray(ov) ? ov : null);
-		}).catch((e) => { if (active) setError(errText(e)); })
-			.finally(() => { if (active) setLoading(false); });
-		return () => { active = false; };
-	}, [periodId, snapshot]);
+		load(true);
+		// Auto-refresh 30 dtk hanya saat kampanye open — respons baru bisa masuk kapan saja.
+		const timer = open ? setInterval(() => { if (active) load(false); }, 30_000) : null;
+		return () => { active = false; if (timer) clearInterval(timer); };
+	}, [snapshot, load, open]);
 
 	if (!snapshot) {
 		return (
@@ -224,12 +239,23 @@ export default function QprAnalytics({ periodId, period }) {
 		);
 	}
 	if (loading) return <SkeletonCard lines={6} />;
-	if (error) return <ErrorState message={error} onRetry={() => { setLoading(true); setError(""); }} />;
+	if (error) return <ErrorState message={error} onRetry={() => load(true)} />;
 	if (!recap) return null;
 
 	return (
 		<div className="qpr-analytics">
+			<div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+				<span className="muted small">
+					{updatedAt ? `Diperbarui ${updatedAt.toLocaleTimeString("id-ID")}${open ? " · auto-refresh 30 dtk" : ""}` : ""}
+				</span>
+				<button className="btn ghost sm" onClick={() => load(false)} disabled={refreshing}>
+					{refreshing ? "Memuat…" : "Muat ulang"}
+				</button>
+			</div>
 			<StatCards recap={recap} detail={detail} />
+			{!recap.done_entries && (
+				<div className="card"><p className="login-notice" style={{ margin: 0 }}>Belum ada penilaian final — chart akan terisi otomatis saat respons masuk.</p></div>
+			)}
 			<ParticipationDonut done={recap.done_entries} total={recap.total_entries} />
 			<TargetRanking sections={recap.sections ?? []} />
 			<DistributionDonut sections={recap.sections ?? []} />
