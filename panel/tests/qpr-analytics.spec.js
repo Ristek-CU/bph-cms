@@ -60,6 +60,7 @@ async function setupAnalytics(page, { snapshot = baseSnapshot, withOverview = tr
         ] },
         { id: 'sekum', title: 'Sekretaris Umum', target_id: 'sekum', target_label: 'Sekum Contoh', questions: [
           { id: 'sekum-s01', label: 'Notulen rapi?', type: 'scale', responses: 3, mean: 3.67, distribution: [{ value: 1, count: 0 }, { value: 2, count: 0 }, { value: 3, count: 1 }, { value: 4, count: 1 }, { value: 5, count: 1 }] },
+          { id: 'sekum-t01', label: 'Masukan untuk Sekum', type: 'text', responses: 2, texts: ['Jadwal lebih konsisten', 'Arsip notulen dibagikan'] },
         ] },
       ],
     });
@@ -95,6 +96,13 @@ test('analytics tab renders stat cards, donut, ranking, distribution, per-divisi
 
   await expect(page.getByRole('heading', { name: 'Tren lintas kampanye' })).toBeVisible();
   await expect(page.getByText('Kampanye September')).toBeVisible();
+
+  await expect(page.getByRole('heading', { name: 'Insight & rekomendasi' })).toBeVisible();
+  await expect(page.getByText(/mendapat penilaian tertinggi/)).toBeVisible();
+
+  await expect(page.getByRole('heading', { name: 'Masukan tertulis (anonim)' })).toBeVisible();
+  await expect(page.getByText('Saran baik')).toBeVisible();
+  await expect(page.getByText('Jadwal lebih konsisten')).toBeVisible();
 
   expect(calls.some(c => c.path === `${periodPath}/analytics`)).toBe(true);
   expect(calls.some(c => c.path === '/admin/qpr/analytics')).toBe(true);

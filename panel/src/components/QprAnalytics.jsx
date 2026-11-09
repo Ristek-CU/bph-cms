@@ -109,6 +109,64 @@ function ScaleLegend() {
 	);
 }
 
+function InsightCards({ sections }) {
+	const rows = useMemo(() => sections
+		.map((s) => ({ id: s.id, label: s.target_label ? `${s.target_label} — ${s.title}` : s.title, mean: sectionAvgQuestionMean(s), section: s }))
+		.filter((r) => typeof r.mean === "number"), [sections]);
+	if (!rows.length) return null;
+	const sorted = [...rows].sort((a, b) => b.mean - a.mean);
+	const best = sorted[0];
+	const worst = sorted.length > 1 ? sorted[sorted.length - 1] : null;
+	// Pertanyaan "merah": mean < 3 atau ≥40% jawaban di skor 1–2.
+	const weakQuestions = [];
+	for (const r of rows) {
+		for (const q of r.section.questions ?? []) {
+			if (q.type !== "scale" || typeof q.mean !== "number") continue;
+			const low = (q.distribution ?? []).filter((d) => d.value <= 2).reduce((a, d) => a + d.count, 0);
+			const total = (q.distribution ?? []).reduce((a, d) => a + d.count, 0);
+			if (q.mean < 3 || (total && low / total >= 0.4)) weakQuestions.push({ label: q.label, target: r.label, mean: q.mean });
+		}
+	}
+	weakQuestions.sort((a, b) => a.mean - b.mean);
+	return (
+		<div className="card">
+			<h3 style={{ marginTop: 0 }}>Insight &amp; rekomendasi</h3>
+			<ul style={{ margin: 0, paddingLeft: 20, display: "grid", gap: 8 }}>
+				{best && <li><strong>{best.label}</strong> mendapat penilaian tertinggi ({best.mean}/5) — pertahankan dan jadikan contoh praktik baik.</li>}
+				{worst && worst.id !== best.id && <li><strong>{worst.label}</strong> paling perlu perhatian ({worst.mean}/5) — prioritaskan pendampingan atau diskusi refleksi.</li>}
+				{weakQuestions.slice(0, 3).map((q) => (
+					<li key={q.label}><span className="qpr-scale-chip" data-value="2" style={{ marginRight: 6 }}>perlu perbaikan</span>&ldquo;{q.label}&rdquo; pada {q.target} (rata-rata {q.mean}/5).</li>
+				))}
+				{!worst && !weakQuestions.length && best && <li className="muted">Belum cukup sinyal untuk rekomendasi — tunggu respons lebih banyak.</li>}
+			</ul>
+		</div>
+	);
+}
+
+function SectionTexts({ sections }) {
+	const groups = useMemo(() => (sections ?? [])
+		.map((s) => ({
+			label: s.target_label ? `${s.target_label} — ${s.title}` : s.title,
+			texts: (s.questions ?? []).filter((q) => q.type === "text").flatMap((q) => (q.texts ?? []).map((t) => ({ q: q.label, t }))),
+		}))
+		.filter((g) => g.texts.length), [sections]);
+	if (!groups.length) return null;
+	return (
+		<div className="card">
+			<h3 style={{ marginTop: 0 }}>Masukan tertulis (anonim)</h3>
+			{groups.map((g) => (
+				<div key={g.label} style={{ marginBottom: 12 }}>
+					<strong className="small">{g.label}</strong>
+					<ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+						{g.texts.map((x, i) => <li key={i}>&ldquo;{x.t}&rdquo; <span className="muted small">({x.q})</span></li>)}
+					</ul>
+				</div>
+			))}
+			<p className="muted small" style={{ marginBottom: 0 }}>Masukan ditampilkan tanpa identitas pengisi.</p>
+		</div>
+	);
+}
+
 function DistributionDonut({ sections }) {
 	const [target, setTarget] = useState(sections[0]?.id || "");
 	// Refresh bisa menambahkan section baru; pilihan lama yang hilang fallback ke yang pertama.
@@ -256,11 +314,13 @@ export default function QprAnalytics({ periodId, period }) {
 			{!recap.done_entries && (
 				<div className="card"><p className="login-notice" style={{ margin: 0 }}>Belum ada penilaian final — chart akan terisi otomatis saat respons masuk.</p></div>
 			)}
+			<InsightCards sections={recap.sections ?? []} />
 			<ParticipationDonut done={recap.done_entries} total={recap.total_entries} />
 			<TargetRanking sections={recap.sections ?? []} />
 			<DistributionDonut sections={recap.sections ?? []} />
 			<ScaleLegend />
 			<DivisionTable rows={detail?.by_division} />
+			<SectionTexts sections={recap.sections ?? []} />
 			<TrendColumns overview={overview} currentId={periodId} />
 		</div>
 	);
